@@ -76,10 +76,12 @@ When you're in demo mode, a **Refresh demo data** button appears in the sidebar.
 
 ## Prerequisites
 
-- **Python 3.11+** (3.9 works but you'll see a deprecation warning or two)
-- **Node.js 18+**
+- **Python 3.12+** (pinned in `.python-version`; CI tests against 3.12 and 3.13)
+- **Node.js 22 LTS** (pinned in `.nvmrc`; CI tests against 20 and 22)
 - **A Plaid account** — free to sign up. Sandbox keys are immediate; Production requires approval (see [Plaid setup](#plaid-setup) below)
 - **macOS, Linux, or WSL** — the launcher scripts assume a Unix-y shell. Windows users should run via WSL or call the start commands manually.
+
+If you use [`pyenv`](https://github.com/pyenv/pyenv) and [`nvm`](https://github.com/nvm-sh/nvm), the version files are picked up automatically when you `cd` into the project directory.
 
 ---
 

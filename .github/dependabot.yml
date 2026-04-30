@@ -1,0 +1,70 @@
+# Dependabot config — opens weekly PRs for dependency updates so the
+# maintenance burden stays manageable. Each PR runs through CI, so a
+# breaking update fails loudly instead of silently degrading the app.
+#
+# Strategy:
+#   - groups patch + minor updates per ecosystem (one PR per week)
+#     instead of a separate PR per dep — cuts Issue noise dramatically
+#   - majors get their own PRs because they always need human review
+#   - GitHub Actions gets its own ecosystem because runner image bumps
+#     have caused mysterious CI failures historically
+#
+# Tweak: bump open-pull-requests-limit if you find PRs piling up; lower
+# the schedule cadence to monthly if weekly feels too noisy for your
+# review bandwidth.
+
+version: 2
+updates:
+  # ── Python (backend) ───────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      backend-patches:
+        applies-to: version-updates
+        update-types: ["patch"]
+      backend-minors:
+        applies-to: version-updates
+        update-types: ["minor"]
+    # Majors stay un-grouped so each one gets a focused PR with its
+    # own changelog notes for review.
+    labels: ["dependencies", "backend"]
+
+  # ── npm (frontend) ─────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-patches:
+        applies-to: version-updates
+        update-types: ["patch"]
+      frontend-minors:
+        applies-to: version-updates
+        update-types: ["minor"]
+    # Hold React + the Vite/Vitest pair to manual review — these are
+    # the libraries most likely to have breaking changes within a minor.
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies", "frontend"]
+
+  # ── GitHub Actions ─────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "ci"]

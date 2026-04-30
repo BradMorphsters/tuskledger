@@ -1,0 +1,103 @@
+# ─── Banking data — NEVER commit ─────────────────────────────────
+# The SQLite database holds every transaction, balance, account number,
+# and Plaid access token you've ever synced.
+*.db
+*.db-journal
+*.db-journal.*
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backend/tuskledger.db*
+backend/tuskledger_demo.db*
+backend/data/
+backend/backups/
+
+# ─── One-off data-fix scripts (often contain personal account names) ──
+# backend/scripts/ tends to hard-code the user's actual accounts
+# (LIKE '%MyEmployer%', specific roth_split_pct values for one person).
+# Keep generic utilities elsewhere if you want them tracked.
+backend/scripts/
+
+# ─── Secrets — NEVER commit ──────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+backend/.env
+frontend/.env
+backend/.encryption_key
+*.pem
+*.key
+*_secret
+*_secrets
+
+# ─── Python ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Virtual environments — anywhere they appear
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+
+# ─── Node ────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.pnpm-store/
+
+# ─── Build artifacts ─────────────────────────────────────────────
+dist/
+build/
+.vite/
+frontend/dist/
+frontend/build/
+
+# ─── IDE / OS ────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# ─── Logs ────────────────────────────────────────────────────────
+*.log
+logs/
+backend/*.log
+frontend/*.log
+
+# ─── Imported user statements / uploads ──────────────────────────
+# If you import Apple Card / Fidelity / etc. statements, drop them
+# anywhere matching these patterns and they'll stay out of git.
+uploads/
+imports/
+statements/
+*.applecard.pdf
+*-statement.pdf
+*-Statement.pdf
+
+# ─── Misc ────────────────────────────────────────────────────────
+.cache/
+tmp/
+temp/
+*.bak

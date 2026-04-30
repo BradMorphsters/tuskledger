@@ -10,7 +10,7 @@ apscheduler==3.10.4
 alembic==1.13.1
 pyotp==2.9.0
 bcrypt==4.2.0
-qrcode[pil]==7.4.2
+qrcode[pil]==8.2
 itsdangerous==2.2.0
 cryptography==42.0.8
 pyjwt[crypto]==2.9.0

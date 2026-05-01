@@ -500,9 +500,29 @@ cd frontend && npm run build
 
 ---
 
+## Direct MCP access (`tuskledger-mcp`)
+
+If you're operating in an MCP-aware client (Claude Desktop, Cursor,
+Cowork, Claude Code), the user may have `tuskledger-mcp` configured.
+That gives you typed access to the user's finance data without going
+through the web UI. The server lives at `mcp/` in this repo with its
+own README.
+
+Tools available (v0): `list_accounts`, `list_stale_accounts`,
+`query_transactions`, `search_transactions`, `get_spending_summary`,
+`get_top_merchants`, `get_recurring_subscriptions`, `get_upcoming_bills`,
+`get_net_worth`, `get_holdings`, `get_investments_summary`,
+`get_retirement_projection`, `run_sync`.
+
+If MCP tools are available you can use them, but **don't assume they
+are**. They're configured per-user. If you're in an MCP-less context
+(plain editor session), fall back to reading the codebase / running
+`./tuskledger doctor`.
+
 ## Project links
 
 - Site: https://www.tuskledger.com
 - Repo: https://github.com/BradMorphsters/tuskledger
 - Issues: https://github.com/BradMorphsters/tuskledger/issues
 - For LLMs browsing externally: https://www.tuskledger.com/llms.txt
+- MCP server package: [`mcp/`](mcp/)

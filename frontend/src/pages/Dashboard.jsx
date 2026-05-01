@@ -66,17 +66,14 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v8. Dropped the fixed-row-span tile sizing system — it
-// was forcing short tiles (Loan, DCFSA) up to 300-400px boxes that
-// their content couldn't fill, creating empty space INSIDE every
-// tile that wasn't naturally tall. Switched to the same pattern
-// SpendingIncome.jsx uses: plain grid + align-items: start, every
-// card sizes to its natural content height. Some inter-tile dead
-// zones can appear when a tall and a short tile share a row, but
-// that's much less visually offensive than half-empty boxes
-// everywhere.
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v8'
-const DEFAULT_TILE_ORDER = ['pulse', 'hsa', 'portfolio', 'loans', 'forecast', 'snapshot', 'dcfsa']
+// Bumped to v9. Reordered row 2 so DCFSA sits directly to the right
+// of Cash flow forecast (matches user's preference for grouping the
+// recurring/scheduled-money tiles together). With snapshot returning
+// null, the visible 6 tiles render row-by-row across 3 columns:
+//   Row 1: Pulse | HSA | Portfolio
+//   Row 2: Forecast | DCFSA | Loans
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v9'
+const DEFAULT_TILE_ORDER = ['pulse', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',

@@ -52,14 +52,17 @@ from app.models import (
     SavingsGoal,
     CreditCardDetail,
     Holding,
+    InvestmentTransaction,
     ManualAsset,
     MortgageDetail,
     NetWorthSnapshot,
     PlaidItem,
     Security,
+    SubscriptionRule,
     Transaction,
     User,
 )
+from app.models.subscription_rule import KIND_FORCE_SUB, KIND_FORCE_NOT_SUB
 from app.services.auth_service import generate_totp_secret, hash_password
 
 
@@ -222,8 +225,17 @@ def seed_database(db: Session) -> dict:
     manual_assets = seed_manual_assets(db, accounts)
     securities = seed_securities(db)
     seed_holdings(db, accounts, securities)
+    # Investment buy/sell history — feeds the Trading Tax page (FIFO
+    # matcher, wash-sale calculator, harvest finder, Form 8949 export).
+    # Without this seed the page renders all the chrome but every
+    # section says '0 closed positions'.
+    inv_txn_count = seed_investment_transactions(db, accounts, securities)
     seed_category_rules(db)
     seed_business_rules(db, businesses)
+    # Subscription-rule overrides — manual force-tag / force-not-tag
+    # examples so the Subscriptions tab demos both auto-detection and
+    # the user-override layer.
+    seed_subscription_rules(db)
     seed_budgets(db)
     seed_savings_goals(db, accounts)
     txn_count = seed_transactions(db, accounts, businesses)
@@ -232,6 +244,10 @@ def seed_database(db: Session) -> dict:
     # so they land within the last 14 days regardless of the month
     # generator's loop boundaries.
     seed_anomaly_demo_transactions(db, accounts)
+    # Annual / one-time predictable expenses (property tax, auto reg,
+    # car maintenance) so the Cash Flow Forecast surfaces something
+    # beyond the monthly recurring bill set.
+    seed_annual_one_time_expenses(db, accounts)
     # Sprinkle a handful of free-text notes on existing transactions so
     # the new TransactionDrawer notes field has examples to show.
     seed_transaction_notes(db)
@@ -243,9 +259,11 @@ def seed_database(db: Session) -> dict:
         "manual_assets": len(manual_assets),
         "transactions": txn_count,
         "holdings": 7,  # 4 Robinhood + 3 Fidelity, fixed in seed_holdings
+        "investment_transactions": inv_txn_count,
         "securities": len(securities),
         "category_rules": 10,        # see seed_category_rules
         "business_rules": 5,         # see seed_business_rules
+        "subscription_rules": 2,     # see seed_subscription_rules
         "savings_goals": 3,          # see seed_savings_goals
     }
 
@@ -993,10 +1011,33 @@ def seed_net_worth_snapshots(db, accounts: dict, manual_assets: dict) -> None:
         + auto_loan
     )
 
+    # Build a unified set of dates: weekly granularity for the deep
+    # historical view (52-mo trend chart, year-over-year overlay) plus
+    # daily granularity for the last 30 days so the Dashboard's
+    # DailySnapshot tile (which queries the most recent daily delta)
+    # has something to show. Without the daily slice the snapshot tile
+    # silently returns null and the dashboard drops it from the grid.
     weeks = 52
+    snapshot_dates = set()
     for i in range(weeks + 1):
-        d = TODAY - timedelta(weeks=(weeks - i))
-        progress = i / weeks  # 0.0 at oldest snapshot, 1.0 today
+        snapshot_dates.add(TODAY - timedelta(weeks=(weeks - i)))
+    # Last 30 days, every day. Set semantics dedupes any overlap with
+    # the weekly grid above.
+    for i in range(30):
+        snapshot_dates.add(TODAY - timedelta(days=i))
+
+    # Sort oldest-first so the progress ratio (used to ramp the
+    # baseline) is monotonic.
+    sorted_dates = sorted(snapshot_dates)
+    oldest = sorted_dates[0]
+    span_days = max(1, (TODAY - oldest).days)
+
+    for d in sorted_dates:
+        # progress: 0.0 at the oldest snapshot, 1.0 today. Replaces
+        # the old i/weeks calculation so daily snapshots in the
+        # densified recent window get a smooth ramp rather than the
+        # weekly-step jumps.
+        progress = (d - oldest).days / span_days
 
         # Older snapshots: ~$50k less in investments, ~$8k less savings,
         # ~$10k more in mortgage/loan. Then ramp linearly with noise.
@@ -1121,6 +1162,230 @@ def seed_transaction_notes(db) -> None:
         )
         if txn is not None:
             txn.notes = note
+    db.flush()
+
+
+# ─── Investment transactions (Trading Tax page) ──────────────────────
+def seed_investment_transactions(db, accounts: dict, securities: dict) -> int:
+    """Buy/sell history for the Robinhood account so the Trading Tax
+    page renders meaningful content instead of empty sections.
+
+    Designed to exercise every major Trading-Tax feature in one demo:
+      * FIFO lot matching — multiple buys per ticker so a sell pulls
+        from the oldest lot first.
+      * Realized P&L — at least one sell at a gain and one at a loss.
+      * Wash-sale calculator — a sell at a loss followed by a buy of
+        the same security inside the 30-day replacement window. The
+        chain-correct wash-sale detector should highlight the
+        disallowed loss.
+      * Tax-loss harvest finder — at least one open position with an
+        unrealized loss large enough to surface as a candidate.
+      * Form 8949 CSV export — closed positions need full date / cost
+        basis / proceeds so the row is complete.
+      * Quarterly pacing — closed positions distributed across the
+        year so the YTD vs prior-quarter chart isn't flat.
+
+    All transactions land on the Robinhood account (the only one with
+    a brokerage subtype). The 401(k), HSA, and Roth accounts are
+    intentionally NOT given investment transactions — those are
+    accumulation-only buckets in the demo persona's mental model and
+    showing realized P&L there would be confusing.
+
+    Returns the count of inserted rows so seed_database can include
+    it in the summary.
+    """
+    rh = accounts["robinhood"]
+    txns = []
+
+    def _add(date_, type_, sec_key, qty, price, name=None, fees=0.0, subtype=None):
+        sec = securities[sec_key]
+        # amount = positive = cash OUT of account (buy), negative = cash IN
+        # (sell) — matches Plaid's sign convention so the trading-tax
+        # service doesn't need to special-case the demo data.
+        cash = qty * price
+        amount = round(cash if type_ == "buy" else -cash, 2)
+        txns.append(InvestmentTransaction(
+            plaid_investment_transaction_id=f"demo_inv_{len(txns):04d}_{type_}_{sec_key.lower()}",
+            account_id=rh.id,
+            plaid_security_id=sec.plaid_security_id,
+            date=date_,
+            name=name or f"{type_.upper()} {sec.ticker_symbol or sec_key}",
+            type=type_,
+            subtype=subtype,
+            quantity=round(qty if type_ == "buy" else -qty, 4),
+            price=round(price, 4),
+            amount=amount,
+            fees=fees,
+            iso_currency_code="USD",
+        ))
+
+    # Helper: return a date N months back from TODAY, on a weekday.
+    def _months_ago(n: int, day: int = 15) -> date:
+        m = TODAY.month - n
+        y = TODAY.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        d = date(y, m, min(day, 28))
+        # Bump to weekday — markets are closed on weekends.
+        while d.weekday() >= 5:
+            d += timedelta(days=1)
+        return d
+
+    # ── VOO accumulation: 4 buys building a cost basis (FIFO matters) ─
+    _add(_months_ago(11, 8),  "buy", "VOO", 4, 412.50, name="BUY VANGUARD S&P 500")
+    _add(_months_ago(8, 12),  "buy", "VOO", 5, 438.20, name="BUY VANGUARD S&P 500")
+    _add(_months_ago(5, 17),  "buy", "VOO", 6, 471.40, name="BUY VANGUARD S&P 500")
+    _add(_months_ago(2, 9),   "buy", "VOO", 3, 502.10, name="BUY VANGUARD S&P 500")
+
+    # ── AAPL: bought, sold partial at a gain (Q2-ish) ─────────────────
+    _add(_months_ago(10, 14), "buy",  "AAPL", 12, 178.20)
+    _add(_months_ago(7, 22),  "buy",  "AAPL", 10, 191.80)
+    _add(_months_ago(3, 11),  "sell", "AAPL", 6,  225.40, name="SELL APPLE INC")
+    # Long-term gain: oldest 6 of 12 from -10mo @ 178.20 → ~$283 gain
+
+    # ── MSFT: classic wash-sale setup ─────────────────────────────────
+    # Buy → sell at LOSS → buy back within 30 days = washed.
+    _add(_months_ago(6, 5),   "buy",  "MSFT", 5,  428.10)
+    _add(_months_ago(2, 3),   "sell", "MSFT", 5,  389.40, name="SELL MICROSOFT (LOSS)")
+    # Replacement buy 18 days after the loss sale — INSIDE the 30-day
+    # wash-sale window. The chain-correct detector should flag the
+    # full $193.50 loss as disallowed and roll into the replacement
+    # lot's adjusted basis.
+    _add(_months_ago(2, 3) + timedelta(days=18), "buy", "MSFT", 3, 401.20,
+         name="BUY MICROSOFT (replacement, washed)")
+
+    # ── NVDA: pure unrealized loss — feeds the harvest finder ─────────
+    # Bought near a peak, current price below cost basis — show up as
+    # a 'tax-loss harvesting candidate' on the Trading Tax page.
+    _add(_months_ago(4, 19),  "buy",  "NVDA", 8,  138.90)
+    # No sell — the open position carries the unrealized loss vs the
+    # current institution_price set in seed_holdings (which is set
+    # below cost basis via the cost_basis multiplier).
+
+    # ── A small dividend, just to show the type filter works ──────────
+    _add(_months_ago(1, 27),  "cash", "VOO", 0, 0,
+         name="CASH DIVIDEND VOO",
+         subtype="dividend")
+    # Override amount/quantity for the dividend row so it doesn't show
+    # as a $0 row. Negative amount = cash IN.
+    txns[-1].quantity = 0
+    txns[-1].price = 0
+    txns[-1].amount = -47.50  # ~$0.40/share × 18 shares — quarterly distribution
+
+    for t in txns:
+        db.add(t)
+    db.flush()
+    print(f"Investment transactions: {len(txns)}")
+    return len(txns)
+
+
+# ─── Subscription rule overrides ─────────────────────────────────────
+def seed_subscription_rules(db) -> None:
+    """Manual force-tag / force-not-tag examples so the Subscriptions
+    tab demos the override layer alongside the auto-detector.
+
+    Without these, every demoed subscription is auto-detected, which
+    leaves the SubscriptionRule feature invisible — it looks like the
+    app has no manual control. Two seeded rows:
+
+      1. force_subscription on a brand-new SaaS (Linear) that's only
+         been charged once — too new for the auto-detector to flag,
+         but the user knows it's an annual sub.
+      2. force_not_subscription on Apple (the user's Apple Card hits
+         a similar amount monthly by coincidence — appears recurring
+         but isn't actually a subscription cycle).
+    """
+    db.add(SubscriptionRule(
+        pattern="linear",
+        kind=KIND_FORCE_SUB,
+        priority=100,
+        notes="Annual sub, only charged once so far — demo of the manual force-tag feature.",
+    ))
+    db.add(SubscriptionRule(
+        pattern="apple.com/bill",
+        kind=KIND_FORCE_NOT_SUB,
+        priority=100,
+        notes="Apple iCloud + App Store charges hit the same amount most months by coincidence; "
+              "not a real subscription cycle. Force-untagged to keep the Subscriptions list clean.",
+    ))
+    db.flush()
+
+
+# ─── Annual / one-time predictable expenses ──────────────────────────
+def seed_annual_one_time_expenses(db, accounts: dict) -> None:
+    """One-shot expenses that recur annually or semi-annually so the
+    Cash Flow Forecast surfaces context-aware bumps beyond the monthly
+    recurring bill set. Seeded as historical Transactions (in past
+    months) so the recurrence detector sees them and predicts the next
+    occurrence in its forward window.
+
+    Each expense gets two occurrences (this year and prior year, same
+    month) so the detector treats it as 'annual' rather than 'one-off'.
+    Without two occurrences, /api/analytics/cash-flow-forecast doesn't
+    project them forward.
+    """
+    chk = accounts["wf_checking"]
+    chase_cc = accounts["chase_cc"]
+
+    # Each tuple: (anchor_month_offset_from_current, amount, merchant,
+    #              category, account, descriptor)
+    annual_expenses = [
+        # Property tax — typically Nov / May for many counties (one cycle
+        # to keep it simple). $4,500 paid via checking.
+        (-6,  4500.00, "Maricopa County Treasurer", "Taxes", chk,
+         "PROPERTY TAX 2ND HALF"),
+        (-18, 4500.00, "Maricopa County Treasurer", "Taxes", chk,
+         "PROPERTY TAX 2ND HALF"),
+
+        # Auto registration / emissions — annual, typically in birth
+        # month. $382 via Chase CC for points.
+        (-7, 382.00, "AZ MVD", "Government", chase_cc,
+         "AZ MVD VEHICLE REGISTRATION"),
+        (-19, 365.00, "AZ MVD", "Government", chase_cc,
+         "AZ MVD VEHICLE REGISTRATION"),
+
+        # Major car maintenance every ~6 months — alternates between
+        # tire rotation and a more substantial 30k/60k service.
+        (-3,  240.00, "Discount Tire", "Auto", chase_cc,
+         "DISCOUNT TIRE — ROTATION"),
+        (-9,  890.00, "Toyota Service", "Auto", chase_cc,
+         "TOYOTA SERVICE 60K SCHEDULED"),
+        (-15, 215.00, "Discount Tire", "Auto", chase_cc,
+         "DISCOUNT TIRE — ROTATION"),
+        (-21, 740.00, "Toyota Service", "Auto", chase_cc,
+         "TOYOTA SERVICE 30K SCHEDULED"),
+
+        # Annual insurance premium — auto + home bundled.
+        (-4,  1820.00, "State Farm", "Insurance", chk,
+         "STATE FARM AUTO+HOME RENEWAL"),
+        (-16, 1750.00, "State Farm", "Insurance", chk,
+         "STATE FARM AUTO+HOME RENEWAL"),
+    ]
+
+    today_anchor = TODAY.replace(day=15)  # mid-month for stable date math
+    for offset_months, amt, merchant, category, account, name in annual_expenses:
+        # Compute target date = today_anchor + offset_months
+        m = today_anchor.month + offset_months
+        y = today_anchor.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        while m > 12:
+            m -= 12
+            y += 1
+        txn_date = date(y, m, min(today_anchor.day, 28))
+        db.add(Transaction(
+            plaid_transaction_id=f"demo_annual_{merchant.lower().replace(' ', '_')}_{y}_{m:02d}",
+            account_id=account.id,
+            name=name,
+            merchant_name=merchant,
+            amount=amt,
+            currency="USD",
+            date=txn_date,
+            pending=False,
+            category=category,
+        ))
     db.flush()
 
 

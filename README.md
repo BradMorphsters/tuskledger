@@ -21,6 +21,8 @@ Everything stays on your computer. No cloud. No third-party analytics. Just your
 
 > **TL;DR** — Eight pages doing real work: Dashboard, Transactions, Spending & Income, Bills calendar, Loans, Investments / Trading Tax (FIFO + chain-correct wash sale + Form 8949), Retirement projection (Monte Carlo + Roth ladder + IRMAA + RMDs), Tax Prep Pack (HSA + capital loss + Schedule C + QBI). All running on your laptop. Plaid for bank data, SQLite for storage, FastAPI + React for the surface. No SaaS, no telemetry, no subscription.
 
+> **🤖 Working with an AI assistant?** Read [AGENTS.md](AGENTS.md) — it's a working-memory doc written for Claude Code, Cursor, Cowork, and similar agents. It covers permission boundaries, common operations, and the project's known footguns so an agent can be productive without grepping the whole tree first.
+
 ---
 
 ## Try the demo first (no Plaid required)

@@ -1044,11 +1044,12 @@ export function DcfsaTracker() {
   const [config, setConfig] = useStoredState(DCFSA_CONFIG_KEY, {})
   const [editing, setEditing] = useState(false)
 
-  // Empty state — render as a proper card matching other tiles so it
-  // doesn't visually break the grid (was previously a thin button
-  // with massive empty space below it). Households that don't have a
-  // DCFSA can ignore the prompt; households that do see a clear
-  // entry point with a one-line value prop.
+  // Empty state — fills a standard-size tile (~330px tall) without
+  // looking hollow. Layout: header pinned to top, value-prop content
+  // centered vertically in the remaining space, "Configure tracker"
+  // button pinned to bottom. The "what you'd see if configured"
+  // preview list teaches the user what the tracker tracks before
+  // they invest in setting it up — turns dead space into onboarding.
   if (!config.annual_election && !editing) {
     return (
       <div className="card" style={tileCardStyle}>
@@ -1057,10 +1058,48 @@ export function DcfsaTracker() {
             <Calendar size={14} style={{ color: 'var(--accent-blue)' }} /> Dependent-care FSA
           </span>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-          Tax-advantaged account for daycare, after-school, summer camp.{' '}
-          <strong style={{ color: 'var(--text-primary)' }}>Use-it-or-lose-it</strong> by Dec 31. Up to $5,000/yr MFJ.
+
+        {/* Centered value-prop block. flex:1 absorbs all spare vertical
+            space so the button below stays pinned to the bottom edge. */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 12,
+          padding: '8px 0',
+        }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Tax-advantaged account for daycare, after-school, summer camp.{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>Use-it-or-lose-it</strong> by Dec 31. Up to $5,000/yr MFJ.
+          </div>
+          <div style={{
+            fontSize: 11, color: 'var(--text-dim)',
+            textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
+            marginTop: 4,
+          }}>
+            What you&apos;ll see here
+          </div>
+          <ul style={{
+            margin: 0, padding: 0, listStyle: 'none',
+            display: 'flex', flexDirection: 'column', gap: 6,
+            fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4,
+          }}>
+            <li style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              <span style={{ color: 'var(--accent-blue)', flexShrink: 0 }}>•</span>
+              <span>YTD funded vs election, with paycheck pacing</span>
+            </li>
+            <li style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              <span style={{ color: 'var(--accent-blue)', flexShrink: 0 }}>•</span>
+              <span>At-risk dollars and days-to-deadline countdown</span>
+            </li>
+            <li style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              <span style={{ color: 'var(--accent-blue)', flexShrink: 0 }}>•</span>
+              <span>Tax savings projected at your marginal rate</span>
+            </li>
+          </ul>
         </div>
+
         <button
           type="button"
           onClick={() => setEditing(true)}
@@ -1368,34 +1407,78 @@ export function LoanPayoffCountdown() {
           Detail →
         </a>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {withPayoff.map(loan => {
+      {/* Loans list. flex:1 absorbs the standard-tile vertical space
+          left over after the header, and the per-row gap stretches so
+          a single-loan tile doesn't bunch its content at the top. */}
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        gap: 12, flex: 1, paddingTop: 4,
+      }}>
+        {withPayoff.map((loan, idx) => {
           const yrs = Math.floor(loan.months_remaining / 12)
           const mos = loan.months_remaining % 12
+          // Progress = how much of the original loan term is gone.
+          // Falls back gracefully if original_term_months isn't known —
+          // we just don't render the bar, the row collapses to its
+          // existing layout.
+          const totalMonths = loan.original_term_months
+          const progressPct = totalMonths
+            ? Math.min(100, Math.max(0, ((totalMonths - loan.months_remaining) / totalMonths) * 100))
+            : null
           return (
             <div key={loan.id} style={{
-              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-              padding: '6px 0',
-              borderBottom: '1px solid var(--border-color, rgba(255,255,255,0.04))',
+              display: 'flex', flexDirection: 'column',
+              gap: 6,
+              paddingBottom: idx < withPayoff.length - 1 ? 12 : 0,
+              borderBottom: idx < withPayoff.length - 1
+                ? '1px solid var(--border-color, rgba(255,255,255,0.04))'
+                : 'none',
             }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {loan.name}
+              <div style={{
+                display: 'flex', alignItems: 'baseline',
+                justifyContent: 'space-between', gap: 12,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {loan.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {fmtMoney(loan.balance)}
+                    {loan.interest_rate != null && ` · ${(loan.interest_rate * 100).toFixed(2)}%`}
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {fmtMoney(loan.balance)}
-                  {loan.interest_rate != null && ` · ${(loan.interest_rate * 100).toFixed(2)}%`}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-blue)' }}>
+                    {yrs > 0 && `${yrs}y`}{yrs > 0 && mos > 0 && ' '}{mos > 0 && `${mos}mo`}
+                    {yrs === 0 && mos === 0 && '—'}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    → {fmtDate(loan.months_remaining)}
+                  </div>
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-blue)' }}>
-                  {yrs > 0 && `${yrs}y`}{yrs > 0 && mos > 0 && ' '}{mos > 0 && `${mos}mo`}
-                  {yrs === 0 && mos === 0 && '—'}
+              {progressPct != null && (
+                <div title={`${Math.round(progressPct)}% paid off (term-elapsed)`}>
+                  <div style={{
+                    height: 4, borderRadius: 2,
+                    background: 'var(--border-color, rgba(255,255,255,0.06))',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      width: `${progressPct}%`, height: '100%',
+                      background: 'var(--accent-blue)',
+                      borderRadius: 2,
+                    }} />
+                  </div>
+                  <div style={{
+                    fontSize: 9, color: 'var(--text-dim)', marginTop: 2,
+                    display: 'flex', justifyContent: 'space-between',
+                  }}>
+                    <span>{Math.round(progressPct)}% of term elapsed</span>
+                    <span>{Math.round(100 - progressPct)}% to go</span>
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                  → {fmtDate(loan.months_remaining)}
-                </div>
-              </div>
+              )}
             </div>
           )
         })}

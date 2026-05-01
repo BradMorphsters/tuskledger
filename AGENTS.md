@@ -431,6 +431,45 @@ well-meaning destructive action.
 
 ---
 
+## The `tuskledger doctor` command
+
+When something's broken — install isn't booting, a feature page is
+empty, the user reports a vague problem — run this first instead of
+grepping. It's a structured health check designed to be parsed by an
+AI assistant.
+
+```bash
+./tuskledger doctor              # human-readable, color output
+./tuskledger doctor --json       # machine-readable, stable schema
+```
+
+It checks: Python and Node versions vs the pinned ones, `.env` presence
+and required keys (with placeholder-value detection), encryption-key
+file + permissions, DB file + schema-vs-migrations alignment, recent
+backups, disk space, ports 8000/3000 availability, `node_modules` and
+`venv` presence.
+
+**Exit code:** 0 if every check has status `pass` or `warn`. 1 if any
+check failed. Use this in scripts.
+
+**JSON output schema** (`backend/app/cli.py` is the source of truth):
+
+```json
+{
+  "ok": true,
+  "version": "1",
+  "summary": {"total": 13, "pass": 13, "warn": 0, "fail": 0},
+  "checks": [
+    {"name": "env_file", "category": "env", "status": "pass",
+     "message": "backend/.env exists", "fix_hint": null},
+    ...
+  ]
+}
+```
+
+If you (the agent) need to surface a diagnosis to the user, the
+`message` and `fix_hint` fields are designed to be reproduced verbatim.
+
 ## Useful one-liners (copy / adapt)
 
 ```bash
@@ -454,6 +493,9 @@ cd backend && pytest tests/ -k "wash" -v
 
 # Build the frontend for production (sanity check before pushing)
 cd frontend && npm run build
+
+# What's wrong with this install? (See "tuskledger doctor" section above.)
+./tuskledger doctor --json | jq
 ```
 
 ---

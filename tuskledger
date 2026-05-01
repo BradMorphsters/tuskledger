@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Tusk Ledger CLI wrapper.
+#
+# Activates the backend venv and invokes `python -m app.cli` so the user
+# (or their AI assistant) can run commands from the repo root without
+# having to remember the venv path:
+#
+#   ./tuskledger doctor
+#   ./tuskledger doctor --json
+#
+# All arguments are forwarded to the Python CLI module verbatim.
+
+set -e
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+VENV="$REPO_ROOT/backend/venv"
+
+if [ ! -d "$VENV" ]; then
+  echo "Tusk Ledger CLI: backend/venv is missing." >&2
+  echo "  Run ./start.sh once to create it, or set up the venv manually." >&2
+  exit 2
+fi
+
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
+
+cd "$REPO_ROOT/backend"
+exec python -m app.cli "$@"

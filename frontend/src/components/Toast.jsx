@@ -9,10 +9,28 @@
  *   toast({ kind: 'undo', message: 'Deleted',
  *           onUndo: () => restoreTransaction(id), timeout: 5000 })
  *
+ * For error toasts, the call site can attach context that powers a
+ * one-click "copy diagnostic for my assistant" button (rendered
+ * automatically when `kind: 'error'`, suppress with `assistant: false`):
+ *
+ *   toast({
+ *     kind: 'error',
+ *     message: 'Plaid sync failed',
+ *     error: err.message,
+ *     location: 'Accounts page',
+ *     userAction: 'clicked Sync Now',
+ *     context: { itemId: '...', plaidEnv: 'production' },
+ *   })
+ *
+ * That builds a tailored prompt for Claude / Cursor / Cowork with the
+ * error, recent state, and explicit safety boundaries — see
+ * components/CopyToAssistant.jsx for the exact prompt shape.
+ *
  * Stacks toasts at the bottom-right; oldest dismisses first when capped.
  */
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { CheckCircle, AlertCircle, Info, X, RotateCcw } from 'lucide-react'
+import CopyToAssistant from './CopyToAssistant'
 
 const ToastCtx = createContext(null)
 const MAX_TOASTS = 5
@@ -88,36 +106,59 @@ function ToastItem({ toast: t, dismiss }) {
   }
   const c = colors[t.kind] || colors.info
   const Icon = c.icon
+  // Error toasts get a "copy diagnostic for my assistant" affordance so
+  // the user can hand the failure straight to Claude / Cursor / Cowork
+  // without having to figure out what to type. Caller can opt out by
+  // passing `assistant: false` in the toast options. See AGENTS.md and
+  // the agent-friendly section on www.tuskledger.com.
+  const showAssistantHelper =
+    t.kind === 'error' && t.assistant !== false
   return (
     <div style={{
       pointerEvents: 'auto',
       background: 'var(--bg-card)',
       border: `1px solid ${c.border}`,
       borderRadius: 8, padding: '10px 14px',
-      display: 'flex', alignItems: 'center', gap: 10,
+      display: 'flex',
+      flexDirection: showAssistantHelper ? 'column' : 'row',
+      alignItems: showAssistantHelper ? 'stretch' : 'center',
+      gap: showAssistantHelper ? 8 : 10,
       minWidth: 280, maxWidth: 420,
       boxShadow: 'var(--shadow-lg)',
       fontSize: 13, color: 'var(--text-primary)',
       animation: 'toastIn 0.15s ease-out',
     }}>
-      <Icon size={16} style={{ color: c.fg, flexShrink: 0 }} />
-      <span style={{ flex: 1 }}>{t.message}</span>
-      {t.onUndo && (
-        <button
-          onClick={() => { t.onUndo(); dismiss(t.id) }}
-          style={{
-            padding: '3px 10px', fontSize: 11, fontWeight: 600,
-            background: c.fg, color: '#0d0e14',
-            border: 'none', borderRadius: 4, cursor: 'pointer',
-          }}
-        >Undo</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+        <Icon size={16} style={{ color: c.fg, flexShrink: 0 }} />
+        <span style={{ flex: 1 }}>{t.message}</span>
+        {t.onUndo && (
+          <button
+            onClick={() => { t.onUndo(); dismiss(t.id) }}
+            style={{
+              padding: '3px 10px', fontSize: 11, fontWeight: 600,
+              background: c.fg, color: '#0d0e14',
+              border: 'none', borderRadius: 4, cursor: 'pointer',
+            }}
+          >Undo</button>
+        )}
+        <button onClick={() => dismiss(t.id)} style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--text-muted)', padding: 0,
+        }}>
+          <X size={14} />
+        </button>
+      </div>
+      {showAssistantHelper && (
+        <CopyToAssistant
+          title={t.message || 'Tusk Ledger error'}
+          error={t.error}
+          location={t.location}
+          userAction={t.userAction}
+          context={t.context}
+          size="small"
+          variant="block"
+        />
       )}
-      <button onClick={() => dismiss(t.id)} style={{
-        background: 'transparent', border: 'none', cursor: 'pointer',
-        color: 'var(--text-muted)', padding: 0,
-      }}>
-        <X size={14} />
-      </button>
     </div>
   )
 }

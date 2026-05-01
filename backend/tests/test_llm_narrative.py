@@ -204,12 +204,15 @@ def test_bundle_emits_whole_dollars_only(db, factory):
     bundle = build_insights_bundle(db, today=today)
     payload = bundle.as_prompt_json()
     # Every dollar figure should be a bare integer — no decimal points
-    # in any of the named numeric fields.
+    # in any of the named numeric fields. Keys updated for the
+    # post-rename schema (spending_for_period, trailing_3_month_average,
+    # change_dollars, total_spending_*, amount).
     for line in payload.splitlines():
         if any(key in line for key in (
-            '"this_month":', '"baseline_avg":', '"change_dollars":',
-            '"spending_this_month":', '"spending_baseline_avg":',
-            '"spending_change_dollars":', '"amount":',
+            '"spending_for_period":', '"trailing_3_month_average":',
+            '"change_dollars":', '"total_spending_for_period":',
+            '"total_spending_trailing_3_month_average":',
+            '"total_spending_change_dollars":', '"amount":',
         )):
             value = line.rsplit(":", 1)[1].rstrip(",").strip()
             # Allow null and integers, reject anything with a decimal point.
@@ -251,15 +254,64 @@ def test_bundle_categories_up_includes_significant_mover(db, factory):
 
 
 def test_bundle_handles_empty_db(db):
-    """No transactions → bundle still builds, with a 'no transactions'
-    note. The endpoint should not blow up on a brand-new DB."""
+    """No transactions → bundle still builds. With zero data the sparse
+    fallback kicks in and we summarise the previous month (which is also
+    empty), so we just check the structure is sane and notes aren't
+    silent. The endpoint should not blow up on a brand-new DB."""
     today = datetime.date(2026, 4, 15)
     bundle = build_insights_bundle(db, today=today)
-    assert bundle.mtd_total_spending == 0
+    assert bundle.period_total_spending == 0
     assert bundle.categories_up == []
     assert bundle.categories_down == []
     assert bundle.notable_largest_transaction is None
-    assert any("No transactions" in n for n in bundle.notes)
+    # Either path emits a note — sparse fallback or "no txns".
+    assert len(bundle.notes) >= 1
+
+
+def test_bundle_falls_back_to_previous_month_when_current_is_sparse(db, factory):
+    """On day 1-4 of a new month with no synced transactions, summarise
+    the previous full month. The card is useless if we let it say
+    'May has $0 spending so far, no change vs $0 baseline.'"""
+    acct = factory.account()
+    factory.commit()
+
+    # Today is May 1, 2026 (day 1 — sparsest possible). Drop a few
+    # April transactions so the fallback has something to summarise.
+    _add_txns_for_month(
+        factory, acct.id, 2026, 4,
+        by_merchant_amount=[(5, "Whole Foods", 87), (15, "Costco", 220), (28, "Amazon", 64)],
+    )
+    factory.commit()
+
+    today = datetime.date(2026, 5, 1)
+    bundle = build_insights_bundle(db, today=today)
+    assert bundle.period_kind == "previous_month"
+    assert "April 2026" in bundle.period_label
+    assert "last full month" in bundle.period_label
+    assert bundle.period_total_spending > 0  # April had data
+    # And the note should explain the switch to the user.
+    assert any("April" in n or "current month" in n for n in bundle.notes)
+
+
+def test_bundle_uses_mtd_when_current_month_has_enough_data(db, factory):
+    """Past day 4 OR with 5+ transactions, normal MTD math kicks in.
+    Verify by mid-month with plenty of transactions."""
+    acct = factory.account()
+    factory.commit()
+
+    today = datetime.date(2026, 4, 20)
+    _add_txns_for_month(
+        factory, acct.id, 2026, 4,
+        by_merchant_amount=[
+            (1, "M1", 50), (3, "M2", 50), (5, "M3", 50),
+            (8, "M4", 50), (12, "M5", 50), (15, "M6", 50),
+        ],
+    )
+    factory.commit()
+
+    bundle = build_insights_bundle(db, today=today)
+    assert bundle.period_kind == "mtd"
+    assert bundle.period_label == "April 2026"
 
 
 def test_user_prompt_quotes_the_bundle_json(db):
@@ -270,7 +322,9 @@ def test_user_prompt_quotes_the_bundle_json(db):
     bundle = build_insights_bundle(db, today=today)
     prompt = build_user_prompt(bundle)
     assert "```json" in prompt
-    assert '"month": "April 2026"' in prompt
-    # Hard rule the prompt enforces — explicit instruction not to
-    # invent numbers. If this string disappears, the safety story breaks.
+    assert '"period_label"' in prompt
+    # Hard rules the prompt + JSON enforce — explicit instructions not
+    # to invent numbers and not to use year-over-year framing. If
+    # either disappears, the safety story breaks.
     assert "do not compute" in prompt.lower() or "only these numbers" in prompt.lower()
+    assert "trailing 3-month" in prompt.lower() or "year-over-year" in prompt.lower()

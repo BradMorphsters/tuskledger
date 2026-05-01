@@ -414,6 +414,16 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* AI narrative + rule-based anomaly cards. Promoted high on the
+          page so they sit directly under the user's headline numbers
+          (Net Worth, This Month) instead of buried below the trend
+          snapshot. The narrative card frames the specific anomaly
+          cards underneath; both feed off the same MTD-vs-trailing-
+          baseline math. AINarrative renders an empty placeholder when
+          LLM_ENABLED=false so the layout doesn't bounce as it loads. */}
+      <AINarrative />
+      <InsightsBar />
+
       {/* Health-at-a-glance — pulse score, cash flow forecast, daily
           snapshot. Order is user-customizable via localStorage so each
           person can put their most-glanced-at tile first. */}
@@ -500,15 +510,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* AI narrative — plain-English summary of this month, generated
-          by the optional local Ollama model. Sits ABOVE the rule-based
-          anomaly cards on purpose: the qualitative summary frames the
-          specific facts users are about to see in InsightsBar. Both
-          components share the same MTD-vs-trailing-baseline math. */}
-      <AINarrative />
-
-      {/* Insight cards — spending anomalies and merchant alerts */}
-      <InsightsBar />
+      {/* (AI narrative + InsightsBar moved up to sit directly under the
+          stat cards — see above HealthTilesRow.) */}
 
       {/* Inline This Month breakdown — appears between the stat cards and
           the charts row when the user clicks Spending or Income above. */}

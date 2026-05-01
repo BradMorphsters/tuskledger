@@ -417,6 +417,106 @@ def check_venv() -> CheckResult:
     )
 
 
+def check_ollama_reachable() -> CheckResult:
+    """Verify the optional Ollama LLM is reachable and the configured
+    model is pulled.
+
+    Three branches, by design:
+      - LLM_ENABLED=false → "warn" with an info message. Skipped checks
+        return "warn", not "pass", so doctor JSON consumers can tell
+        the difference between "verified working" and "not asked to
+        verify". The fix_hint nudges the user toward enabling it.
+      - Ollama unreachable → "fail" with the install one-liner.
+      - Reachable but model not pulled → "fail" with `ollama pull <model>`.
+
+    Reads .env directly (rather than importing app.config) for the same
+    reason check_required_env_vars does — we don't want a misconfigured
+    Pydantic Settings load to blind the rest of the doctor run.
+    """
+    # Read the relevant LLM_* settings out of .env without invoking
+    # Pydantic. Defaults match config.py.
+    env_path = BACKEND_DIR / ".env"
+    enabled = False
+    url = "http://127.0.0.1:11434"
+    model = "llama3.1:8b"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k == "LLM_ENABLED":
+                enabled = v.lower() in ("1", "true", "yes", "on")
+            elif k == "LLM_URL":
+                url = v
+            elif k == "LLM_MODEL":
+                model = v
+
+    if not enabled:
+        return CheckResult(
+            "ollama_reachable", "external", "warn",
+            "LLM_ENABLED=false (optional Ollama narrative card is off).",
+            "Install Ollama and set LLM_ENABLED=true in backend/.env to "
+            "enable AI narratives on the Dashboard. See AGENTS.md."
+        )
+
+    # Inline import so the urllib dependency is only paid when this
+    # check actually runs (and so missing httpx in the venv doesn't
+    # break the whole CLI).
+    try:
+        import urllib.request
+        import urllib.error
+    except ImportError:
+        return CheckResult(
+            "ollama_reachable", "external", "fail",
+            "Python's urllib is missing — can't probe Ollama.",
+            None,
+        )
+
+    try:
+        req = urllib.request.Request(f"{url.rstrip('/')}/api/tags")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.status != 200:
+                return CheckResult(
+                    "ollama_reachable", "external", "fail",
+                    f"Ollama at {url} returned HTTP {resp.status}.",
+                    "Check `ollama serve` is running and reachable at LLM_URL.",
+                )
+            body = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return CheckResult(
+            "ollama_reachable", "external", "fail",
+            f"Could not reach Ollama at {url}: {e}",
+            "Install: `curl -fsSL https://ollama.com/install.sh | sh`. "
+            "Start: `ollama serve`. Pull the model: "
+            f"`ollama pull {model}`.",
+        )
+
+    # Confirm the configured model is actually pulled — otherwise
+    # Ollama will start downloading (multi-GB) on the first request.
+    try:
+        import json as _json
+        installed = {t["name"] for t in _json.loads(body).get("models", [])}
+    except (ValueError, KeyError, TypeError):
+        installed = set()
+
+    bare = model.split(":", 1)[0]
+    has_model = model in installed or any(n.split(":", 1)[0] == bare for n in installed)
+    if not has_model:
+        return CheckResult(
+            "ollama_reachable", "external", "fail",
+            f"Ollama is up at {url}, but model '{model}' isn't pulled.",
+            f"`ollama pull {model}` (this is a one-time ~5GB download for 8b models).",
+        )
+
+    return CheckResult(
+        "ollama_reachable", "external", "pass",
+        f"Ollama reachable at {url} with model '{model}' available.",
+    )
+
+
 # ── Runner ────────────────────────────────────────────────────────
 
 ALL_CHECKS = [
@@ -433,6 +533,7 @@ ALL_CHECKS = [
     check_frontend_port,
     check_node_modules,
     check_venv,
+    check_ollama_reachable,
 ]
 
 

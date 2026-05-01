@@ -125,6 +125,13 @@ export const getSpendingPatterns = (month, year) =>
   request(`/analytics/spending-patterns?month=${month}&year=${year}`);
 export const getInsights = (limit = 5) =>
   request(`/analytics/insights?limit=${limit}`);
+// AI-generated plain-English narrative of this month's spending.
+// Backend returns one of three shapes (see analytics.py /narrative):
+//   {narrative: "<text>",  source: "ollama" | "demo", model: "..." | null}
+//   {narrative: null,      source: "disabled",        model: null}
+// On 503 (Ollama enabled but unreachable), `request` throws — caller
+// should treat that the same as "disabled" but show a setup hint.
+export const getInsightsNarrative = () => request('/analytics/narrative');
 // Top merchants by total spend over the lookback window.
 export const getTopMerchants = (months = 6, limit = 20, businessId = null) => {
   const params = new URLSearchParams({ months: String(months), limit: String(limit) })

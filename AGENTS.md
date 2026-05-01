@@ -470,6 +470,61 @@ check failed. Use this in scripts.
 If you (the agent) need to surface a diagnosis to the user, the
 `message` and `fix_hint` fields are designed to be reproduced verbatim.
 
+## Optional Ollama LLM (Dashboard "AI insights" card)
+
+There's a single LLM-powered surface in the app right now: the AI
+narrative card on the Dashboard, sitting directly above the rule-based
+`InsightsBar`. It hands a structured bundle of pre-computed insights
+(`backend/app/services/insights_narrative.py::build_insights_bundle`) to
+a local Ollama model and asks it to write 2-3 plain-English paragraphs
+around the numbers.
+
+**Off by default.** Three env vars in `backend/.env`:
+
+```
+LLM_ENABLED=false               # flip to true to turn the card on
+LLM_MODEL=llama3.1:8b           # any tag Ollama knows
+LLM_URL=http://127.0.0.1:11434  # default Ollama port
+```
+
+When the user wants to enable it:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &                  # background daemon
+ollama pull llama3.1:8b         # ~5GB one-time download
+# then set LLM_ENABLED=true in backend/.env and restart the backend
+./tuskledger doctor             # confirms the ollama_reachable check
+```
+
+**Behavior the agent must respect when extending this:**
+
+- *The model never does math.* Every dollar figure in the prompt JSON
+  comes pre-computed from `build_insights_bundle()` and rounded to
+  whole dollars at the serializer boundary. This is the load-bearing
+  invariant that keeps a local 7B model from hallucinating dollar
+  amounts in a finance tool. Don't add prompt fields that ask the
+  model to compute or estimate anything — just feed it more
+  structured facts to write around.
+- *Demo mode short-circuits Ollama.* When `fintrack_mode=demo`, the
+  endpoint returns a canned `DEMO_NARRATIVE` string regardless of
+  whether Ollama is reachable. Marketing screenshots depend on this
+  staying deterministic.
+- *Failures collapse to LLMUnavailable.* All HTTP / parsing failures
+  in `services/llm_ollama.py::OllamaClient.complete()` raise
+  `LLMUnavailable`, which the analytics router maps to a single 503.
+  Keep this collapse — it lets the frontend handle "Ollama is acting
+  up" with one error path instead of N.
+- *Pre-flight checks before completion.* The router calls
+  `client.health()` and `client.has_model()` before `complete()` so
+  the user sees a fast, actionable error instead of a 60-second hang
+  while Ollama silently downloads multi-GB weights.
+- *Read-mostly.* The MCP server (`tuskledger-mcp`, separate repo) is
+  the read-only entry point for AI agents querying user data; the
+  Dashboard LLM card is a *write*-style surface (it generates text
+  for the user). Don't conflate the two — they serve different
+  audiences and live behind different toggles.
+
 ## Useful one-liners (copy / adapt)
 
 ```bash

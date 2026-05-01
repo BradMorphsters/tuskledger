@@ -13,6 +13,7 @@ import Skeleton from '../components/Skeleton'
 import EmptyState from '../components/EmptyState'
 import UpcomingBills from '../components/UpcomingBills'
 import StaleBalanceAlert from '../components/StaleBalanceAlert'
+import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
 import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown } from '../components/DashboardTiles'
@@ -498,6 +499,13 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* AI narrative — plain-English summary of this month, generated
+          by the optional local Ollama model. Sits ABOVE the rule-based
+          anomaly cards on purpose: the qualitative summary frames the
+          specific facts users are about to see in InsightsBar. Both
+          components share the same MTD-vs-trailing-baseline math. */}
+      <AINarrative />
 
       {/* Insight cards — spending anomalies and merchant alerts */}
       <InsightsBar />

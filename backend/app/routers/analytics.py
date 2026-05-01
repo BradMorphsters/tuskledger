@@ -7,10 +7,11 @@ import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from app.config import settings
 from app.database import get_db
 from app.models import (
     Account, CategoryRule, CreditCardDetail, ManualAsset,
@@ -18,6 +19,10 @@ from app.models import (
 )
 from app.schemas.schemas import InsightCard, InsightsResponse, RuleApplyResult
 from app.services.categories import STANDARD_CATEGORIES, CATEGORY_ICONS, map_plaid_category
+from app.services.insights_narrative import (
+    DEMO_NARRATIVE, build_insights_bundle, build_user_prompt, SYSTEM_PROMPT,
+)
+from app.services.llm_ollama import LLMUnavailable, OllamaClient
 from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.tax import HSA_LIMITS, hsa_limit
 from app.services.transaction_view import expand
@@ -2240,6 +2245,84 @@ def get_insights(
     cards = cards[:limit]
 
     return InsightsResponse(cards=cards, generated_at=datetime.utcnow())
+
+
+# ─── AI Narrative (optional, Ollama-backed) ─────────────────
+#
+# Sibling to /insights above. Same underlying signals (MTD vs trailing
+# baseline, top movers, largest single transaction), but rolled into a
+# single structured bundle and handed to a local LLM that writes 2-3
+# paragraphs of plain English around the numbers.
+#
+# Three response shapes the frontend needs to handle:
+#   200 {narrative, source: "ollama"|"demo"} — happy path
+#   200 {narrative: null, source: "disabled"} — feature off
+#   503 — Ollama enabled but unreachable (model not pulled, daemon
+#         down, etc.). Frontend shows a quiet "set up Ollama" hint.
+#
+# Demo mode (fintrack_mode=demo cookie) ALWAYS returns the canned
+# DEMO_NARRATIVE — even if Ollama is enabled and reachable. Two reasons:
+# the demo data is synthetic so an LLM-generated narrative would either
+# be uselessly generic or wrongly specific, and we want the marketing
+# screenshots to be reproducible without depending on any model output.
+@router.get("/narrative")
+def get_narrative(request: Request, db: Session = Depends(get_db)):
+    """Plain-English summary of this month's finances for the Dashboard.
+
+    Returns canned text in demo mode so screenshots work offline.
+    Returns the LLM-generated text when LLM_ENABLED=true and Ollama is
+    reachable. Returns a `disabled` source when the feature is off, so
+    the frontend can show its setup-hint state.
+    """
+    is_demo = request.cookies.get("fintrack_mode") == "demo"
+    if is_demo:
+        return {
+            "narrative": DEMO_NARRATIVE,
+            "source": "demo",
+            "model": None,
+        }
+
+    if not settings.LLM_ENABLED:
+        return {
+            "narrative": None,
+            "source": "disabled",
+            "model": None,
+        }
+
+    bundle = build_insights_bundle(db)
+    client = OllamaClient(base_url=settings.LLM_URL, model=settings.LLM_MODEL)
+
+    # Cheap pre-flight check so the user sees a clean 503 instead of a
+    # 60-second hang when Ollama isn't running or the requested model
+    # isn't pulled. Skipping this for the model check would let Ollama
+    # silently start downloading multi-GB weights on the first request.
+    if not client.health():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Ollama not reachable at {settings.LLM_URL}. "
+                f"Start it with `ollama serve` or set LLM_ENABLED=false."
+            ),
+        )
+    if not client.has_model(settings.LLM_MODEL):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Ollama is up but model '{settings.LLM_MODEL}' is not pulled. "
+                f"Run `ollama pull {settings.LLM_MODEL}` and try again."
+            ),
+        )
+
+    try:
+        text = client.complete(SYSTEM_PROMPT, build_user_prompt(bundle))
+    except LLMUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    return {
+        "narrative": text,
+        "source": "ollama",
+        "model": settings.LLM_MODEL,
+    }
 
 
 # ─── CSV Export ──────────────────────────────────────────────

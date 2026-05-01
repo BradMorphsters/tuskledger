@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     DEMO_DATABASE_URL: str = "sqlite:///./tuskledger_demo.db"
     DEMO_ENCRYPTION_KEY_FILE: str = "./.encryption_key.demo"
 
+    # ── Optional local LLM (Ollama) ───────────────────────────────
+    # When LLM_ENABLED=true, the Dashboard's "AI narrative" card calls
+    # Ollama at LLM_URL with LLM_MODEL to summarize this month's
+    # spending in plain English. Off by default — the app works fine
+    # without it. Demo mode renders canned narrative text so the
+    # screenshots don't depend on Ollama being installed.
+    #
+    # Install Ollama:  curl -fsSL https://ollama.com/install.sh | sh
+    # Pull the model:  ollama pull llama3.1:8b
+    # Verify:          ./tuskledger doctor   (look for ollama_reachable)
+    LLM_ENABLED: bool = False
+    LLM_MODEL: str = "llama3.1:8b"
+    LLM_URL: str = "http://127.0.0.1:11434"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -190,8 +190,34 @@ Everything lives in `backend/.env`. See [`backend/.env.example`](backend/.env.ex
 | `SYNC_INTERVAL_HOURS` | `6` | Background sync cadence |
 | `DEV_BYPASS_AUTH` | `false` | Set `true` to skip login while iterating on UI. **Never enable this on a machine that anyone else can reach.** |
 | `PLAID_WEBHOOK_VERIFY` | `false` | Verify Plaid-Verification JWT on incoming webhooks |
+| `LLM_ENABLED` | `false` | Optional. Flip on to render the Dashboard "AI insights" card via a local Ollama model. See below. |
+| `LLM_MODEL` | `llama3.1:8b` | Any tag Ollama knows (`phi3:mini` for older hardware, `llama3.1:70b` if you have the RAM). |
+| `LLM_URL` | `http://127.0.0.1:11434` | Where Ollama listens. Override only if you've moved the daemon. |
 
 The Fernet encryption key for stored Plaid access tokens is auto-generated on first run as `backend/.encryption_key` (chmod 600). If you back up `tuskledger.db`, back up that key file too — without it your stored tokens become unreadable.
+
+### Optional: AI insights card (local LLM via Ollama)
+
+When `LLM_ENABLED=true`, the Dashboard's "AI insights" card calls a locally-running Ollama instance to summarize this month's spending in plain English. Off by default — the rest of the app works without it. Nothing leaves the machine; Ollama binds to `127.0.0.1` and the model runs against your CPU/GPU.
+
+```bash
+# 1. Install Ollama (Apple Silicon / Linux)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Pull a model. llama3.1:8b is a good default on 16GB+ Apple Silicon.
+ollama pull llama3.1:8b
+
+# 3. Start the daemon (it runs in the background)
+ollama serve &
+
+# 4. Flip LLM_ENABLED=true in backend/.env, restart the backend.
+# 5. Verify with the doctor — look for ollama_reachable.
+./tuskledger doctor
+```
+
+Hardware notes: 8B-class models need ~5GB of free RAM and run at 10–30 tok/s on Apple Silicon. On older Intel hardware, drop to `phi3:mini` or leave the feature off. Demo mode renders a canned narrative so screenshots work without Ollama installed.
+
+The model never invents dollar figures — every number in the prompt is pre-computed in Python and the model is only asked to write prose around them. Details in `backend/app/services/insights_narrative.py` and `AGENTS.md`.
 
 ---
 

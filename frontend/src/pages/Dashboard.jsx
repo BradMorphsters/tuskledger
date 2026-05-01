@@ -66,11 +66,13 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v4 when 'loans' was added so existing users get the new
-// tile included instead of having it silently filtered out by the
-// "saved length must match defaults" guard.
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v4'
-const DEFAULT_TILE_ORDER = ['pulse', 'forecast', 'snapshot', 'hsa', 'dcfsa', 'loans']
+// Bumped to v5 to force the new default order (loans promoted to the
+// right of pulse so it fills row 1 next to the tall pulse tile)
+// for existing users. Bumping the key invalidates any v4 saved order
+// in localStorage and re-applies DEFAULT_TILE_ORDER. Users can still
+// rearrange via the hover ‹ › buttons on each tile.
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v5'
+const DEFAULT_TILE_ORDER = ['pulse', 'loans', 'forecast', 'snapshot', 'hsa', 'dcfsa']
 const TILE_LABELS = { pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot', hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans' }
 
 // Each tile declares a size — compact / standard / tall — that maps

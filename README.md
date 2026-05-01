@@ -11,6 +11,14 @@ Everything stays on your computer. No cloud. No third-party analytics. Just your
 [![Node 22 LTS](https://img.shields.io/badge/node-22%20LTS-blue.svg)](https://nodejs.org)
 [![Local-first](https://img.shields.io/badge/local--first-yes-brightgreen.svg)](https://www.tuskledger.com#architecture)
 
+**Follow the project:**
+[![Bluesky](https://img.shields.io/badge/Bluesky-@tuskledger-1185fe?logo=bluesky&logoColor=white)](https://bsky.app/profile/tuskledger.bsky.social)
+[![X](https://img.shields.io/badge/X-@TuskLedger-000000?logo=x&logoColor=white)](https://x.com/TuskLedger)
+[![Dev.to](https://img.shields.io/badge/Dev.to-tuskledger-0a0a0a?logo=devdotto&logoColor=white)](https://dev.to/tuskledger)
+[![TikTok](https://img.shields.io/badge/TikTok-@tuskledger-ff0050?logo=tiktok&logoColor=white)](https://www.tiktok.com/@tuskledger)
+[![Reddit](https://img.shields.io/badge/Reddit-maintainer-ff4500?logo=reddit&logoColor=white)](https://www.reddit.com/user/ShapeObjective9727/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-maintainer-0a66c2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/eduardothomasdiaz)
+
 > **TL;DR** — Eight pages doing real work: Dashboard, Transactions, Spending & Income, Bills calendar, Loans, Investments / Trading Tax (FIFO + chain-correct wash sale + Form 8949), Retirement projection (Monte Carlo + Roth ladder + IRMAA + RMDs), Tax Prep Pack (HSA + capital loss + Schedule C + QBI). All running on your laptop. Plaid for bank data, SQLite for storage, FastAPI + React for the surface. No SaaS, no telemetry, no subscription.
 
 ---

@@ -516,13 +516,15 @@ function processTxns(txns) {
 }
 
 // Shared style for all three Dashboard tiles. Makes the card fill its
-// Cards size to their natural content height. The dashboard grid uses
-// align-items: start so every tile gets exactly the vertical space its
-// content needs — no padding-up to a forced row size. Each tile is a
-// flex column so its internal sections (header, body, footer) stack
-// naturally with sensible gaps.
+// Cards fill the height of their grid cell (the row's tallest tile).
+// Combined with `flex: 1` on each tile's body section, content
+// stretches to fill instead of leaving white space. Tiles whose
+// natural content is short carry secondary content (preview lists,
+// allocation bars, account counts) so the stretched space is used
+// for information, not padding.
 const tileCardStyle = {
   width: '100%',
+  height: '100%',
   display: 'flex',
   flexDirection: 'column',
 }
@@ -1062,12 +1064,15 @@ export function DcfsaTracker() {
           </span>
         </div>
 
-        {/* Value-prop block. No flex:1 stretching anymore — the card
-            sizes to natural content height now that the dashboard
-            grid uses align-items: start instead of fixed row spans. */}
+        {/* Value-prop block. flex: 1 absorbs the slack between the
+            header and the bottom-pinned configure button when the
+            card is stretched to match a tall row neighbor. Content
+            stays vertically centered in the available space. */}
         <div style={{
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
+          justifyContent: 'center',
           gap: 10,
           padding: '6px 0 10px',
         }}>
@@ -1409,11 +1414,12 @@ export function LoanPayoffCountdown() {
           Detail →
         </a>
       </div>
-      {/* Loans list. Natural-height now — no flex:1 stretching since
-          the dashboard grid lets tiles size to content. */}
+      {/* Loans list. flex: 1 absorbs the row's stretched height so a
+          single-loan tile doesn't sit at the top with empty space
+          below it. The per-loan rows space out evenly. */}
       <div style={{
         display: 'flex', flexDirection: 'column',
-        gap: 10, paddingTop: 4,
+        gap: 10, paddingTop: 4, flex: 1,
       }}>
         {withPayoff.map((loan, idx) => {
           const yrs = Math.floor(loan.months_remaining / 12)
@@ -1589,11 +1595,11 @@ export function PortfolioSnapshot() {
         )}
       </div>
 
-      {/* Allocation: stacked bar + small legend. Natural height now
-          that the dashboard grid sizes tiles to content (no flex:1
-          stretching needed). */}
+      {/* Allocation: stacked bar + small legend. flex: 1 absorbs the
+          row's stretched height so the allocation block sits in the
+          middle of the tile, top holdings pinned to the bottom. */}
       {allocSlices.length > 0 && (
-        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, marginTop: 14, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{
             fontSize: 10, color: 'var(--text-muted)',
             textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6,
@@ -1633,21 +1639,23 @@ export function PortfolioSnapshot() {
         </div>
       )}
 
-      {/* Top holdings — pinned to bottom via marginTop: auto so the
-          allocation block above can flex to the available height. */}
+      {/* Top holdings — pinned to bottom of the tile. Show up to 4
+          (instead of the previous 2) so the tile carries enough
+          content to balance the height of Pulse / HSA in the same
+          row. Account count footer below as a one-line summary. */}
       {top_holdings.length > 0 && (
         <div style={{
-          marginTop: 12, paddingTop: 10,
+          marginTop: 'auto', paddingTop: 10,
           borderTop: '1px solid var(--border)', fontSize: 11,
         }}>
           <div style={{
             fontSize: 10, color: 'var(--text-muted)',
-            textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
+            textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6,
           }}>
             Top holdings
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {top_holdings.slice(0, 2).map((h, i) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {top_holdings.slice(0, 4).map((h, i) => (
               <div key={i} style={{
                 display: 'flex', justifyContent: 'space-between', gap: 8,
               }}>
@@ -1667,6 +1675,20 @@ export function PortfolioSnapshot() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Account-count footer — small, dim. Adds a final line of
+          context (how many accounts the totals roll up) and gives
+          the tile one more vertical row of content so it sits
+          comfortably alongside Pulse and HSA in the same grid row. */}
+      {summary.accounts && summary.accounts.length > 0 && (
+        <div style={{
+          marginTop: 8, fontSize: 10,
+          color: 'var(--text-dim)', textAlign: 'center',
+        }}>
+          Across {summary.accounts.length} account{summary.accounts.length === 1 ? '' : 's'}
+          {summary.total_cash > 0 && ` · ${fmtMoney(summary.total_cash)} cash`}
         </div>
       )}
     </div>

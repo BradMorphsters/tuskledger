@@ -127,14 +127,16 @@ function HealthTilesRow() {
       // the viewport narrows past ~992px the 320px floor takes over
       // and auto-fit drops to 2 columns (~640px), then 1 column.
       gridTemplateColumns: 'repeat(auto-fit, minmax(max(320px, calc((100% - 32px) / 3)), 1fr))',
-      // align-items: start so each tile sits at its NATURAL content
-      // height — no padding-up to a forced row size. This matches
-      // the SpendingIncome page's card pattern. The tradeoff: when
-      // a tall tile and a short tile share a row, the row stretches
-      // to the tall tile's height and you can see white space below
-      // the short one. With the current 7 tiles that's a fair price
-      // for not having every tile look half-empty.
-      alignItems: 'start',
+      // align-items: stretch (the default) — every tile in a row
+      // grows to the tallest tile's height. Combined with each tile
+      // using tileCardStyle height: 100% + flex: 1 on its body
+      // section, content fills the cell instead of leaving a gap
+      // below it. Tile components that have less natural content
+      // (Portfolio, DCFSA empty state, Loans single row) carry
+      // extra secondary content so they fill rather than look
+      // hollow when stretched. The full layout: 2 rows of 3 tiles
+      // each, every cell visually weighted.
+      alignItems: 'stretch',
       gap: 16, marginBottom: 24,
       position: 'relative',
     }}>

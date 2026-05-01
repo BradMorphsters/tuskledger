@@ -505,8 +505,8 @@ cd frontend && npm run build
 If you're operating in an MCP-aware client (Claude Desktop, Cursor,
 Cowork, Claude Code), the user may have `tuskledger-mcp` configured.
 That gives you typed access to the user's finance data without going
-through the web UI. The server lives at `mcp/` in this repo with its
-own README.
+through the web UI. The server lives in its own repo:
+**https://github.com/BradMorphsters/tuskledger-mcp**
 
 Tools available (v0): `list_accounts`, `list_stale_accounts`,
 `query_transactions`, `search_transactions`, `get_spending_summary`,
@@ -522,7 +522,7 @@ are**. They're configured per-user. If you're in an MCP-less context
 ## Project links
 
 - Site: https://www.tuskledger.com
-- Repo: https://github.com/BradMorphsters/tuskledger
+- Main repo: https://github.com/BradMorphsters/tuskledger
+- MCP server repo: https://github.com/BradMorphsters/tuskledger-mcp
 - Issues: https://github.com/BradMorphsters/tuskledger/issues
 - For LLMs browsing externally: https://www.tuskledger.com/llms.txt
-- MCP server package: [`mcp/`](mcp/)

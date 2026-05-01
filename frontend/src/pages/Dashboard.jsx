@@ -16,7 +16,7 @@ import StaleBalanceAlert from '../components/StaleBalanceAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
-import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown } from '../components/DashboardTiles'
+import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
 
 // Strip noisy ACH prefixes from raw transaction descriptions for inline
@@ -66,14 +66,16 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v5 to force the new default order (loans promoted to the
-// right of pulse so it fills row 1 next to the tall pulse tile)
-// for existing users. Bumping the key invalidates any v4 saved order
-// in localStorage and re-applies DEFAULT_TILE_ORDER. Users can still
-// rearrange via the hover ‹ › buttons on each tile.
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v5'
-const DEFAULT_TILE_ORDER = ['pulse', 'loans', 'forecast', 'snapshot', 'hsa', 'dcfsa']
-const TILE_LABELS = { pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot', hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans' }
+// Bumped to v6 with the addition of the 'portfolio' tile. The
+// localStorage key is versioned so a saved v5 order (which lacks
+// 'portfolio') is invalidated and the new default takes effect.
+// Users can still rearrange via the hover ‹ › buttons on each tile.
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v6'
+const DEFAULT_TILE_ORDER = ['pulse', 'loans', 'portfolio', 'forecast', 'snapshot', 'hsa', 'dcfsa']
+const TILE_LABELS = {
+  pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
+  hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
+}
 
 // Each tile declares a size — compact / standard / tall — that maps
 // to a row span in the dashboard grid. The grid uses fixed-height
@@ -86,12 +88,13 @@ const TILE_LABELS = { pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot'
 // To change a tile's height: update its entry here, no component
 // changes required. To add a new size, add a key to SIZE_TO_ROW_SPAN.
 const TILE_SIZES = {
-  pulse:    'tall',     // FinancialPulse — runway breakdown + 4 stat bars
-  forecast: 'standard', // CashFlowForecast — chart auto-grows to fill height
-  snapshot: 'standard', // DailySnapshot — single number + delta
-  hsa:      'tall',     // HsaTracker — multi-section, multi-account
-  dcfsa:    'standard', // DcfsaTracker — empty + configured both fit standard
-  loans:    'standard', // LoanPayoffCountdown — list of loans with progress
+  pulse:     'tall',     // FinancialPulse — runway breakdown + 4 stat bars
+  forecast:  'standard', // CashFlowForecast — chart auto-grows to fill height
+  snapshot:  'standard', // DailySnapshot — single number + delta
+  hsa:       'tall',     // HsaTracker — multi-section, multi-account
+  dcfsa:     'standard', // DcfsaTracker — empty + configured both fit standard
+  loans:     'standard', // LoanPayoffCountdown — list of loans with progress
+  portfolio: 'standard', // PortfolioSnapshot — value + allocation + top holdings
 }
 const SIZE_TO_ROW_SPAN = { compact: 2, standard: 3, tall: 4 }
 
@@ -124,6 +127,7 @@ function HealthTilesRow() {
     if (key === 'hsa') return <HsaTracker />
     if (key === 'dcfsa') return <DcfsaTracker />
     if (key === 'loans') return <LoanPayoffCountdown />
+    if (key === 'portfolio') return <PortfolioSnapshot />
     return null
   }
 

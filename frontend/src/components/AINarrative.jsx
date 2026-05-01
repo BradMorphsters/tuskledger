@@ -26,38 +26,69 @@
  * this is one card per Dashboard, not a list. If the user wants it
  * gone, they flip LLM_ENABLED off in .env.
  */
-import { useEffect, useState } from 'react'
-import { Sparkles, Settings, AlertTriangle } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { Sparkles, Settings, AlertTriangle, RefreshCw } from 'lucide-react'
 import { getInsightsNarrative } from '../api/client'
+
+/**
+ * Format an ISO timestamp as a short, human-readable freshness label.
+ * "Just now" / "5m ago" / "Today, 9:47 AM" / "May 1, 9:47 AM".
+ * Kept tiny — no date-fns dep for one label.
+ */
+function formatGeneratedAt(iso) {
+  if (!iso) return ''
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return ''
+  const now = new Date()
+  const diffMs = now - then
+  const diffMin = Math.round(diffMs / 60000)
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  const sameDay = then.toDateString() === now.toDateString()
+  const time = then.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  if (sameDay) return time
+  const dateStr = then.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  return `${dateStr}, ${time}`
+}
 
 export default function AINarrative() {
   const [state, setState] = useState({ status: 'loading' })
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    getInsightsNarrative()
+  // Single fetch helper used both for the initial mount and for the
+  // refresh button. `force=true` adds ?refresh=true so the backend
+  // bypasses its daily cache and runs Ollama fresh.
+  const fetchNarrative = useCallback((force = false) => {
+    if (force) setIsRefreshing(true)
+    return getInsightsNarrative({ refresh: force })
       .then((data) => {
-        if (cancelled) return
         if (data && data.narrative) {
           setState({
             status: 'ready',
             narrative: data.narrative,
-            source: data.source,    // "ollama" | "demo"
+            source: data.source,        // "ollama" | "demo"
             model: data.model,
+            generatedAt: data.generated_at,
+            fromCache: data.from_cache,
           })
         } else {
-          // {narrative: null, source: "disabled"} — feature off
           setState({ status: 'disabled' })
         }
       })
       .catch((err) => {
-        if (cancelled) return
         // 503 from the backend means Ollama is enabled but unreachable
         // OR the model isn't pulled. Backend's `detail` is already
         // user-actionable ("Run `ollama pull llama3.1:8b`") — surface it.
         setState({ status: 'setup', detail: String(err.message || err) })
       })
+      .finally(() => setIsRefreshing(false))
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchNarrative(false).catch(() => {})
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (state.status === 'loading') {
@@ -161,6 +192,7 @@ export default function AINarrative() {
   // because the prompt explicitly forbids it.
   const paragraphs = (state.narrative || '').split(/\n\n+/).filter(Boolean)
   const isDemo = state.source === 'demo'
+  const timeLabel = formatGeneratedAt(state.generatedAt)
 
   return (
     <div style={{
@@ -170,6 +202,9 @@ export default function AINarrative() {
       borderRadius: 10,
       background: 'rgba(175, 169, 236, 0.04)',
     }}>
+      {/* Eyebrow row: brand + provenance + freshness + refresh.
+          Refresh is hidden in demo mode (the canned text never changes)
+          and during the in-flight refresh itself. */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -191,7 +226,48 @@ export default function AINarrative() {
           fontSize: 11,
         }}>
           · {isDemo ? 'demo data' : `local · ${state.model || 'ollama'}`}
+          {timeLabel && (
+            <>
+              {' · '}
+              <span title={state.generatedAt}>
+                generated {timeLabel}
+                {state.fromCache && ' · cached'}
+              </span>
+            </>
+          )}
         </span>
+        {!isDemo && (
+          <button
+            type="button"
+            onClick={() => fetchNarrative(true)}
+            disabled={isRefreshing}
+            title={isRefreshing ? 'Generating fresh narrative…' : 'Regenerate narrative now (e.g. after a Plaid sync)'}
+            style={{
+              marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px 8px',
+              fontSize: 10,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: isRefreshing ? 'var(--text-dim)' : 'var(--text-muted)',
+              background: 'transparent',
+              border: '1px solid var(--border-soft)',
+              borderRadius: 6,
+              cursor: isRefreshing ? 'wait' : 'pointer',
+            }}
+          >
+            <RefreshCw
+              size={11}
+              style={{
+                animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+              }}
+            />
+            {isRefreshing ? 'Refreshing' : 'Refresh'}
+          </button>
+        )}
       </div>
       {paragraphs.map((p, i) => (
         <p key={i} style={{
@@ -204,6 +280,15 @@ export default function AINarrative() {
           {p}
         </p>
       ))}
+      {/* Inline keyframe so the refresh icon spins without needing a
+          shared CSS module entry. Keeping it scoped here means anyone
+          reading this component sees the full animation contract. */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   )
 }

@@ -2255,8 +2255,10 @@ def get_insights(
 # paragraphs of plain English around the numbers.
 #
 # Three response shapes the frontend needs to handle:
-#   200 {narrative, source: "ollama"|"demo"} — happy path
-#   200 {narrative: null, source: "disabled"} — feature off
+#   200 {narrative, source: "ollama"|"demo", generated_at, from_cache}
+#       — happy path
+#   200 {narrative: null, source: "disabled", generated_at, from_cache: false}
+#       — feature off
 #   503 — Ollama enabled but unreachable (model not pulled, daemon
 #         down, etc.). Frontend shows a quiet "set up Ollama" hint.
 #
@@ -2265,21 +2267,45 @@ def get_insights(
 # the demo data is synthetic so an LLM-generated narrative would either
 # be uselessly generic or wrongly specific, and we want the marketing
 # screenshots to be reproducible without depending on any model output.
+#
+# Caching: a single-entry, in-process, date-keyed cache. Once-per-day
+# TTL is the right default for this kind of qualitative summary —
+# refreshing on every Dashboard mount would be 5-15s of wasted local
+# inference for output that almost never changes within a day. Manual
+# `?refresh=true` lets the user force a regen after a Plaid sync. The
+# cache is dropped on backend restart, which is fine — restarts are
+# rare in steady state, and a fresh narrative on first load after a
+# restart is a feature, not a bug. Demo + disabled paths skip the
+# cache entirely (they're already instant).
+_NARRATIVE_CACHE: dict[str, dict] = {}  # key: ISO date, value: response dict
+
+
 @router.get("/narrative")
-def get_narrative(request: Request, db: Session = Depends(get_db)):
+def get_narrative(
+    request: Request,
+    db: Session = Depends(get_db),
+    refresh: bool = Query(default=False, description="Bypass the daily cache and force a fresh LLM call"),
+):
     """Plain-English summary of this month's finances for the Dashboard.
 
     Returns canned text in demo mode so screenshots work offline.
     Returns the LLM-generated text when LLM_ENABLED=true and Ollama is
     reachable. Returns a `disabled` source when the feature is off, so
     the frontend can show its setup-hint state.
+
+    Result is cached for the calendar day; pass `?refresh=true` to
+    force a regen (used by the refresh button on the card).
     """
     is_demo = request.cookies.get("fintrack_mode") == "demo"
+    now_iso = datetime.utcnow().isoformat() + "Z"
+
     if is_demo:
         return {
             "narrative": DEMO_NARRATIVE,
             "source": "demo",
             "model": None,
+            "generated_at": now_iso,
+            "from_cache": False,
         }
 
     if not settings.LLM_ENABLED:
@@ -2287,7 +2313,19 @@ def get_narrative(request: Request, db: Session = Depends(get_db)):
             "narrative": None,
             "source": "disabled",
             "model": None,
+            "generated_at": now_iso,
+            "from_cache": False,
         }
+
+    today_key = date.today().isoformat()
+
+    # Serve from cache unless the caller explicitly asked for fresh.
+    # Cache hit returns the original `generated_at` (when the LLM
+    # actually ran) so the frontend's "Generated at" label stays
+    # truthful — not the time of THIS request.
+    if not refresh and today_key in _NARRATIVE_CACHE:
+        cached = _NARRATIVE_CACHE[today_key]
+        return {**cached, "from_cache": True}
 
     bundle = build_insights_bundle(db)
     client = OllamaClient(base_url=settings.LLM_URL, model=settings.LLM_MODEL)
@@ -2318,11 +2356,20 @@ def get_narrative(request: Request, db: Session = Depends(get_db)):
     except LLMUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
-    return {
+    result = {
         "narrative": text,
         "source": "ollama",
         "model": settings.LLM_MODEL,
+        "generated_at": now_iso,
+        "from_cache": False,
     }
+
+    # Replace the whole cache (single-entry, date-keyed). This auto-
+    # evicts yesterday's entry when today's first request lands —
+    # no separate cleanup needed.
+    _NARRATIVE_CACHE.clear()
+    _NARRATIVE_CACHE[today_key] = result
+    return result
 
 
 # ─── CSV Export ──────────────────────────────────────────────

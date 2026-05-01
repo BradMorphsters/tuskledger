@@ -127,11 +127,17 @@ export const getInsights = (limit = 5) =>
   request(`/analytics/insights?limit=${limit}`);
 // AI-generated plain-English narrative of this month's spending.
 // Backend returns one of three shapes (see analytics.py /narrative):
-//   {narrative: "<text>",  source: "ollama" | "demo", model: "..." | null}
-//   {narrative: null,      source: "disabled",        model: null}
+//   {narrative: "<text>",  source: "ollama" | "demo", model: "..." | null,
+//    generated_at: "<iso>", from_cache: bool}
+//   {narrative: null,      source: "disabled",        model: null,
+//    generated_at: "<iso>", from_cache: false}
 // On 503 (Ollama enabled but unreachable), `request` throws — caller
 // should treat that the same as "disabled" but show a setup hint.
-export const getInsightsNarrative = () => request('/analytics/narrative');
+//
+// Backend caches once per calendar day; pass refresh=true to force a
+// regen (used by the refresh button on the card after a Plaid sync).
+export const getInsightsNarrative = ({ refresh = false } = {}) =>
+  request(`/analytics/narrative${refresh ? '?refresh=true' : ''}`);
 // Top merchants by total spend over the lookback window.
 export const getTopMerchants = (months = 6, limit = 20, businessId = null) => {
   const params = new URLSearchParams({ months: String(months), limit: String(limit) })

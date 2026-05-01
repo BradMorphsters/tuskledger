@@ -3,6 +3,7 @@ import secrets
 from datetime import date, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from app.database import get_db
@@ -15,6 +16,34 @@ from app.schemas.schemas import (
     SpendingSummary,
     CategorySpending,
 )
+
+
+class ManualTransactionRequest(BaseModel):
+    """Schema for the /transactions/manual POST body.
+
+    Replaced an earlier `body: dict` signature so Pydantic enforces
+    types and bounds at the framework boundary rather than each
+    handler doing its own ad-hoc casting + try/except. Bounds are
+    deliberately loose enough not to reject legitimate edge cases
+    (a tax refund could be tens of thousands; a property purchase
+    could be hundreds of thousands) but tight enough to catch the
+    inf/NaN/wildly-large submission patterns that would otherwise
+    surface as a 500 from a downstream calculation.
+    """
+    # Plaid sign convention: positive = outflow (spending), negative = inflow.
+    # Cap at $10M either direction — anything bigger is almost certainly
+    # a typo or a malicious submission, and the calculator pages expect
+    # numbers smaller than this.
+    amount: float = Field(..., ge=-10_000_000, le=10_000_000)
+    name: str = Field(..., min_length=1, max_length=256)
+    account_id: int = Field(..., ge=1)
+    date: date
+    merchant_name: Optional[str] = Field(None, max_length=256)
+    category: Optional[str] = Field(None, max_length=128)
+    custom_category: Optional[str] = Field(None, max_length=128)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")  # reject unexpected fields
 from app.services.categories import map_plaid_category, STANDARD_CATEGORIES, CATEGORY_ICONS
 from app.services.transaction_view import expand as expand_splits
 from app.services.merchant_normalizer import normalize
@@ -23,21 +52,22 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
 @router.post("/manual", response_model=TransactionOut)
-def create_manual_transaction(body: dict, db: Session = Depends(get_db)):
+def create_manual_transaction(
+    body: ManualTransactionRequest,
+    db: Session = Depends(get_db),
+):
     """Create a manual transaction (e.g., cash purchase, tip).
 
-    Required body: amount (float, Plaid convention: positive=outflow), name (str),
-    account_id (int), date (str YYYY-MM-DD).
-    Optional: merchant_name, category, custom_category, notes.
+    Validation lives in `ManualTransactionRequest` (Pydantic) rather
+    than this handler — required fields, type coercion, length limits,
+    and amount bounds are enforced at the framework boundary so a
+    malformed body returns 422 with a clear schema error instead of
+    surfacing as a 500 from a downstream cast or NaN math.
 
     Generates a unique plaid_transaction_id with manual: prefix so manual
     entries can be distinguished from synced Plaid transactions.
     """
-    required = ["amount", "name", "account_id", "date"]
-    for field in required:
-        if field not in body:
-            raise HTTPException(400, f"Missing required field: {field}")
-    account = db.query(Account).filter(Account.id == int(body["account_id"])).first()
+    account = db.query(Account).filter(Account.id == body.account_id).first()
     if not account:
         raise HTTPException(404, "Account not found")
 
@@ -47,14 +77,14 @@ def create_manual_transaction(body: dict, db: Session = Depends(get_db)):
     manual_id = f"manual:{secrets.token_hex(8)}"
     txn = Transaction(
         plaid_transaction_id=manual_id,
-        account_id=int(body["account_id"]),
-        name=str(body["name"]),
-        merchant_name=body.get("merchant_name"),
-        amount=float(body["amount"]),
-        date=date.fromisoformat(body["date"]),
-        category=body.get("category"),
-        custom_category=body.get("custom_category"),
-        notes=body.get("notes"),
+        account_id=body.account_id,
+        name=body.name,
+        merchant_name=body.merchant_name,
+        amount=body.amount,
+        date=body.date,
+        category=body.category,
+        custom_category=body.custom_category,
+        notes=body.notes,
         pending=False,
     )
     db.add(txn)

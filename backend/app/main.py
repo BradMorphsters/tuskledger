@@ -50,6 +50,31 @@ def scheduled_sync():
         db.close()
 
 
+def _detect_listen_host() -> str | None:
+    """Best-effort read of the host this uvicorn process is bound to.
+
+    Used by the DEV_BYPASS_AUTH startup guard — if auth is bypassed,
+    the app must not be reachable from outside the machine. We can't
+    introspect uvicorn's actual socket from inside lifespan() (the
+    socket isn't bound yet at that point), so we fall back to the
+    canonical sources in priority order:
+
+      1. UVICORN_HOST env var (set by some launchers)
+      2. HOST env var (Railway / generic)
+      3. ./start.sh-style hint variable, if any
+      4. None — caller treats this as "unknown, don't crash"
+
+    Returning None on uncertainty is deliberate: a startup-time crash
+    on a false positive (e.g. some launcher we haven't seen) would be
+    worse than letting the loud DEV_BYPASS_AUTH banner do its job.
+    """
+    for var in ("UVICORN_HOST", "HOST", "TUSKLEDGER_HOST"):
+        value = os.environ.get(var)
+        if value:
+            return value.strip()
+    return None
+
+
 scheduler = BackgroundScheduler()
 
 
@@ -144,6 +169,44 @@ async def lifespan(app: FastAPI):
             "============================================================\n",
             flush=True,
         )
+        # Refuse to boot if DEV_BYPASS_AUTH is paired with a non-localhost
+        # bind. The check looks at the host uvicorn was launched with —
+        # the documented launchers (./start.sh, Tusk Ledger.command) bind
+        # to 127.0.0.1, so this only fires if someone deliberately
+        # exposes the port without flipping the auth flag back on. Better
+        # to crash loud at startup than to serve a no-auth API on a
+        # routable interface.
+        host = _detect_listen_host()
+        if host and host not in ("127.0.0.1", "localhost", "::1"):
+            raise RuntimeError(
+                f"DEV_BYPASS_AUTH is enabled but the server is bound to "
+                f"{host!r}, which is reachable from outside this machine. "
+                "Refusing to start. Either bind to 127.0.0.1 (the default) "
+                "or set DEV_BYPASS_AUTH=false in .env."
+            )
+
+    # Production-Plaid + un-verified webhooks is a forged-event hazard if
+    # the webhook endpoint ever gets exposed (tunnel, port-forward, etc.).
+    # We don't crash here because most local-only installs never expose
+    # the webhook endpoint to the public internet, so verification is
+    # moot for them — but a loud warning at every startup makes the
+    # maintainer aware before they tunnel for the first time.
+    if settings.PLAID_ENV == "production" and not settings.PLAID_WEBHOOK_VERIFY:
+        print(
+            "\n"
+            "============================================================\n"
+            "  ⚠  PLAID_ENV=production with PLAID_WEBHOOK_VERIFY=false.\n"
+            "     Safe while the webhook endpoint isn't reachable from\n"
+            "     outside this machine. The MOMENT you set up a tunnel\n"
+            "     (ngrok, cloudflared, port-forward, deployed host),\n"
+            "     enable verification:\n"
+            "         PLAID_WEBHOOK_VERIFY=true  in backend/.env\n"
+            "     Otherwise anyone who can reach /api/plaid/webhook can\n"
+            "     forge events (TRANSACTIONS_SYNCED, ITEM_LOGIN_REQUIRED,\n"
+            "     etc.) and trigger re-link / sync flows.\n"
+            "============================================================\n",
+            flush=True,
+        )
     if settings.PLAID_CLIENT_ID:
         scheduler.add_job(
             scheduled_sync,
@@ -174,13 +237,16 @@ app.add_middleware(
     # max_age omitted: cookie expires when the browser session ends
 )
 
-# CORS — allow the React dev server
+# CORS — allow the React dev server. Origins, methods, and headers
+# are all explicitly enumerated rather than wildcarded; the React
+# dev server only needs the standard CRUD verbs and Content-Type +
+# Authorization headers, so a tighter allow-list is just hygiene.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # Auth router is unprotected (login/setup must be reachable pre-auth).

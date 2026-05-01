@@ -134,7 +134,16 @@ function HealthTilesRow() {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+      // Column sizing math, no media queries:
+      //   minmax(max(320px, calc((100% - 32px) / 3)), 1fr)
+      // The min picks whichever is BIGGER between:
+      //   - 320px (a hard floor — narrower and tile content gets cramped)
+      //   - one-third of the available width minus the two 16px gaps
+      // On wide screens the calc wins, forcing exactly 3 columns. As
+      // the viewport narrows past ~992px the 320px floor takes over
+      // and auto-fit drops to 2 columns (~640px), then 1 column. No
+      // sudden reflows; tile widths grow and shrink smoothly.
+      gridTemplateColumns: 'repeat(auto-fit, minmax(max(320px, calc((100% - 32px) / 3)), 1fr))',
       // Fixed-height row units (100px each, with 16px gap between
       // them) plus per-tile `grid-row: span N` give us a magazine-
       // style layout. `grid-auto-flow: dense` packs short tiles into

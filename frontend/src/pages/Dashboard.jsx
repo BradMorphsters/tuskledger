@@ -66,50 +66,21 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v7. The previous v6 order (pulse, loans, portfolio,
-// forecast, snapshot, hsa, dcfsa) made the dense-flow algo stack
-// both tall tiles (pulse, hsa) in col 1, leaving col 3 with just
-// the portfolio tile and 6 row units of dead space below it. The
-// fix: front-load the tall tiles so they land in cols 1 + 2 of
-// row 1; standards then naturally fill col 3.
-//
-// Order rationale (with grid-auto-flow: dense across 3 cols):
-//   pulse(tall)   → col 1 rows 1-4
-//   hsa(tall)     → col 2 rows 1-4
-//   portfolio(std)→ col 3 rows 1-3   (top of col 3)
-//   loans(std)    → col 3 rows 4-6   (fills col 3 below portfolio)
-//   forecast(std) → col 1 rows 5-7   (under pulse)
-//   snapshot(std) → col 2 rows 5-7   (under hsa, when not null)
-//   dcfsa(std)    → next gap (col 3 rows 7-9 or row 8+ depending on snapshot)
-//
-// Net: cols 1 + 2 ~7 rows each, col 3 ~6 rows. Smooth-packed.
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v7'
+// Bumped to v8. Dropped the fixed-row-span tile sizing system — it
+// was forcing short tiles (Loan, DCFSA) up to 300-400px boxes that
+// their content couldn't fill, creating empty space INSIDE every
+// tile that wasn't naturally tall. Switched to the same pattern
+// SpendingIncome.jsx uses: plain grid + align-items: start, every
+// card sizes to its natural content height. Some inter-tile dead
+// zones can appear when a tall and a short tile share a row, but
+// that's much less visually offensive than half-empty boxes
+// everywhere.
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v8'
 const DEFAULT_TILE_ORDER = ['pulse', 'hsa', 'portfolio', 'loans', 'forecast', 'snapshot', 'dcfsa']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
 }
-
-// Each tile declares a size — compact / standard / tall — that maps
-// to a row span in the dashboard grid. The grid uses fixed-height
-// row units (100px each) plus `grid-auto-flow: dense` so short tiles
-// pack into the gaps left by tall tiles, magazine-style. Without
-// this the dashboard's "intentional masonry" (align-items: start)
-// produces visible dead zones whenever a tall tile sits next to a
-// short one — which is most rows.
-//
-// To change a tile's height: update its entry here, no component
-// changes required. To add a new size, add a key to SIZE_TO_ROW_SPAN.
-const TILE_SIZES = {
-  pulse:     'tall',     // FinancialPulse — runway breakdown + 4 stat bars
-  forecast:  'standard', // CashFlowForecast — chart auto-grows to fill height
-  snapshot:  'standard', // DailySnapshot — single number + delta
-  hsa:       'tall',     // HsaTracker — multi-section, multi-account
-  dcfsa:     'standard', // DcfsaTracker — empty + configured both fit standard
-  loans:     'standard', // LoanPayoffCountdown — list of loans with progress
-  portfolio: 'standard', // PortfolioSnapshot — value + allocation + top holdings
-}
-const SIZE_TO_ROW_SPAN = { compact: 2, standard: 3, tall: 4 }
 
 function HealthTilesRow() {
   const [order, setOrder] = useState(() => {
@@ -154,19 +125,16 @@ function HealthTilesRow() {
       //   - one-third of the available width minus the two 16px gaps
       // On wide screens the calc wins, forcing exactly 3 columns. As
       // the viewport narrows past ~992px the 320px floor takes over
-      // and auto-fit drops to 2 columns (~640px), then 1 column. No
-      // sudden reflows; tile widths grow and shrink smoothly.
+      // and auto-fit drops to 2 columns (~640px), then 1 column.
       gridTemplateColumns: 'repeat(auto-fit, minmax(max(320px, calc((100% - 32px) / 3)), 1fr))',
-      // Fixed-height row units (100px each, with 16px gap between
-      // them) plus per-tile `grid-row: span N` give us a magazine-
-      // style layout. `grid-auto-flow: dense` packs short tiles into
-      // the gaps left by tall tiles in the same row, so empty white
-      // space below short tiles disappears. This replaced the
-      // earlier `align-items: start` ("intentional masonry") that
-      // produced visible dead zones whenever a tall and short tile
-      // sat side-by-side.
-      gridAutoRows: '100px',
-      gridAutoFlow: 'dense',
+      // align-items: start so each tile sits at its NATURAL content
+      // height — no padding-up to a forced row size. This matches
+      // the SpendingIncome page's card pattern. The tradeoff: when
+      // a tall tile and a short tile share a row, the row stretches
+      // to the tall tile's height and you can see white space below
+      // the short one. With the current 7 tiles that's a fair price
+      // for not having every tile look half-empty.
+      alignItems: 'start',
       gap: 16, marginBottom: 24,
       position: 'relative',
     }}>
@@ -177,15 +145,12 @@ function HealthTilesRow() {
         // Skip the wrapper entirely so the grid doesn't reserve an
         // empty cell with phantom hover controls.
         if (tile === null) return null
-        const span = SIZE_TO_ROW_SPAN[TILE_SIZES[key] || 'standard']
         return (
           <div key={key} style={{
             position: 'relative',
-            // Each tile spans N row units based on its declared size.
-            // Internal layout is the tile's responsibility — most use
-            // `tileCardStyle` (height:100% + flex column) so content
-            // expands to fill the assigned grid cell.
-            gridRow: `span ${span}`,
+            // Tile wrapper hugs its content. Tile components own
+            // their own internal layout; if a tile wants to be tall
+            // it just renders tall content.
           }}>
             {tile}
             {/* Floating reorder controls — top-right of each tile.

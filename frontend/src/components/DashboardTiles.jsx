@@ -516,11 +516,13 @@ function processTxns(txns) {
 }
 
 // Shared style for all three Dashboard tiles. Makes the card fill its
-// grid cell so all tiles in a row match the tallest one's height —
-// fixes Cash Flow Forecast looking out-of-place vs Pulse / Snapshot.
+// Cards size to their natural content height. The dashboard grid uses
+// align-items: start so every tile gets exactly the vertical space its
+// content needs — no padding-up to a forced row size. Each tile is a
+// flex column so its internal sections (header, body, footer) stack
+// naturally with sensible gaps.
 const tileCardStyle = {
   width: '100%',
-  height: '100%',
   display: 'flex',
   flexDirection: 'column',
 }
@@ -1060,15 +1062,14 @@ export function DcfsaTracker() {
           </span>
         </div>
 
-        {/* Centered value-prop block. flex:1 absorbs all spare vertical
-            space so the button below stays pinned to the bottom edge. */}
+        {/* Value-prop block. No flex:1 stretching anymore — the card
+            sizes to natural content height now that the dashboard
+            grid uses align-items: start instead of fixed row spans. */}
         <div style={{
-          flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'center',
-          gap: 12,
-          padding: '8px 0',
+          gap: 10,
+          padding: '6px 0 10px',
         }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Tax-advantaged account for daycare, after-school, summer camp.{' '}
@@ -1408,12 +1409,11 @@ export function LoanPayoffCountdown() {
           Detail →
         </a>
       </div>
-      {/* Loans list. flex:1 absorbs the standard-tile vertical space
-          left over after the header, and the per-row gap stretches so
-          a single-loan tile doesn't bunch its content at the top. */}
+      {/* Loans list. Natural-height now — no flex:1 stretching since
+          the dashboard grid lets tiles size to content. */}
       <div style={{
         display: 'flex', flexDirection: 'column',
-        gap: 12, flex: 1, paddingTop: 4,
+        gap: 10, paddingTop: 4,
       }}>
         {withPayoff.map((loan, idx) => {
           const yrs = Math.floor(loan.months_remaining / 12)
@@ -1589,10 +1589,11 @@ export function PortfolioSnapshot() {
         )}
       </div>
 
-      {/* Allocation: stacked bar + small legend. flex:1 absorbs slack
-          so this sits in the middle of the tile vertically. */}
+      {/* Allocation: stacked bar + small legend. Natural height now
+          that the dashboard grid sizes tiles to content (no flex:1
+          stretching needed). */}
       {allocSlices.length > 0 && (
-        <div style={{ flex: 1, marginTop: 14, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column' }}>
           <div style={{
             fontSize: 10, color: 'var(--text-muted)',
             textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6,

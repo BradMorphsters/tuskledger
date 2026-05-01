@@ -66,12 +66,25 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v6 with the addition of the 'portfolio' tile. The
-// localStorage key is versioned so a saved v5 order (which lacks
-// 'portfolio') is invalidated and the new default takes effect.
-// Users can still rearrange via the hover ‹ › buttons on each tile.
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v6'
-const DEFAULT_TILE_ORDER = ['pulse', 'loans', 'portfolio', 'forecast', 'snapshot', 'hsa', 'dcfsa']
+// Bumped to v7. The previous v6 order (pulse, loans, portfolio,
+// forecast, snapshot, hsa, dcfsa) made the dense-flow algo stack
+// both tall tiles (pulse, hsa) in col 1, leaving col 3 with just
+// the portfolio tile and 6 row units of dead space below it. The
+// fix: front-load the tall tiles so they land in cols 1 + 2 of
+// row 1; standards then naturally fill col 3.
+//
+// Order rationale (with grid-auto-flow: dense across 3 cols):
+//   pulse(tall)   → col 1 rows 1-4
+//   hsa(tall)     → col 2 rows 1-4
+//   portfolio(std)→ col 3 rows 1-3   (top of col 3)
+//   loans(std)    → col 3 rows 4-6   (fills col 3 below portfolio)
+//   forecast(std) → col 1 rows 5-7   (under pulse)
+//   snapshot(std) → col 2 rows 5-7   (under hsa, when not null)
+//   dcfsa(std)    → next gap (col 3 rows 7-9 or row 8+ depending on snapshot)
+//
+// Net: cols 1 + 2 ~7 rows each, col 3 ~6 rows. Smooth-packed.
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v7'
+const DEFAULT_TILE_ORDER = ['pulse', 'hsa', 'portfolio', 'loans', 'forecast', 'snapshot', 'dcfsa']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',

@@ -785,8 +785,70 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
     /* Push content down so the hamburger doesn't overlap the page
        title — the toggle button itself is 40px + 12px top offset. */
     padding-top: 64px;
+    /* iOS safe-area: respect the home indicator so floating buttons +
+       page bottom don't slide under the OS chrome. The variable falls
+       back to 0 on browsers that don't expose it. */
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
   .stats-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ─── Read-only mode (mobile-aware adjustments) ─────────────────────
+   The ReadOnlyBanner adds ~30px of vertical chrome above everything.
+   When it's visible AND we're on mobile, push the hamburger down so
+   it doesn't sit ON the banner. body class is applied by the React
+   hook (TODO future: when it does); for now we use a sibling-selector
+   pattern keyed on the banner being present at the top of the layout. */
+@media (max-width: 768px) {
+  div[role="status"] + .mobile-nav-toggle {
+    top: 38px;  /* 12px default + ~26px banner height */
+  }
+  /* Add a hairline shadow under the banner so it visually separates
+     from the page when content scrolls behind it. Otherwise on dark
+     theme it can read as one continuous block. */
+  div[role="status"] {
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* ─── Phone-tier (≤480px) overrides ─────────────────────────────────
+   The 768px breakpoint covers tablets too. Real phones (375-414px
+   wide in portrait) need tighter padding, bigger touch targets, and
+   horizontal-scroll wrappers on the data-heavy tables. */
+@media (max-width: 480px) {
+  .main-content { padding: 12px; padding-top: 60px; }
+  /* Touch targets — Apple HIG calls for 44pt minimum. The default
+     button padding renders at ~32px. Bump on phone so fingers hit. */
+  .btn, .nav-link, .sidebar button { min-height: 44px; }
+  /* Tables in data pages (Transactions, Investments) overflow on
+     phone width — the columns can't all fit. Wrap them in a scroll
+     container so the user can swipe horizontally rather than the
+     whole page going wide and breaking the layout above. */
+  .card table,
+  .table-wrap table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  /* Stat cards stack to 1 column on the narrowest phones (the
+     2-column 768px override is too cramped for stat values that
+     often have 6-7 digits + a trend delta). */
+  .stats-grid { grid-template-columns: 1fr; }
+  /* Page-title font scales down so long titles don't wrap to 3 lines
+     on a 375px iPhone. */
+  .page-title { font-size: 22px; }
+  /* The Ask panel and other floating elements sit above the iOS home
+     indicator. Bump their bottom offset by the safe-area inset. */
+  button[aria-label="Open the demo Ask panel"],
+  button[aria-label="Ask a question about your finances"],
+  button[title^="Quick add transaction"] {
+    bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  button[title^="Quick add transaction"] {
+    /* QuickAddFab sits above the Ask pill — preserve the stack. */
+    bottom: max(92px, calc(env(safe-area-inset-bottom) + 68px));
+  }
 }
 
 /* ----- Auth screens (Login / Setup) ----- */

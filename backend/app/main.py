@@ -37,6 +37,7 @@ from app.routers import (
     demo,
     goals,
     loans,
+    chat,
 )
 
 
@@ -279,6 +280,10 @@ app.include_router(bills.router, dependencies=protected)
 app.include_router(goals.router, dependencies=protected)
 app.include_router(csv_import.router, dependencies=protected)
 app.include_router(loans.router, dependencies=protected)
+# Curated AI chat — pre-built prompts answered with pre-computed numbers
+# + local Ollama narration. Same protection as data routers since the
+# bundles read transactions, snapshots, and account balances.
+app.include_router(chat.router, dependencies=protected)
 
 
 @app.get("/api/health")

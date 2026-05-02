@@ -566,23 +566,41 @@ export default function NetWorth() {
 
 /**
  * RecentMovementStrip — at-a-glance "where am I vs last week / month /
- * quarter / year" deltas. Always shows even when the user has the chart
- * date-range set to something narrow like 30d, so the broader temporal
- * context is one glance away. Falls back to "—" gracefully when history
- * doesn't reach far enough back to compute a window.
+ * quarter / year" deltas.
  *
- * The lookups use the closest snapshot on or before the target date,
- * which avoids surprises around weekends/holidays when no fresh
- * snapshot was taken on the exact day.
+ * Common-account math (load-bearing): the raw `net_worth` field on
+ * each snapshot is the sum of WHATEVER accounts existed on that day.
+ * If the user onboarded a $200k 401(k) on day 5, comparing day-7 to
+ * day-1 would double-count that $200k as "growth" — but it isn't
+ * growth, it's just an account that's now visible. Tusk Ledger's
+ * first week of use is exactly when this happens (lots of accounts
+ * being connected), so the bug surfaces immediately for new users.
+ *
+ * Fix: compute the delta on the INTERSECTION of accounts present in
+ * BOTH snapshots. NetWorthSnapshot.account_balances stores
+ * `{account_id: balance}` per day, so the math is just:
+ *
+ *     common_ids = keys(latest) ∩ keys(baseline)
+ *     delta = sum(latest[id] for id in common_ids)
+ *           - sum(baseline[id] for id in common_ids)
+ *
+ * When the account set differs we surface "+N new accounts since" so
+ * the user can see both the honest market/balance change AND that
+ * more accounts are now being tracked. Old snapshots from before the
+ * account_balances column existed fall back to the raw net_worth diff
+ * with a small "noisy baseline" tag.
+ *
+ * Lookups use the latest snapshot on or before the target date so
+ * weekends/holidays don't produce false misses.
  */
 function RecentMovementStrip({ history, latestNetWorth }) {
   if (!history || history.length === 0) return null
 
-  // Sort once by date ascending, then walk a target date back from
-  // today, finding the latest snapshot on or before it.
   const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date))
+  const latest = sorted[sorted.length - 1]
   const today = new Date()
-  const findBalanceOnOrBefore = (daysAgo) => {
+
+  const findSnapshotOnOrBefore = (daysAgo) => {
     const cutoff = new Date(today)
     cutoff.setDate(cutoff.getDate() - daysAgo)
     const cutoffStr = cutoff.toISOString().slice(0, 10)
@@ -591,7 +609,49 @@ function RecentMovementStrip({ history, latestNetWorth }) {
       if (s.date <= cutoffStr) candidate = s
       else break
     }
-    return candidate ? candidate.net_worth : null
+    return candidate
+  }
+
+  const computeWindow = (baseline) => {
+    if (!baseline) return null
+    const lb = latest.account_balances
+    const bb = baseline.account_balances
+    if (!lb || !bb) {
+      // Old snapshot lacks the per-account JSON — best we can do is
+      // the raw diff, but tag it so the UI can warn the user.
+      const delta = latest.net_worth - baseline.net_worth
+      const pct = baseline.net_worth ? (delta / Math.abs(baseline.net_worth)) * 100 : null
+      return {
+        delta, pct,
+        accounts_added: 0,
+        missing_balances: true,
+        baseline_date: baseline.date,
+      }
+    }
+    const baselineIds = new Set(Object.keys(bb))
+    const latestIds = new Set(Object.keys(lb))
+    let common_baseline_total = 0
+    let common_latest_total = 0
+    for (const id of baselineIds) {
+      if (latestIds.has(id)) {
+        common_baseline_total += Number(bb[id]) || 0
+        common_latest_total += Number(lb[id]) || 0
+      }
+    }
+    // Accounts that DISAPPEARED from latest (closed/disconnected) are
+    // implicitly excluded from the delta by the common-set math, which
+    // is what we want — a closed account shouldn't count as a loss.
+    const added = [...latestIds].filter(id => !baselineIds.has(id)).length
+    const delta = common_latest_total - common_baseline_total
+    const pct = common_baseline_total
+      ? (delta / Math.abs(common_baseline_total)) * 100
+      : null
+    return {
+      delta, pct,
+      accounts_added: added,
+      missing_balances: false,
+      baseline_date: baseline.date,
+    }
   }
 
   const windows = [
@@ -601,10 +661,11 @@ function RecentMovementStrip({ history, latestNetWorth }) {
     { label: '1 year', daysAgo: 365 },
   ]
 
-  // Hide entirely if every window is unavailable — that means the user
-  // literally has zero history (first run) and the strip would just be
-  // four em-dashes.
-  const anyAvailable = windows.some(w => findBalanceOnOrBefore(w.daysAgo) !== null)
+  const computed = windows.map(w => ({
+    ...w,
+    result: computeWindow(findSnapshotOnOrBefore(w.daysAgo)),
+  }))
+  const anyAvailable = computed.some(w => w.result !== null)
   if (!anyAvailable) return null
 
   return (
@@ -614,18 +675,24 @@ function RecentMovementStrip({ history, latestNetWorth }) {
       <div style={{
         fontSize: 11, color: 'var(--text-muted)',
         textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 10,
+        display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 8,
       }}>
-        Recent movement
+        <span>Recent movement</span>
+        <span style={{
+          textTransform: 'none', letterSpacing: 0,
+          fontSize: 11, fontWeight: 400, color: 'var(--text-dim)',
+        }}>
+          deltas use accounts present in both snapshots, so newly
+          onboarded accounts don't inflate the change
+        </span>
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
       }}>
-        {windows.map(w => {
-          const prior = findBalanceOnOrBefore(w.daysAgo)
-          const delta = prior !== null ? latestNetWorth - prior : null
-          const pct = (prior !== null && prior !== 0)
-            ? (delta / Math.abs(prior)) * 100
-            : null
+        {computed.map(w => {
+          const r = w.result
+          const delta = r ? r.delta : null
+          const pct = r ? r.pct : null
           const tone = delta === null ? 'neutral' : delta >= 0 ? 'positive' : 'negative'
           const accent = tone === 'positive' ? 'var(--accent-green)'
             : tone === 'negative' ? 'var(--accent-red)'
@@ -651,6 +718,26 @@ function RecentMovementStrip({ history, latestNetWorth }) {
                   fontVariantNumeric: 'tabular-nums', marginTop: 1,
                 }}>
                   {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                </div>
+              )}
+              {r && r.accounts_added > 0 && (
+                <div
+                  title={`${r.accounts_added} account(s) added since ${r.baseline_date}. Their balances aren't included in this delta — that prevents onboarding from looking like growth.`}
+                  style={{
+                    fontSize: 10, color: 'var(--text-dim)', marginTop: 2,
+                    fontStyle: 'italic',
+                  }}>
+                  +{r.accounts_added} new acct{r.accounts_added > 1 ? 's' : ''} since
+                </div>
+              )}
+              {r && r.missing_balances && (
+                <div
+                  title="The baseline snapshot doesn't have a per-account breakdown — the delta may include accounts that didn't exist in the baseline."
+                  style={{
+                    fontSize: 10, color: 'var(--accent-orange, #fb923c)', marginTop: 2,
+                    fontStyle: 'italic',
+                  }}>
+                  noisy baseline
                 </div>
               )}
             </div>

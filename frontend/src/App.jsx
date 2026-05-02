@@ -48,6 +48,7 @@ import Setup from './pages/Setup'
 import { triggerSync, getAuthStatus, logout, refreshDemoData, setMode } from './api/client'
 import { useTheme, ThemeToggle, QuickAddFab, CommandPalette } from './components/QuickActions'
 import { BudgetAlertsMonitor, BudgetAlertsToggle } from './components/BudgetAlertsMonitor'
+import AskPanel from './components/AskPanel'
 
 export default function App() {
   const [syncing, setSyncing] = useState(false)
@@ -517,6 +518,12 @@ export default function App() {
           budget category. No UI of its own; toggled by the bell button
           in the sidebar. */}
       <BudgetAlertsMonitor />
+      {/* Ask panel — floating bottom-right button that opens a slide-in
+          panel of curated questions answered by the local LLM with
+          pre-computed numbers. Mounted globally so it's available on
+          every page. (Only renders for authenticated users — this
+          render branch already gates on authState.authenticated.) */}
+      <AskPanel />
     </div>
   )
 }

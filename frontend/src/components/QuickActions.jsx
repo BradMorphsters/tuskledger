@@ -77,7 +77,9 @@ export function QuickAddFab({ onSaved }) {
         onClick={() => setOpen(true)}
         title="Quick add transaction (Cmd-K → 'add' for keyboard equivalent)"
         style={{
-          position: 'fixed', bottom: 24, right: 24,
+          // Stacked above the AskPanel pill (which lives at bottom: 24).
+          // 92 = 24 (Ask bottom) + ~36 (Ask pill height) + ~32 (gap).
+          position: 'fixed', bottom: 92, right: 24,
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--accent-green)',
           color: '#0d0e14', border: 'none',

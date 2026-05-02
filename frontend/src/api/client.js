@@ -138,6 +138,22 @@ export const getInsights = (limit = 5) =>
 // regen (used by the refresh button on the card after a Plaid sync).
 export const getInsightsNarrative = ({ refresh = false } = {}) =>
   request(`/analytics/narrative${refresh ? '?refresh=true' : ''}`);
+// In-app Ask panel — curated chat prompts answered by local Ollama
+// with pre-computed numbers. Pair of endpoints:
+//   GET  /chat/prompts   → catalog the panel renders as chips
+//   POST /chat/answer    → run one prompt at one horizon, get prose +
+//                          the JSON bundle the prose was derived from
+// Backend returns one of:
+//   {answer, source: "ollama"|"demo", model, generated_at, bundle}
+//   {answer: null, source: "disabled", ..., bundle}      — LLM off
+//   503 on Ollama unreachable (request() throws)
+export const getChatPrompts = () => request('/chat/prompts');
+export const getChatAnswer = ({ promptId, horizon }) =>
+  request('/chat/answer', {
+    method: 'POST',
+    body: JSON.stringify({ prompt_id: promptId, horizon }),
+  });
+
 // Top merchants by total spend over the lookback window.
 export const getTopMerchants = (months = 6, limit = 20, businessId = null) => {
   const params = new URLSearchParams({ months: String(months), limit: String(limit) })

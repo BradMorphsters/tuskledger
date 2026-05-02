@@ -112,11 +112,12 @@ class OllamaClient:
         LLMUnavailable on any transport failure, non-200 response, or
         malformed JSON — the caller decides what to show the user.
 
-        We deliberately do NOT stream here. Streaming is a nice polish
-        for the front-end (token-by-token reveal) but adds plumbing
-        through FastAPI + the React fetch call that's not worth the
-        complexity for the spike. If we keep the feature, streaming
-        becomes an obvious follow-up.
+        Both this and `complete_stream()` exist on purpose. Streaming
+        is the better UX for live request-response (the Ask panel,
+        the AI Insights card), but the non-streaming path is still
+        what we want for the daily-cached narrative path (cache hit
+        returns whole string immediately) and any future server-side
+        consumer that just wants the final text.
         """
         payload = {
             "model": self.model,
@@ -152,3 +153,66 @@ class OllamaClient:
                 f"Ollama returned no content; raw response keys: {list(data)}"
             )
         return content.strip()
+
+    def complete_stream(self, system: str, user: str):
+        """Streaming chat completion. Yields content chunks as the model
+        produces them.
+
+        Why this exists: a 7B model on Apple Silicon takes 5-15 seconds
+        to write a 250-token narrative. That's a long time to stare at
+        a spinner. Streaming makes the UX feel ~10x faster for the same
+        wall-clock time because the user starts reading word one within
+        ~100ms instead of waiting for word N.
+
+        Yields strings (one per Ollama chunk — typically 1-5 tokens
+        each). Caller is responsible for accumulating them. Raises
+        LLMUnavailable on any transport failure, mid-stream or before.
+        Caller should always wrap the for-loop in try/except.
+
+        Implementation note: Ollama's /api/chat with stream=True returns
+        NDJSON — one JSON object per line, each with a `message.content`
+        chunk and a final `done: True` row. We use httpx's streaming
+        context so we don't block on the full body; the timeout applies
+        to each socket read, not the whole request.
+        """
+        payload = {
+            "model": self.model,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 400,
+            },
+        }
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=COMPLETION_TIMEOUT_S,
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    # Ollama emits one JSON object per line. A malformed
+                    # line is fatal — the model produced something we
+                    # can't parse, so the whole stream is suspect.
+                    import json as _json
+                    try:
+                        data = _json.loads(line)
+                    except ValueError as e:
+                        raise LLMUnavailable(
+                            f"Ollama emitted unparseable line: {line[:100]!r}"
+                        ) from e
+                    msg = data.get("message") or {}
+                    chunk = msg.get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        return
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            raise LLMUnavailable(f"Ollama stream failed: {e}") from e

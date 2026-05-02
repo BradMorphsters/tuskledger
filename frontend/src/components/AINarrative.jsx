@@ -26,9 +26,9 @@
  * this is one card per Dashboard, not a list. If the user wants it
  * gone, they flip LLM_ENABLED off in .env.
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Sparkles, Settings, AlertTriangle, RefreshCw } from 'lucide-react'
-import { getInsightsNarrative } from '../api/client'
+import { getInsightsNarrative, streamInsightsNarrative } from '../api/client'
 
 /**
  * Format an ISO timestamp as a short, human-readable freshness label.
@@ -54,13 +54,16 @@ function formatGeneratedAt(iso) {
 export default function AINarrative() {
   const [state, setState] = useState({ status: 'loading' })
   const [isRefreshing, setIsRefreshing] = useState(false)
+  // Tracks the in-flight stream cancel function so we can abort if the
+  // user navigates away or hits Refresh again mid-stream.
+  const cancelRef = useRef(null)
 
-  // Single fetch helper used both for the initial mount and for the
-  // refresh button. `force=true` adds ?refresh=true so the backend
-  // bypasses its daily cache and runs Ollama fresh.
-  const fetchNarrative = useCallback((force = false) => {
-    if (force) setIsRefreshing(true)
-    return getInsightsNarrative({ refresh: force })
+  // Initial-load fetch: ALWAYS non-streaming. If yesterday's cache is
+  // still warm (same calendar day), backend returns the full text
+  // instantly with from_cache=true — no point streaming a string we
+  // already have. Only the Refresh button triggers a fresh stream.
+  const fetchNarrative = useCallback(() => {
+    return getInsightsNarrative({ refresh: false })
       .then((data) => {
         if (data && data.narrative) {
           setState({
@@ -71,8 +74,12 @@ export default function AINarrative() {
             generatedAt: data.generated_at,
             fromCache: data.from_cache,
           })
-        } else {
+        } else if (data && data.source === 'disabled') {
           setState({ status: 'disabled' })
+        } else {
+          // No cached value AND not demo/disabled — fall through to a
+          // streaming refresh so the user watches the model write.
+          streamRefresh()
         }
       })
       .catch((err) => {
@@ -81,17 +88,70 @@ export default function AINarrative() {
         // user-actionable ("Run `ollama pull llama3.1:8b`") — surface it.
         setState({ status: 'setup', detail: String(err.message || err) })
       })
-      .finally(() => setIsRefreshing(false))
+  }, [])
+
+  // Streaming refresh — used for the Refresh button and for first-load
+  // when the cache is empty. Bypasses the daily cache server-side.
+  // Renders prose token-by-token so the user sees writing happen
+  // instead of staring at a spinner.
+  const streamRefresh = useCallback(() => {
+    // Cancel any prior in-flight stream so re-clicking Refresh doesn't
+    // interleave two streams into one paragraph.
+    if (cancelRef.current) cancelRef.current()
+    setIsRefreshing(true)
+    // Reset to a streaming-specific status so the loading skeleton
+    // doesn't flash if we were already 'ready'.
+    setState((prev) => prev.status === 'ready'
+      ? { ...prev, narrative: '', isStreaming: true }
+      : { status: 'streaming', narrative: '' })
+    let metaSnapshot = null
+    let accumulated = ''
+    cancelRef.current = streamInsightsNarrative({
+      onMeta: (meta) => {
+        metaSnapshot = meta
+        // If LLM is disabled mid-stream (shouldn't happen, but be
+        // defensive), surface it the same way the JSON path does.
+        if (meta.source === 'disabled') {
+          setState({ status: 'disabled' })
+        }
+      },
+      onDelta: (chunk) => {
+        accumulated += chunk
+        setState((prev) => ({
+          ...prev,
+          status: 'ready',
+          narrative: accumulated,
+          source: metaSnapshot?.source ?? prev.source,
+          model: metaSnapshot?.model ?? prev.model,
+          generatedAt: metaSnapshot?.generated_at ?? prev.generatedAt,
+          fromCache: false,
+          isStreaming: true,
+        }))
+      },
+      onDone: () => {
+        setState((prev) => ({ ...prev, isStreaming: false }))
+        setIsRefreshing(false)
+        cancelRef.current = null
+      },
+      onError: (detail) => {
+        setState({ status: 'setup', detail })
+        setIsRefreshing(false)
+        cancelRef.current = null
+      },
+    })
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-    fetchNarrative(false).catch(() => {})
-    return () => { cancelled = true }
+    fetchNarrative().catch(() => {})
+    return () => {
+      // Component unmounting mid-stream — abort the fetch so we don't
+      // leak a reader after the React tree is gone.
+      if (cancelRef.current) cancelRef.current()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (state.status === 'loading') {
+  if (state.status === 'loading' || (state.status === 'streaming' && !state.narrative)) {
     // Skeleton matches the dimensions of the rendered card so the page
     // doesn't reflow when the narrative arrives. Three lines of fake
     // text at decreasing widths reads as "paragraph loading" without
@@ -239,7 +299,7 @@ export default function AINarrative() {
         {!isDemo && (
           <button
             type="button"
-            onClick={() => fetchNarrative(true)}
+            onClick={() => streamRefresh()}
             disabled={isRefreshing}
             title={isRefreshing ? 'Generating fresh narrative…' : 'Regenerate narrative now (e.g. after a Plaid sync)'}
             style={{
@@ -278,6 +338,18 @@ export default function AINarrative() {
           color: 'var(--text-secondary)',
         }}>
           {p}
+          {/* Blinking caret on the last paragraph while a stream is in
+              flight — visual signal that more text is coming. */}
+          {state.isStreaming && i === paragraphs.length - 1 && (
+            <span aria-hidden="true" style={{
+              display: 'inline-block',
+              width: 7, height: 14,
+              marginLeft: 2,
+              background: 'var(--accent-purple)',
+              animation: 'blink 1s step-end infinite',
+              verticalAlign: 'text-bottom',
+            }} />
+          )}
         </p>
       ))}
       {/* Inline keyframe so the refresh icon spins without needing a
@@ -287,6 +359,10 @@ export default function AINarrative() {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to   { transform: rotate(360deg); }
+        }
+        @keyframes blink {
+          0%, 50%   { opacity: 1; }
+          50.01%, 100% { opacity: 0; }
         }
       `}</style>
     </div>

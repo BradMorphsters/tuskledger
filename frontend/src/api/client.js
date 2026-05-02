@@ -138,11 +138,97 @@ export const getInsights = (limit = 5) =>
 // regen (used by the refresh button on the card after a Plaid sync).
 export const getInsightsNarrative = ({ refresh = false } = {}) =>
   request(`/analytics/narrative${refresh ? '?refresh=true' : ''}`);
+
+// Streaming variant — same handler shape as streamChatAnswer. Used by
+// AINarrative.jsx for the Refresh button (and on first load when
+// nothing's cached) so the user watches the model write rather than
+// staring at a spinner. Bypasses the daily cache server-side.
+export const streamInsightsNarrative = (handlers) =>
+  streamSSE(`${BASE}/analytics/narrative?stream=true`, {
+    method: 'GET',
+    credentials: 'include',
+  }, handlers);
+
+// ─── Server-Sent Events helper ───────────────────────────────────
+//
+// Why fetch+ReadableStream and not native EventSource: EventSource is
+// GET-only, doesn't let us send credentials reliably across browsers,
+// and can't carry a request body. POST /chat/answer needs a body, so
+// we use fetch's response.body stream and parse SSE frames ourselves.
+// Same code path handles GET (for /analytics/narrative).
+//
+// Frame format (per chat.py and analytics.py):
+//   data: {"meta": {...}}
+//   data: {"delta": "<chunk>"}
+//   data: {"done": true}
+//   data: {"error": "..."}
+//
+// Returns a cancel function. Call it to abort the fetch (e.g. when the
+// user closes the panel mid-stream).
+export function streamSSE(url, fetchInit, handlers) {
+  const controller = new AbortController();
+  const init = { ...fetchInit, signal: controller.signal };
+
+  (async () => {
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      if (err.name !== 'AbortError') handlers.onError?.(String(err.message || err));
+      return;
+    }
+    if (!res.ok) {
+      // Try to parse a JSON error body (FastAPI 503 detail). Falls
+      // back to status text if the body isn't JSON.
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch {}
+      handlers.onError?.(detail);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE frames are delimited by \n\n. Split on it; the final
+        // chunk may be incomplete (no trailing \n\n yet) — keep it
+        // in the buffer for the next iteration.
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          // Each frame is one or more `data: ...` lines. Concatenate
+          // the data values per the SSE spec (we only emit one data
+          // line per frame, but be liberal).
+          const data = frame
+            .split('\n')
+            .filter(l => l.startsWith('data:'))
+            .map(l => l.slice(5).trim())
+            .join('');
+          if (!data) continue;
+          let payload;
+          try { payload = JSON.parse(data); } catch { continue; }
+          if (payload.meta) handlers.onMeta?.(payload.meta);
+          if (payload.delta) handlers.onDelta?.(payload.delta);
+          if (payload.error) { handlers.onError?.(payload.error); return; }
+          if (payload.done) { handlers.onDone?.(); return; }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') handlers.onError?.(String(err.message || err));
+    }
+  })();
+
+  return () => controller.abort();
+}
 // In-app Ask panel — curated chat prompts answered by local Ollama
 // with pre-computed numbers. Pair of endpoints:
 //   GET  /chat/prompts   → catalog the panel renders as chips
-//   POST /chat/answer    → run one prompt at one horizon, get prose +
-//                          the JSON bundle the prose was derived from
+//   POST /chat/answer    → run one prompt at one horizon
+//                            stream=false (default): single JSON body
+//                            stream=true: Server-Sent Events
 // Backend returns one of:
 //   {answer, source: "ollama"|"demo", model, generated_at, bundle}
 //   {answer: null, source: "disabled", ..., bundle}      — LLM off
@@ -153,6 +239,25 @@ export const getChatAnswer = ({ promptId, horizon }) =>
     method: 'POST',
     body: JSON.stringify({ prompt_id: promptId, horizon }),
   });
+
+// Streaming variant of getChatAnswer. Calls back as tokens arrive so
+// the panel can render prose live. SSE protocol: each frame is one of
+// {meta}, {delta}, {done}, {error}. The streamSSE helper below does
+// the parsing; this function just wires the chat-specific request.
+//
+// Usage:
+//   const cancel = streamChatAnswer(
+//     { promptId: 'spending_total', horizon: '1mo' },
+//     { onMeta, onDelta, onDone, onError }
+//   )
+//   // call cancel() to abort mid-stream (user closes the panel)
+export const streamChatAnswer = ({ promptId, horizon }, handlers) =>
+  streamSSE(`${BASE}/chat/answer?stream=true`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ prompt_id: promptId, horizon }),
+  }, handlers);
 
 // Top merchants by total spend over the lookback window.
 export const getTopMerchants = (months = 6, limit = 20, businessId = null) => {

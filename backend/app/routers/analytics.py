@@ -2280,50 +2280,69 @@ def get_insights(
 _NARRATIVE_CACHE: dict[str, dict] = {}  # key: ISO date, value: response dict
 
 
+def _sse_frame(payload: dict) -> str:
+    """SSE wire format helper — same shape as chat.py's _sse(). Kept
+    duplicated here so the narrative module has no router-to-router
+    import dependency."""
+    import json as _json
+    return f"data: {_json.dumps(payload)}\n\n"
+
+
 @router.get("/narrative")
 def get_narrative(
     request: Request,
     db: Session = Depends(get_db),
     refresh: bool = Query(default=False, description="Bypass the daily cache and force a fresh LLM call"),
+    stream: bool = Query(default=False, description="When true, return Server-Sent Events instead of JSON. Used by the AINarrative card to render tokens as they arrive — same wall-clock time, far better perceived latency. Streaming bypasses the cache (the point is to see the model write live); non-streaming still hits cache."),
 ):
     """Plain-English summary of this month's finances for the Dashboard.
 
-    Returns canned text in demo mode so screenshots work offline.
-    Returns the LLM-generated text when LLM_ENABLED=true and Ollama is
-    reachable. Returns a `disabled` source when the feature is off, so
-    the frontend can show its setup-hint state.
+    Two response modes via the `stream` query param:
+      - stream=false (default): single JSON body, cache-aware. This is
+        what the daily-cached card uses on subsequent visits — instant
+        return of yesterday's text without re-running the model.
+      - stream=true: Server-Sent Events. Bypasses the cache (the whole
+        point is watching the model write). Frontend uses this for
+        the "Refresh" button and for the first-of-day generation.
 
-    Result is cached for the calendar day; pass `?refresh=true` to
-    force a regen (used by the refresh button on the card).
+    Demo mode and disabled mode also stream when `stream=true`, but
+    emit the entire text in one delta frame so the frontend code path
+    is uniform. Demo never caches; disabled never reaches the LLM.
     """
     is_demo = request.cookies.get("fintrack_mode") == "demo"
     now_iso = datetime.utcnow().isoformat() + "Z"
 
     if is_demo:
-        return {
-            "narrative": DEMO_NARRATIVE,
-            "source": "demo",
-            "model": None,
-            "generated_at": now_iso,
-            "from_cache": False,
+        meta = {
+            "source": "demo", "model": None,
+            "generated_at": now_iso, "from_cache": False,
         }
+        if stream:
+            def _gen():
+                yield _sse_frame({"meta": meta})
+                yield _sse_frame({"delta": DEMO_NARRATIVE})
+                yield _sse_frame({"done": True})
+            return StreamingResponse(_gen(), media_type="text/event-stream")
+        return {"narrative": DEMO_NARRATIVE, **meta}
 
     if not settings.LLM_ENABLED:
-        return {
-            "narrative": None,
-            "source": "disabled",
-            "model": None,
-            "generated_at": now_iso,
-            "from_cache": False,
+        meta = {
+            "source": "disabled", "model": None,
+            "generated_at": now_iso, "from_cache": False,
         }
+        if stream:
+            def _gen():
+                yield _sse_frame({"meta": meta})
+                yield _sse_frame({"done": True})
+            return StreamingResponse(_gen(), media_type="text/event-stream")
+        return {"narrative": None, **meta}
 
     today_key = date.today().isoformat()
 
-    # Serve from cache unless the caller explicitly asked for fresh.
-    # Cache hit returns the original `generated_at` (when the LLM
-    # actually ran) so the frontend's "Generated at" label stays
-    # truthful — not the time of THIS request.
-    if not refresh and today_key in _NARRATIVE_CACHE:
+    # Cache path is non-streaming only — there's nothing to "stream"
+    # about a cached string, and bypassing the cache when streaming is
+    # the right default (Refresh button always wants fresh).
+    if not stream and not refresh and today_key in _NARRATIVE_CACHE:
         cached = _NARRATIVE_CACHE[today_key]
         return {**cached, "from_cache": True}
 
@@ -2351,18 +2370,45 @@ def get_narrative(
             ),
         )
 
+    user_prompt = build_user_prompt(bundle)
+    meta = {
+        "source": "ollama", "model": settings.LLM_MODEL,
+        "generated_at": now_iso, "from_cache": False,
+    }
+
+    if stream:
+        # Build the full text alongside streaming so we can populate
+        # the cache when the stream completes. Subsequent (non-stream)
+        # GETs that same day get the cached value instantly.
+        def event_stream():
+            yield _sse_frame({"meta": meta})
+            chunks = []
+            try:
+                for chunk in client.complete_stream(SYSTEM_PROMPT, user_prompt):
+                    chunks.append(chunk)
+                    yield _sse_frame({"delta": chunk})
+            except LLMUnavailable as e:
+                yield _sse_frame({"error": str(e)})
+                return
+            # Stream completed cleanly — save the full text to cache so
+            # the same calendar day's later non-stream loads are instant.
+            full_text = "".join(chunks).strip()
+            if full_text:
+                _NARRATIVE_CACHE.clear()
+                _NARRATIVE_CACHE[today_key] = {
+                    "narrative": full_text, **meta,
+                }
+            yield _sse_frame({"done": True})
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # Non-streaming path — back-compat for any caller still using the
+    # one-shot JSON response.
     try:
-        text = client.complete(SYSTEM_PROMPT, build_user_prompt(bundle))
+        text = client.complete(SYSTEM_PROMPT, user_prompt)
     except LLMUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
-    result = {
-        "narrative": text,
-        "source": "ollama",
-        "model": settings.LLM_MODEL,
-        "generated_at": now_iso,
-        "from_cache": False,
-    }
+    result = {"narrative": text, **meta}
 
     # Replace the whole cache (single-entry, date-keyed). This auto-
     # evicts yesterday's entry when today's first request lands —

@@ -4,8 +4,11 @@ LLM with pre-computed numbers.
 
 Two endpoints:
 
-    GET  /api/chat/prompts       → catalog the UI renders as chips
-    POST /api/chat/answer        → run a chosen prompt + horizon
+    GET  /api/chat/prompts                    → catalog the UI renders as chips
+    POST /api/chat/answer                     → run a chosen prompt + horizon
+    POST /api/chat/answer?stream=true         → SAME, but Server-Sent Events
+                                                  so the frontend can show
+                                                  tokens as they arrive
 
 This is a curated companion to the Ollama AI Insights card on the
 Dashboard. The Insights card writes one paragraph per day from a fixed
@@ -18,7 +21,16 @@ in the response was computed by a Python handler in
 JSON it was handed. This is what keeps an 8B local model from being a
 liability in a finance app.
 
-Three response shapes the frontend handles:
+Streaming protocol (when ?stream=true):
+  Server-Sent Events, each line `data: <json>\\n\\n`. Frames:
+    {"meta": {source, model, generated_at, bundle}}   — first frame
+    {"delta": "<chunk>"}                               — N times
+    {"done": true}                                     — final frame
+    {"error": "..."}                                   — on failure
+  Demo mode and LLM-disabled mode also stream, but emit the entire
+  text in a single `delta` frame so the frontend code path is uniform.
+
+Non-streaming response shapes (default):
   200 {answer, source: "ollama"|"demo", model, generated_at, bundle}
   200 {answer: null, source: "disabled", ...}      — LLM_ENABLED=false
   503                                               — Ollama unreachable
@@ -29,10 +41,12 @@ on a machine without Ollama installed (matching the AI Insights card).
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -51,6 +65,25 @@ from app.services.llm_ollama import LLMUnavailable, OllamaClient
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _sse(payload: dict) -> str:
+    """Serialize one SSE frame. Single source of truth for the wire format
+    so the frontend parser only needs to handle one shape."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _streaming_canned_response(text: str, meta: dict):
+    """Stream a canned (demo / disabled-mode) string to keep the frontend
+    code path uniform between modes. The frontend doesn't need to special-
+    case demo mode — it just sees `meta` then a single `delta` then `done`,
+    same as a real LLM stream that produced one chunk."""
+    def _gen():
+        yield _sse({"meta": meta})
+        if text:
+            yield _sse({"delta": text})
+        yield _sse({"done": True})
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
 # ─── Request / response shapes ─────────────────────────────────────────
@@ -89,28 +122,29 @@ def get_answer(
     body: AnswerRequest,
     request: Request,
     db: Session = Depends(get_db),
+    stream: bool = Query(default=False, description="When true, return Server-Sent Events instead of a single JSON body. The frontend Ask panel uses this to render tokens as they arrive — same wall-clock time, ~10x better perceived latency."),
 ):
     """Run one curated prompt at one horizon and return the LLM answer.
 
-    Order of operations:
-      1. Validate prompt_id + horizon against the registry (404 if
-         unknown — the frontend should never send these, so this is a
-         defense-in-depth check, not a UX path).
-      2. If demo mode → return canned answer (no Ollama needed).
-      3. Build the structured bundle from the DB.
-      4. If LLM_ENABLED=false → return the bundle with a `disabled`
-         source so the UI can render the raw numbers itself as a
-         fallback. (The AI Insights card returns answer:null in this
-         case, but here returning the bundle gives users without
-         Ollama some value: they still see the headline number.)
-      5. Pre-flight Ollama health + model presence (so users get a
-         clean 503 instead of a 60s hang on first request).
-      6. Call the model, return the prose + the bundle the prose was
-         derived from.
+    Two response modes via the `stream` query param:
+      - stream=false (default): single JSON body, same shape as before.
+      - stream=true: Server-Sent Events — first frame is `meta` with
+        the source/bundle/etc., then N `delta` frames with prose
+        chunks, then `done`. Demo and disabled modes still stream so
+        the frontend code path is uniform; they just emit the whole
+        text in one delta frame.
 
-    The bundle is included in the success response so the frontend can
-    show the raw numbers underneath the prose if it wants to (helpful
-    for verification — "trust but verify the LLM").
+    Order of operations is shared between modes:
+      1. Validate prompt_id + horizon against the registry.
+      2. Demo mode → canned answer (no Ollama call).
+      3. Build the structured bundle from the DB (the no-hallucination
+         invariant lives here — every dollar in the response comes
+         from this).
+      4. LLM disabled → return bundle with source="disabled" so the
+         frontend templated fallback can render the raw numbers.
+      5. Ollama pre-flight (fast 503 instead of 60s hang on first
+         request).
+      6. Call the model. Streaming or block depending on the mode.
     """
     # Step 1: validate the request against the registry.
     if body.prompt_id not in known_prompt_ids():
@@ -134,14 +168,15 @@ def get_answer(
     # Step 2: demo short-circuit. Return the canned string regardless of
     # whether Ollama is up — same rationale as AI Insights demo mode.
     if is_demo:
-        canned = demo_answer(body.prompt_id, body.horizon)
-        return {
-            "answer": canned or "(no demo answer configured for this question)",
-            "source": "demo",
-            "model": None,
-            "generated_at": now_iso,
-            "bundle": None,
+        canned = demo_answer(body.prompt_id, body.horizon) or \
+            "(no demo answer configured for this question)"
+        meta = {
+            "source": "demo", "model": None,
+            "generated_at": now_iso, "bundle": None,
         }
+        if stream:
+            return _streaming_canned_response(canned, meta)
+        return {"answer": canned, **meta}
 
     # Step 3: build the JSON bundle (this is the part with the actual
     # numbers — every dollar figure in the response originates here).
@@ -151,13 +186,19 @@ def get_answer(
     # falls back to a templated one-liner derived from `bundle` so the
     # user still sees the number even without Ollama installed.
     if not settings.LLM_ENABLED:
-        return {
-            "answer": None,
-            "source": "disabled",
-            "model": None,
-            "generated_at": now_iso,
-            "bundle": bundle,
+        meta = {
+            "source": "disabled", "model": None,
+            "generated_at": now_iso, "bundle": bundle,
         }
+        if stream:
+            # Stream the meta + an empty delta + done. Frontend treats
+            # missing answer as "use templated fallback derived from
+            # bundle" — same behavior as the non-streaming path.
+            def _gen():
+                yield _sse({"meta": meta})
+                yield _sse({"done": True})
+            return StreamingResponse(_gen(), media_type="text/event-stream")
+        return {"answer": None, **meta}
 
     # Step 5: Ollama pre-flight checks. Same logic as the narrative
     # endpoint — fast 503 with actionable detail beats a hang.
@@ -179,12 +220,33 @@ def get_answer(
             ),
         )
 
-    # Step 6: run the completion. No caching here on purpose — the
-    # answers are short and the user expects them to reflect "right
-    # now" data when they open the panel. If this becomes a perf
-    # problem we can add a (prompt_id, horizon, day) cache like
-    # _NARRATIVE_CACHE in analytics.
     user_prompt = build_user_prompt(body.prompt_id, body.horizon, bundle)
+    meta = {
+        "source": "ollama", "model": settings.LLM_MODEL,
+        "generated_at": now_iso, "bundle": bundle,
+    }
+
+    # Step 6a: streaming path. Frontend renders tokens as they arrive.
+    if stream:
+        def event_stream():
+            # Frame 1: metadata. The frontend uses this to populate the
+            # raw-numbers disclosure and the "local · llama3.1:8b" tag
+            # before any prose has arrived, so the panel doesn't reflow
+            # when the first token lands.
+            yield _sse({"meta": meta})
+            try:
+                for chunk in client.complete_stream(CHAT_SYSTEM_PROMPT, user_prompt):
+                    yield _sse({"delta": chunk})
+            except LLMUnavailable as e:
+                # Mid-stream failures emit an error frame rather than
+                # raising — the frontend has already started rendering
+                # the panel and a thrown exception would orphan the UI.
+                yield _sse({"error": str(e)})
+                return
+            yield _sse({"done": True})
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # Step 6b: non-streaming path (back-compat / server-side consumers).
     try:
         text = client.complete(CHAT_SYSTEM_PROMPT, user_prompt)
     except LLMUnavailable as e:

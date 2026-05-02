@@ -31,7 +31,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Sparkles, X, ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react'
-import { getChatPrompts, getChatAnswer } from '../api/client'
+import { getChatPrompts, streamChatAnswer } from '../api/client'
 
 
 // ─── Fallback prose when LLM is disabled ──────────────────────────────
@@ -450,38 +450,70 @@ function PromptListSkeleton() {
 // ─── Chat view: question + answer + back link ──────────────────────────
 
 function ChatView({ active, onBack, onClose }) {
-  // Keep the most recent successful answer mounted while a refresh is
-  // in flight — feels less janky than blanking the panel.
+  // Streaming state machine. Status transitions:
+  //   loading  → first chunk arrives → ready (with isStreaming=true)
+  //   ready    → done frame arrives  → ready (isStreaming=false)
+  //   loading  → error frame         → error
+  // The `isStreaming` flag drives the blinking cursor in AssistantMessage
+  // and tells the panel "more text is coming, don't show retry button yet."
   const [state, setState] = useState({ status: 'loading' })
-  const reqIdRef = useRef(0)
+  const cancelRef = useRef(null)
 
   const run = useCallback(() => {
     if (!active) return
-    const myReq = ++reqIdRef.current
-    setState((prev) => ({
-      status: 'loading',
-      // preserve last answer if any so the slide-in feels continuous
-      previous: prev.status === 'ready' ? prev : null,
-    }))
-    getChatAnswer({ promptId: active.prompt.id, horizon: active.horizon })
-      .then((data) => {
-        if (myReq !== reqIdRef.current) return
-        setState({
-          status: 'ready',
-          answer: data.answer,
-          source: data.source,
-          model: data.model,
-          generatedAt: data.generated_at,
-          bundle: data.bundle,
-        })
-      })
-      .catch((err) => {
-        if (myReq !== reqIdRef.current) return
-        setState({ status: 'error', detail: String(err.message || err) })
-      })
+    // Abort any in-flight stream from a prior question so retries don't
+    // interleave two answers in the same paragraph.
+    if (cancelRef.current) cancelRef.current()
+    setState({ status: 'loading' })
+    let metaSnapshot = null
+    let accumulated = ''
+    cancelRef.current = streamChatAnswer(
+      { promptId: active.prompt.id, horizon: active.horizon },
+      {
+        onMeta: (meta) => { metaSnapshot = meta },
+        onDelta: (chunk) => {
+          accumulated += chunk
+          setState({
+            status: 'ready',
+            answer: accumulated,
+            source: metaSnapshot?.source,
+            model: metaSnapshot?.model,
+            generatedAt: metaSnapshot?.generated_at,
+            bundle: metaSnapshot?.bundle,
+            isStreaming: true,
+          })
+        },
+        onDone: () => {
+          // Special case for LLM disabled / demo with empty delta — we
+          // never set status to 'ready' through onDelta, so do it here
+          // with whatever metadata we got.
+          setState((prev) => prev.status === 'ready'
+            ? { ...prev, isStreaming: false }
+            : {
+                status: 'ready',
+                answer: accumulated,
+                source: metaSnapshot?.source,
+                model: metaSnapshot?.model,
+                generatedAt: metaSnapshot?.generated_at,
+                bundle: metaSnapshot?.bundle,
+                isStreaming: false,
+              })
+          cancelRef.current = null
+        },
+        onError: (detail) => {
+          setState({ status: 'error', detail })
+          cancelRef.current = null
+        },
+      }
+    )
   }, [active])
 
-  useEffect(() => { run() }, [run])
+  useEffect(() => {
+    run()
+    // Aborts the stream if the user navigates away or picks a different
+    // prompt before the current answer finishes.
+    return () => { if (cancelRef.current) cancelRef.current() }
+  }, [run])
 
   if (!active) return null
 
@@ -672,12 +704,35 @@ function AssistantMessage({ state, onRetry, promptId }) {
           fontSize: 14,
           lineHeight: 1.55,
           color: 'var(--text-secondary, #c0c0d0)',
-        }}>{p}</p>
+        }}>
+          {p}
+          {/* Blinking caret on the last paragraph while a stream is
+              still in flight — visual signal that more text is coming.
+              Same pattern as AINarrative.jsx. */}
+          {state.isStreaming && i === paragraphs.length - 1 && (
+            <span aria-hidden="true" style={{
+              display: 'inline-block',
+              width: 7, height: 14,
+              marginLeft: 2,
+              background: 'var(--accent-purple, #7c6cf0)',
+              animation: 'ask-blink 1s step-end infinite',
+              verticalAlign: 'text-bottom',
+            }} />
+          )}
+        </p>
       ))}
       {/* Trust-but-verify: an expandable raw-numbers block. The model
           only restates these, but power users may want to see the
-          underlying bundle. */}
-      {state.bundle && <BundleDisclosure bundle={state.bundle} />}
+          underlying bundle. Hidden while still streaming so it doesn't
+          flash open with a partial bundle (it shouldn't — bundle is in
+          the meta frame — but defensive). */}
+      {state.bundle && !state.isStreaming && <BundleDisclosure bundle={state.bundle} />}
+      <style>{`
+        @keyframes ask-blink {
+          0%, 50%   { opacity: 1; }
+          50.01%, 100% { opacity: 0; }
+        }
+      `}</style>
     </div>
   )
 }

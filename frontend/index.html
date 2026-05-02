@@ -2,13 +2,64 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      viewport-fit=cover lets us paint into the iPhone safe areas
+      (notch / home indicator). Pair with env(safe-area-inset-*) in
+      CSS so floating UI doesn't sit under the home bar.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Tusk Ledger</title>
+
+    <!--
+      PWA: when the user taps "Add to Home Screen" on iOS or
+      "Install" in Chrome, the manifest tells the OS the app's name,
+      icons, theme, and start URL. theme-color paints the iOS status
+      bar / Android URL bar to match the app background so launch
+      doesn't flash white.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0f1117" />
+
+    <!-- iOS-specific PWA hints. apple-mobile-web-app-capable=yes
+         removes Safari's chrome when launched from the home screen;
+         status-bar-style=black-translucent lets the page content sit
+         under the status bar (we handle insets in CSS). -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Tusk" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Browser tab icon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <!--
+      Service worker registration. Inline (vs. in main.jsx) so it
+      registers even if the JS bundle fails to parse — gives us a
+      shot at offline cache hydration regardless of build state.
+      Only registers in production-like contexts; localhost dev
+      works fine but we skip when on file:// or in environments
+      without SW support.
+    -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker
+            .register('/sw.js', { scope: '/' })
+            .catch((err) => {
+              // Don't break the app if SW fails to install — the page
+              // works fine without it, just slower on subsequent
+              // launches.
+              console.warn('[tuskledger] SW registration failed:', err);
+            });
+        });
+      }
+    </script>
   </body>
 </html>

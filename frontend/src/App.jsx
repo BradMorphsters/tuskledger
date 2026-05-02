@@ -49,6 +49,7 @@ import { triggerSync, getAuthStatus, logout, refreshDemoData, setMode } from './
 import { useTheme, ThemeToggle, QuickAddFab, CommandPalette } from './components/QuickActions'
 import { BudgetAlertsMonitor, BudgetAlertsToggle } from './components/BudgetAlertsMonitor'
 import AskPanel from './components/AskPanel'
+import { useReadOnlyMode, ReadOnlyBanner } from './components/ReadOnlyMode'
 
 export default function App() {
   const [syncing, setSyncing] = useState(false)
@@ -56,6 +57,11 @@ export default function App() {
   const [authState, setAuthState] = useState({ loading: true })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [quickAddTrigger, setQuickAddTrigger] = useState(0)
+  // Read-only mode (per device, set via cookie). When true, hide all
+  // edit affordances — QuickAddFab, sync button, etc. — so the phone
+  // UX matches what the backend will allow. The backend middleware
+  // is the safety net; this is the UX layer.
+  const readOnly = useReadOnlyMode()
   // Mobile drawer state — only matters at < 768px (CSS hides the
   // hamburger on wider viewports). Closes automatically when the route
   // changes so tapping a nav item dismisses the drawer.
@@ -250,6 +256,10 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      {/* Read-only banner — only renders when this device's view cookie
+          is "readonly". Sits above everything else so the visual context
+          is unmissable; explains why edit affordances are gone. */}
+      <ReadOnlyBanner show={readOnly} />
       {/* Mobile-only hamburger. CSS hides it above 768px. */}
       <button
         type="button"
@@ -280,13 +290,15 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
-        <button
-          className={`sync-btn${syncing ? ' syncing' : ''}`}
-          onClick={handleSync}
-        >
-          <RefreshCw size={14} className={syncing ? 'spinning' : ''} />
-          {syncing ? 'Syncing...' : 'Sync Now'}
-        </button>
+        {!readOnly && (
+          <button
+            className={`sync-btn${syncing ? ' syncing' : ''}`}
+            onClick={handleSync}
+          >
+            <RefreshCw size={14} className={syncing ? 'spinning' : ''} />
+            {syncing ? 'Syncing...' : 'Sync Now'}
+          </button>
+        )}
 
         <div className="sidebar-user">
           {/* Real / Demo segmented toggle — always visible, lets you flip
@@ -503,11 +515,15 @@ export default function App() {
 
       {/* Global floating UI: quick-add FAB + command palette. The FAB
           uses quickAddTrigger as its `key` so the palette's "Add
-          transaction" action remounts and pops the modal open. */}
-      <QuickAddFab key={`fab-${quickAddTrigger}`} onSaved={() => {
-        // Could trigger a refresh of the current page's data; for now
-        // just rely on the user navigating to Transactions to see it.
-      }} />
+          transaction" action remounts and pops the modal open.
+          Hidden in read-only mode — adding transactions on the phone
+          is the v3 problem (real sync). v1 is read-only consumption. */}
+      {!readOnly && (
+        <QuickAddFab key={`fab-${quickAddTrigger}`} onSaved={() => {
+          // Could trigger a refresh of the current page's data; for now
+          // just rely on the user navigating to Transactions to see it.
+        }} />
+      )}
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

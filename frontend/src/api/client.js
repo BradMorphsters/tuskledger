@@ -233,6 +233,15 @@ export function streamSSE(url, fetchInit, handlers) {
 //   {answer, source: "ollama"|"demo", model, generated_at, bundle}
 //   {answer: null, source: "disabled", ..., bundle}      — LLM off
 //   503 on Ollama unreachable (request() throws)
+// View mode (read-only ↔ edit, per device). The backend middleware in
+// main.py 403s mutating requests when this device's tuskledger_view
+// cookie is "readonly". The frontend uses these to flip the cookie
+// (typically: phone enters /?view=readonly once, gets cookied, banner
+// renders, edit affordances hide).
+export const getViewMode = () => request('/view/');
+export const setViewMode = (mode) =>
+  request(`/view/${mode === 'readonly' ? 'readonly' : 'edit'}`, { method: 'POST' });
+
 export const getChatPrompts = () => request('/chat/prompts');
 export const getChatAnswer = ({ promptId, horizon }) =>
   request('/chat/answer', {

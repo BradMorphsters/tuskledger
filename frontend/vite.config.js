@@ -5,6 +5,12 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // host: true binds Vite to 0.0.0.0 so devices on your LAN (your
+    // phone, an iPad, another laptop) can reach the dev server at
+    // your laptop's LAN IP — e.g. http://192.168.1.42:3000. Without
+    // this, Vite only listens on the loopback interface and the phone
+    // gets "connection refused." Production builds aren't affected.
+    host: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

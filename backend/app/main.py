@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -38,6 +39,7 @@ from app.routers import (
     goals,
     loans,
     chat,
+    view,
 )
 
 
@@ -245,10 +247,73 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"],
+    # Allow LAN-IP origins (e.g. http://192.168.1.42:3000) so a phone
+    # on the same wifi can reach the dev server at the Mac's LAN IP.
+    # The regex is intentionally narrow: only RFC1918 private ranges
+    # (10/8, 172.16/12, 192.168/16) on the dev ports. Public IPs and
+    # arbitrary hostnames don't match — if you ever expose Tusk Ledger
+    # on the public internet (Cloudflare Tunnel etc.), the upstream
+    # already does origin checking and the request reaches FastAPI as
+    # 127.0.0.1 anyway.
+    allow_origin_regex=r"http://(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}):(3000|5173)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
+
+
+# ─── Read-only mode middleware ────────────────────────────────────────
+#
+# When the `tuskledger_view` cookie is set to "readonly", every mutating
+# HTTP method (POST/PUT/PATCH/DELETE) returns 403 — except for a tiny
+# allow-list of endpoints needed to flip the mode itself off (so the
+# user can't lock themselves out of their own laptop) and a few endpoints
+# that aren't really "user mutations" (auth login, mode toggles).
+#
+# Why a cookie instead of a config file: a cookie is per-device. The
+# user's phone gets the cookie set once (via /api/view/readonly or by
+# loading the app with ?view=readonly), and then every request from
+# that phone is gated. The laptop browser never sets the cookie, so
+# it stays fully editable. No redeploy needed to switch a device's mode.
+#
+# Why a middleware instead of per-route Depends: every mutating endpoint
+# would need the dependency added explicitly, and a forgotten import
+# would silently leave a write surface open. A middleware blocks the
+# whole class with one ~20-line check; new endpoints inherit it for free.
+#
+# This is layered on TOP of require_auth — read-only is a UX gate, not
+# an auth gate. An unauthenticated request still gets bounced first.
+_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+_MUTATION_ALLOWLIST_PREFIXES = (
+    "/api/auth/",     # login / setup / logout — needed to authenticate
+    "/api/view/",     # the mode toggle itself — can't lock-out paradox
+    "/api/demo/mode", # demo-mode toggle — same reason
+)
+
+
+@app.middleware("http")
+async def read_only_gate(request: Request, call_next):
+    """If the request comes from a device flagged as read-only AND is
+    a mutating method AND isn't on the small allow-list, 403 it before
+    it ever reaches a route handler."""
+    if request.method not in _READ_METHODS:
+        if request.cookies.get("tuskledger_view") == "readonly":
+            path = request.url.path
+            if not any(path.startswith(p) for p in _MUTATION_ALLOWLIST_PREFIXES):
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": (
+                            "This device is in read-only mode. Edits "
+                            "happen on your laptop. To make changes "
+                            "from here, switch to edit mode at "
+                            "/api/view/edit (or load the app with "
+                            "?view=edit)."
+                        ),
+                        "code": "read_only_mode",
+                    },
+                )
+    return await call_next(request)
 
 # Auth router is unprotected (login/setup must be reachable pre-auth).
 app.include_router(auth.router)
@@ -261,6 +326,12 @@ app.include_router(webhooks.router)
 # /api/demo/refresh always operates on the demo session via get_demo_db,
 # so a stray request can't touch real data.
 app.include_router(demo.router)
+# View-mode router: read-only ↔ edit toggle per device. Unprotected for
+# the same reason as demo — a phone in read-only mode needs to be able
+# to flip back even if its session has expired. Setting the cookie does
+# not grant data access; it only changes how the read-only middleware
+# treats future requests from this device.
+app.include_router(view.router)
 
 # All data-bearing routers require an authenticated session with MFA verified.
 protected = [Depends(require_auth)]

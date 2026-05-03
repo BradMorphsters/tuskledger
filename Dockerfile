@@ -70,8 +70,13 @@ ENV PYTHONUNBUFFERED=1
 ENV HOST=0.0.0.0
 EXPOSE 8000
 
-# Start command: uvicorn binds to whatever port Railway assigns. The
-# DEMO_LOCKED banner will print at startup so the operator can confirm
-# the lockdown is active in logs.
+# Start command: bind uvicorn to a FIXED port (8000) rather than
+# Railway's dynamic $PORT. The custom-domain config in Railway has to
+# specify a target port at create time — if the container binds to a
+# different port than the custom domain expects, the public URL 502s
+# even though the internal healthcheck passes (Railway routes the
+# healthcheck on its own port). Hard-coding 8000 here means there's
+# only one number to keep in sync, and it matches the Railway custom-
+# domain target-port setting documented in DEMO.md.
 WORKDIR /app/backend
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000"]

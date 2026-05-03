@@ -158,8 +158,29 @@ async def lifespan(app: FastAPI):
     run_startup_migrations()
     # Snapshot the (post-migration) DB to backups/ so a corrupt write or
     # bad migration is recoverable. Idempotent within a day.
-    run_startup_backup()
+    # Skip on the public demo instance — the demo DB is disposable, and
+    # backups would just churn disk on a free-tier host.
+    if not settings.DEMO_LOCKED:
+        run_startup_backup()
     _ensure_demo_db_seeded()
+    if settings.DEMO_LOCKED:
+        # Loud banner so the operator can never confuse a normal install
+        # with a demo deployment in logs. Mirrors the DEV_BYPASS_AUTH
+        # banner pattern below.
+        print(
+            "\n"
+            "============================================================\n"
+            "  📣 DEMO_LOCKED is ON — this instance is a public demo.\n"
+            "     • Every request is forced onto the demo database.\n"
+            "     • Read-only middleware blocks every mutating request\n"
+            "       outside the auth/view/demo-mode allowlist.\n"
+            "     • Plaid sync scheduler will not start.\n"
+            "     • Auto-backup is disabled.\n"
+            "     If you see this in logs for an instance that holds\n"
+            "     real user data, unset DEMO_LOCKED in the environment.\n"
+            "============================================================\n",
+            flush=True,
+        )
     if settings.DEV_BYPASS_AUTH:
         # Loud banner so this is impossible to miss in logs. If you ever see
         # this in a log that isn't your local dev machine, something is wrong.
@@ -210,7 +231,12 @@ async def lifespan(app: FastAPI):
             "============================================================\n",
             flush=True,
         )
-    if settings.PLAID_CLIENT_ID:
+    # Plaid auto-sync scheduler. Skipped on the public demo deployment —
+    # the demo DB is a snapshot of synthetic data; pulling Plaid against
+    # it would be both pointless (no real items) and an attack surface
+    # (someone supplying their own PLAID_CLIENT_ID env var to a hosted
+    # demo could cause unexpected outbound calls).
+    if settings.PLAID_CLIENT_ID and not settings.DEMO_LOCKED:
         scheduler.add_job(
             scheduled_sync,
             "interval",
@@ -295,15 +321,30 @@ _MUTATION_ALLOWLIST_PREFIXES = (
 async def read_only_gate(request: Request, call_next):
     """If the request comes from a device flagged as read-only AND is
     a mutating method AND isn't on the small allow-list, 403 it before
-    it ever reaches a route handler."""
+    it ever reaches a route handler.
+
+    Two paths into "device is read-only":
+      1. The per-device cookie `tuskledger_view=readonly` (normal
+         phone-installed-PWA case).
+      2. The instance-wide env var `DEMO_LOCKED=true` (public demo
+         deployment — visitors can't unset env vars, so this is the
+         hard lock).
+    """
     if request.method not in _READ_METHODS:
-        if request.cookies.get("tuskledger_view") == "readonly":
+        is_readonly_device = (
+            settings.DEMO_LOCKED
+            or request.cookies.get("tuskledger_view") == "readonly"
+        )
+        if is_readonly_device:
             path = request.url.path
             if not any(path.startswith(p) for p in _MUTATION_ALLOWLIST_PREFIXES):
                 return JSONResponse(
                     status_code=403,
                     content={
                         "detail": (
+                            "This instance is read-only. "
+                            "Mutations are disabled here."
+                            if settings.DEMO_LOCKED else
                             "This device is in read-only mode. Edits "
                             "happen on your laptop. To make changes "
                             "from here, switch to edit mode at "

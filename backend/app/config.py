@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     DEMO_DATABASE_URL: str = "sqlite:///./tuskledger_demo.db"
     DEMO_ENCRYPTION_KEY_FILE: str = "./.encryption_key.demo"
 
+    # When DEMO_LOCKED=true, this instance is a public read-only demo
+    # (e.g. demo.tuskledger.com). The whole app is forced into:
+    #   - demo database for every request (cookie ignored — visitors
+    #     can't bypass by clearing it)
+    #   - read-only middleware on for every request (cookie ignored —
+    #     visitors can't mutate anything)
+    #   - no Plaid sync scheduler
+    #   - no auto-backup of the SQLite file (demo DB is disposable;
+    #     backups would just churn disk on a free-tier host)
+    # This is the env var that turns a normal Tusk Ledger deployment
+    # into a public demo instance. Default off; only flip on when the
+    # bind is actually reachable from the public internet.
+    DEMO_LOCKED: bool = False
+
     # ── Optional local LLM (Ollama) ───────────────────────────────
     # When LLM_ENABLED=true, the Dashboard's "AI narrative" card calls
     # Ollama at LLM_URL with LLM_MODEL to summarize this month's

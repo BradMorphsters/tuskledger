@@ -58,10 +58,18 @@ def _is_demo_request(request: Optional[Request]) -> bool:
 
     Selection rules:
       - Demo must be globally enabled (`DEMO_ENABLED=true`)
-      - The request must carry a `fintrack_mode=demo` cookie
+      - EITHER the instance is locked into demo mode
+        (`DEMO_LOCKED=true`, used by the public demo deployment), OR
+        the request carries a `fintrack_mode=demo` cookie (per-device
+        toggle, used in the regular install).
+
+    On a DEMO_LOCKED instance the cookie is irrelevant — visitors can't
+    bypass the demo DB by clearing or forging it.
     """
     if not settings.DEMO_ENABLED or DemoSessionLocal is None:
         return False
+    if settings.DEMO_LOCKED:
+        return True
     if request is None:
         return False
     return request.cookies.get("fintrack_mode") == "demo"

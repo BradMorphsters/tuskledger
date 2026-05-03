@@ -137,10 +137,18 @@ def list_stale_accounts(
 
     stale_list = []
     for acct in db.query(Account).all():
-        # Manual accounts use balance_as_of; synced accounts use last txn date.
-        as_of = acct.balance_as_of if acct.balance_as_of is not None else txn_max.get(acct.id)
-        if as_of is None:
+        # "When was this account last touched?" = max of (balance snapshot,
+        # most recent transaction). Both are evidence the account is current.
+        # Earlier this was an either/or that preferred balance_as_of, which
+        # falsely flagged accounts where the user had uploaded fresh
+        # transactions (CSV import, manual entry, Plaid backfill) but
+        # hadn't separately bumped the balance snapshot — the recent
+        # transactions clearly prove the account is current even if the
+        # balance field is stale. Fix: most-recent-of, not either/or.
+        candidates = [d for d in (acct.balance_as_of, txn_max.get(acct.id)) if d is not None]
+        if not candidates:
             continue  # never touched — skip rather than flag a noisy "infinity stale"
+        as_of = max(candidates)
 
         is_manual = acct.plaid_item_id is None
         days_stale = (today - as_of).days

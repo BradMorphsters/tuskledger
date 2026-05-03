@@ -1,11 +1,16 @@
 # Tusk Ledger
 
+<p align="center">
+  <img src="docs/hero.svg" alt="Tusk Ledger Dashboard preview — net worth, monthly spending, top categories, and an AI Insights tile written by a local LLM" width="100%" />
+</p>
+
 **🌐 Project site: [www.tuskledger.com](https://www.tuskledger.com)** — feature tour, comparison vs Mint/Empower/Quicken, FAQ, and architecture diagram.
 
 A locally-run personal finance dashboard — a Mint-style app that pulls real bank, credit-card, investment, and loan data via [Plaid](https://plaid.com), stores everything in a single SQLite file on your machine, and gives you a clean interface to track spending, budgets, net worth, and recurring charges.
 
 Everything stays on your computer. No cloud. No third-party analytics. Just your data, your rules.
 
+[![CI](https://github.com/BradMorphsters/tuskledger/actions/workflows/ci.yml/badge.svg)](https://github.com/BradMorphsters/tuskledger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org)
 [![Node 22 LTS](https://img.shields.io/badge/node-22%20LTS-blue.svg)](https://nodejs.org)
@@ -220,6 +225,18 @@ ollama serve &
 Hardware notes: 8B-class models need ~5GB of free RAM and run at 10–30 tok/s on Apple Silicon. On older Intel hardware, drop to `phi3:mini` or leave the feature off. Demo mode renders a canned narrative so screenshots work without Ollama installed.
 
 The model never invents dollar figures — every number in the prompt is pre-computed in Python and the model is only asked to write prose around them. This **no-hallucination invariant** is the whole reason a local 8B-parameter model can be trusted in a finance app. Details in `backend/app/services/insights_narrative.py`, `backend/app/services/chat_prompts.py`, and `AGENTS.md`.
+
+---
+
+## REST API
+
+FastAPI auto-generates an interactive OpenAPI spec for every endpoint in the app. Once the backend is running:
+
+- **Swagger UI** — `http://127.0.0.1:8000/docs` — interactive, click-to-call any endpoint
+- **ReDoc** — `http://127.0.0.1:8000/redoc` — read-only, prettier reference layout
+- **Raw spec** — `http://127.0.0.1:8000/openapi.json` — generate a typed client in any language
+
+The MCP server ([tuskledger-mcp](https://github.com/BradMorphsters/tuskledger-mcp)) is built on top of these endpoints; the surfaces are the same set of typed routes either way. Read access is open with auth; mutations go through standard auth + the read-only middleware (see [phone access](#optional-phone-access-pwa--read-only-mode) below).
 
 ---
 

@@ -1,0 +1,59 @@
+# Things that should never end up in a container image.
+# Critical for the public demo: real DBs, env files, encryption keys
+# would be a catastrophic leak if shipped.
+
+# Real-data SQLite + journals
+*.db
+*.db-journal
+*.db-journal.*
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backend/tuskledger.db*
+backend/tuskledger_demo.db*
+
+# Env files (real Plaid keys, session secret, etc.)
+.env
+.env.local
+.env.production
+.env.*.local
+backend/.env
+frontend/.env
+
+# Encryption keys (decrypts Plaid tokens — leak = total compromise)
+.encryption_key
+.encryption_key.demo
+backend/.encryption_key
+backend/.encryption_key.demo
+
+# User-uploaded statements
+uploads/
+
+# Local dev artifacts
+node_modules
+backend/venv
+backend/__pycache__
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.coverage
+htmlcov/
+
+# Frontend build artifacts (we build them inside the image, not copy)
+frontend/dist
+frontend/.vite
+
+# Editor + OS noise
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+
+# Git history isn't needed in the container
+.git
+.gitignore
+.github
+
+# Backups directory contents (intentionally; backups are real-data SQLite)
+backend/backups/

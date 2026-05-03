@@ -19,9 +19,14 @@
 # ─── Stage 1: build the frontend ──────────────────────────────────
 FROM node:22-alpine AS frontend
 WORKDIR /app/frontend
-# Copy lockfile first for cache friendliness
+# Copy lockfile first for cache friendliness.
+# Using `npm install` rather than `npm ci` because the lockfile in the
+# repo can drift from package.json (Dependabot bumps land sequentially
+# and the lock occasionally lags). `npm install` resolves the diff;
+# `npm ci` would fail hard. Demo deploy doesn't need lockfile-strict
+# reproducibility — a normal local install can still use `npm ci`.
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm install --no-audit --no-fund
 COPY frontend/ .
 # vite build emits to frontend/dist, which the Python stage copies in
 RUN npm run build

@@ -46,7 +46,9 @@ When you're in demo mode, a **Refresh demo data** button appears in the sidebar.
 
 ## What you get
 
-**Dashboard.** Net worth, monthly spending, top categories, and upcoming bills at a glance. **Trend snapshot** with a 2/3/6/12mo/YTD selector showing range totals + per-month averages, driving the Income vs Spending chart in lock-step. **Anomaly insight cards** surface when a category trends >30% over its trailing 3-month average, when a brand-new merchant appears, or when a single charge dwarfs the historical norm at that merchant — dismissable per-card for 7 days. **Stale-balance banner** flags accounts that haven't synced in a week.
+**Dashboard.** Net worth, monthly spending, top categories, and upcoming bills at a glance. **Trend snapshot** with a 2/3/6/12mo/YTD selector showing range totals + per-month averages, driving the Income vs Spending chart in lock-step. **Anomaly insight cards** surface when a category trends >30% over its trailing 3-month average, when a brand-new merchant appears, or when a single charge dwarfs the historical norm at that merchant — dismissable per-card for 7 days. **Stale-balance banner** flags accounts that haven't synced in a week. **AI Insights tile** writes a plain-English summary of this month's spending using a locally-running LLM (off by default; see [AI features](#optional-ai-insights--ask-panel-local-llm-via-ollama) below).
+
+**Ask panel.** Floating button on every page opens a curated list of nine prompts ("How am I spending this month?", "What's my net worth change?", "What are my top merchants?", "What's my savings rate?", etc.). Pick a prompt + a horizon (30d / 90d / YTD / 1y), the backend pre-computes every dollar figure in Python, then a local LLM writes the prose around the JSON bundle. Token-by-token streaming via Server-Sent Events so answers feel instant. **The model never invents numbers** — that's the architectural invariant. Demo mode serves canned per-prompt answers so the panel works without Ollama installed.
 
 **Spending & Income.** Sparklines, MoM/YoY deltas, day-of-week heatmap, cash-flow waterfall, top-merchants chart, recurring/subscriptions detection with seasonal awareness. **Year-over-year toggle** flips the page to side-by-side current-vs-prior-year comparisons. **Per-merchant drill-down** — click any merchant to open a slide-out with YTD total, monthly trend, and the full transaction list.
 
@@ -84,7 +86,7 @@ When you're in demo mode, a **Refresh demo data** button appears in the sidebar.
 
 | Layer | Stack |
 |---|---|
-| Backend | Python 3.11 · FastAPI · SQLAlchemy 2 · Alembic · APScheduler · Plaid Python SDK |
+| Backend | Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · APScheduler · Plaid Python SDK |
 | Frontend | React 18 · Vite · React Router · Recharts · Lucide |
 | Database | SQLite (single file, WAL mode) |
 | Auth | bcrypt + PyOTP (TOTP MFA) |
@@ -196,9 +198,9 @@ Everything lives in `backend/.env`. See [`backend/.env.example`](backend/.env.ex
 
 The Fernet encryption key for stored Plaid access tokens is auto-generated on first run as `backend/.encryption_key` (chmod 600). If you back up `tuskledger.db`, back up that key file too — without it your stored tokens become unreadable.
 
-### Optional: AI insights card (local LLM via Ollama)
+### Optional: AI insights + Ask panel (local LLM via Ollama)
 
-When `LLM_ENABLED=true`, the Dashboard's "AI insights" card calls a locally-running Ollama instance to summarize this month's spending in plain English. Off by default — the rest of the app works without it. Nothing leaves the machine; Ollama binds to `127.0.0.1` and the model runs against your CPU/GPU.
+When `LLM_ENABLED=true`, two surfaces light up: the Dashboard's **AI insights** tile (one-paragraph daily summary of this month's spending) and the floating **Ask panel** (curated questions like "what's my savings rate this quarter?" with token-by-token streaming). Both call a locally-running Ollama instance — off by default, and the rest of the app works without it. Nothing leaves the machine; Ollama binds to `127.0.0.1` and the model runs against your CPU/GPU.
 
 ```bash
 # 1. Install Ollama (Apple Silicon / Linux)
@@ -217,7 +219,20 @@ ollama serve &
 
 Hardware notes: 8B-class models need ~5GB of free RAM and run at 10–30 tok/s on Apple Silicon. On older Intel hardware, drop to `phi3:mini` or leave the feature off. Demo mode renders a canned narrative so screenshots work without Ollama installed.
 
-The model never invents dollar figures — every number in the prompt is pre-computed in Python and the model is only asked to write prose around them. Details in `backend/app/services/insights_narrative.py` and `AGENTS.md`.
+The model never invents dollar figures — every number in the prompt is pre-computed in Python and the model is only asked to write prose around them. This **no-hallucination invariant** is the whole reason a local 8B-parameter model can be trusted in a finance app. Details in `backend/app/services/insights_narrative.py`, `backend/app/services/chat_prompts.py`, and `AGENTS.md`.
+
+---
+
+## Optional: phone access (PWA + read-only mode)
+
+Tusk Ledger installs as a Progressive Web App, so the iPhone home-screen icon launches it full-screen without Safari chrome. The phone is a thin client: data lives on your laptop, the phone reads it over the network.
+
+**Two-stage path** (full runbook in [MOBILE.md](MOBILE.md)):
+
+1. **LAN-only** — works today, no extra setup. Get your laptop's IP (`ipconfig getifaddr en0`), open `http://<ip>:3000/?view=readonly` in mobile Safari, then Share → Add to Home Screen. The `?view=readonly` param sets a per-device cookie that hides edit affordances and 403s any mutating request server-side. Banner up top tells you which mode you're in.
+2. **Off-WiFi** — install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), create a named tunnel pointing at `127.0.0.1:3000`, put Cloudflare Access in front (single-email allowlist via Google OAuth), and run as a launchd service so it survives reboot. Documented step-by-step in MOBILE.md.
+
+The read-only middleware is enforced server-side, layered on top of `require_auth` — even an authenticated session that's flagged read-only cannot POST/PUT/DELETE outside a tiny allowlist (auth, view toggle, demo-mode toggle). Flip back to edit mode by hitting any URL with `?view=edit`.
 
 ---
 
@@ -379,7 +394,7 @@ This is the kind of plumbing where having a coding assistant in the loop saves h
 PRs welcome. Some areas that would benefit from a hand:
 
 - Plaid update-mode flow for re-linking with additional product scopes
-- Mobile / responsive layout pass
+- Snapshot replication so the phone works when the laptop is asleep (encrypted SQLite blob → user-controlled storage → `sql.js` hydrate in the browser)
 - Windows-native start script (currently bash-only)
 - More institution support in the manual-asset flow
 - Light theme

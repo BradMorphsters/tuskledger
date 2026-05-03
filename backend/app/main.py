@@ -200,14 +200,23 @@ async def lifespan(app: FastAPI):
         # exposes the port without flipping the auth flag back on. Better
         # to crash loud at startup than to serve a no-auth API on a
         # routable interface.
-        host = _detect_listen_host()
-        if host and host not in ("127.0.0.1", "localhost", "::1"):
-            raise RuntimeError(
-                f"DEV_BYPASS_AUTH is enabled but the server is bound to "
-                f"{host!r}, which is reachable from outside this machine. "
-                "Refusing to start. Either bind to 127.0.0.1 (the default) "
-                "or set DEV_BYPASS_AUTH=false in .env."
-            )
+        #
+        # EXCEPTION: when DEMO_LOCKED is also true, the guard stands down.
+        # On the public demo instance the read-only middleware (gates every
+        # mutation) IS the security boundary, not auth — there's no real
+        # user data to protect, the only DB is the synthetic Alex-Carter
+        # demo. Auth in front of a read-only synthetic dataset would be a
+        # nuisance, not a protection. The demo is deliberately bound to
+        # 0.0.0.0 so Railway can reach it.
+        if not settings.DEMO_LOCKED:
+            host = _detect_listen_host()
+            if host and host not in ("127.0.0.1", "localhost", "::1"):
+                raise RuntimeError(
+                    f"DEV_BYPASS_AUTH is enabled but the server is bound to "
+                    f"{host!r}, which is reachable from outside this machine. "
+                    "Refusing to start. Either bind to 127.0.0.1 (the default) "
+                    "or set DEV_BYPASS_AUTH=false in .env."
+                )
 
     # Production-Plaid + un-verified webhooks is a forged-event hazard if
     # the webhook endpoint ever gets exposed (tunnel, port-forward, etc.).

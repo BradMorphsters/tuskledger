@@ -28,6 +28,8 @@ Everything stays on your computer. No cloud. No third-party analytics. Just your
 
 > **🤖 Working with an AI assistant?** Read [AGENTS.md](AGENTS.md) — it's a working-memory doc written for Claude Code, Cursor, Cowork, and similar agents. It covers permission boundaries, common operations, and the project's known footguns so an agent can be productive without grepping the whole tree first.
 
+> **📝 What changed recently?** [CHANGELOG.md](CHANGELOG.md) — curated release notes with rationale, kept up-to-date with the work. Sibling docs: [ARCHITECTURE.md](ARCHITECTURE.md) for the load-bearing design decisions, [MOBILE.md](MOBILE.md) for phone access via PWA + Cloudflare Tunnel, [DEMO.md](DEMO.md) for the public demo deployment, [CONTRIBUTING.md](CONTRIBUTING.md) for project scope.
+
 ---
 
 ## Try the demo first (no Plaid required)

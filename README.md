@@ -1,8 +1,19 @@
 # Tusk Ledger
 
 <p align="center">
-  <img src="docs/hero.svg" alt="Tusk Ledger Dashboard preview — net worth, monthly spending, top categories, and an AI Insights tile written by a local LLM" width="100%" />
+  <img src="docs/screencast.gif" alt="Tusk Ledger Ask panel demo — dashboard, then click Ask, then a local LLM streams an answer about savings rate, with the JSON bundle visible to show that numbers come from Python and only the prose comes from the model" width="100%" />
 </p>
+
+<!-- The animated GIF above is a brand-consistent mockup of the Ask
+     flow, generated programmatically so it stays in sync with the
+     app's visual language. To replace with a real screen recording,
+     follow docs/SCREENCAST.md and overwrite docs/screencast.gif. -->
+<details>
+  <summary>(Static fallback if the GIF doesn't render)</summary>
+  <p align="center">
+    <img src="docs/hero.svg" alt="Tusk Ledger Dashboard — net worth, monthly spending, top categories, AI Insights" width="100%" />
+  </p>
+</details>
 
 **🌐 Project site: [www.tuskledger.com](https://www.tuskledger.com)** — feature tour, comparison vs Mint/Empower/Quicken, FAQ, and architecture diagram.
 

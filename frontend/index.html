@@ -20,10 +20,14 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0f1117" />
 
-    <!-- iOS-specific PWA hints. apple-mobile-web-app-capable=yes
-         removes Safari's chrome when launched from the home screen;
+    <!-- iOS-specific PWA hints. apple-mobile-web-app-capable removes
+         Safari's chrome when launched from the home screen;
          status-bar-style=black-translucent lets the page content sit
-         under the status bar (we handle insets in CSS). -->
+         under the status bar (we handle insets in CSS).
+         apple-mobile-web-app-capable was deprecated in iOS 16.4+ in
+         favor of mobile-web-app-capable — we ship both so older iOS
+         versions and the modern spec are both happy. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Tusk" />

@@ -20,16 +20,9 @@ requests from this device.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel
 
 
 router = APIRouter(prefix="/api/view", tags=["view"])
-
-
-class ViewModeRequest(BaseModel):
-    mode: str  # "edit" | "readonly"
-
-    model_config = {"extra": "forbid"}
 
 
 # Long cookie life — view mode is a device preference, not a security

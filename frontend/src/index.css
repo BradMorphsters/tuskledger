@@ -991,6 +991,20 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
   .calendar-grid-block { display: none; }
   .calendar-mobile-list { display: block; }
 
+  /* ── Dashboard stats-grid: reorder for phone priority ────────────
+     DOM order is Net Worth, Total Assets, Total Debt, This Month —
+     correct for desktop reading where all four sit side-by-side. On
+     phone they stack vertically (single column from the 480px rule
+     above), and the natural reading priority shifts: 'how much have
+     I spent this month?' is the most actionable question; net worth
+     is the headline; debt outranks assets at a glance because assets
+     are mostly already netted into net worth. CSS `order` reshuffles
+     without touching the React. */
+  .stats-grid > :nth-child(4) { order: 1; }  /* This Month   → top */
+  .stats-grid > :nth-child(1) { order: 2; }  /* Net Worth    → 2nd */
+  .stats-grid > :nth-child(3) { order: 3; }  /* Total Debt   → 3rd */
+  .stats-grid > :nth-child(2) { order: 4; }  /* Total Assets → 4th */
+
   /* ── Holdings table → card-per-row on phone ──────────────────────
      Same pattern as .txn-table. The Investments page Holdings tab
      has 7 columns (security, account, qty, price, market value,

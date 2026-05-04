@@ -72,21 +72,53 @@ export function useReadOnlyMode() {
     apply()
     return () => { cancelled = true }
   }, [])
-  return readOnly === true   // null/false both render edit UI; only true hides
+
+  // Local helper for the in-banner promote button. Caller has already
+  // set the cookie via setViewMode(); this just updates local state so
+  // the UI reacts without a reload.
+  const setMode = (mode) => setReadOnly(mode === 'readonly')
+
+  return { readOnly: readOnly === true, setMode }
 }
 
 
 /**
- * Tiny dismissible-looking (but not actually dismissible) banner at
- * the top of the page when read-only is active. Tells the user why
- * edit buttons are missing and how to flip back.
+ * Banner at the top of the page when read-only is active. Tells the
+ * user why edit buttons are missing and offers a one-tap promotion
+ * to edit mode for couch-side fixes.
  *
  * Why purple: matches the AI/local-LLM accent color so it reads as
  * "system context info" rather than a warning (orange/red would
  * imply something's broken).
+ *
+ * Why a button (instead of just instructions): the original copy told
+ * the user to reload with `?view=edit` in the URL bar — fine on a
+ * laptop, awful on a phone. The button calls setViewMode('edit')
+ * directly, no URL gymnastics. Page state updates in place; the
+ * banner disappears, edit affordances reappear.
  */
-export function ReadOnlyBanner({ show }) {
+export function ReadOnlyBanner({ show, onModeChange }) {
+  const [switching, setSwitching] = useState(false)
   if (!show) return null
+
+  const handlePromote = async () => {
+    setSwitching(true)
+    try {
+      await setViewMode('edit')
+      // Notify parent so it can re-render with edit affordances
+      // visible. If no callback, fall back to a reload — at minimum
+      // the cookie is set and next load will pick it up.
+      if (onModeChange) {
+        onModeChange('edit')
+      } else {
+        window.location.reload()
+      }
+    } catch (err) {
+      console.warn('[tuskledger] failed to switch to edit mode:', err)
+      setSwitching(false)
+    }
+  }
+
   return (
     <div
       role="status"
@@ -99,21 +131,37 @@ export function ReadOnlyBanner({ show }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
+        gap: 10,
         zIndex: 5,
+        flexWrap: 'wrap',
       }}
     >
-      <Eye size={13} style={{ color: 'var(--accent-purple)' }} />
-      <span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Eye size={13} style={{ color: 'var(--accent-purple)' }} />
         <strong style={{ color: 'var(--accent-purple)' }}>Read-only.</strong>
-        {' '}Edits happen on your laptop. Reload with{' '}
-        <code style={{
-          background: 'var(--bg-elevated)',
-          padding: '1px 5px',
-          borderRadius: 3,
-          fontSize: 11,
-        }}>?view=edit</code>{' '}to switch.
+        {' '}Edits hidden on this device.
       </span>
+      <button
+        type="button"
+        onClick={handlePromote}
+        disabled={switching}
+        style={{
+          background: 'rgba(175, 169, 236, 0.2)',
+          border: '1px solid rgba(175, 169, 236, 0.4)',
+          color: 'var(--accent-purple)',
+          fontSize: 11,
+          fontWeight: 600,
+          padding: '4px 10px',
+          borderRadius: 4,
+          cursor: switching ? 'wait' : 'pointer',
+          opacity: switching ? 0.6 : 1,
+          /* 32px min-height keeps the button finger-friendly on phone
+             without bloating the banner on desktop. */
+          minHeight: 32,
+        }}
+      >
+        {switching ? 'Switching…' : 'Switch to edit mode'}
+      </button>
     </div>
   )
 }

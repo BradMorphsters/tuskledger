@@ -260,15 +260,22 @@ export default function App() {
           is "readonly". Sits above everything else so the visual context
           is unmissable; explains why edit affordances are gone. */}
       <ReadOnlyBanner show={readOnly} />
-      {/* Mobile-only hamburger. CSS hides it above 768px. */}
-      <button
-        type="button"
-        className="mobile-nav-toggle"
-        onClick={() => setMobileNavOpen(o => !o)}
-        aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
-      >
-        <Menu size={20} />
-      </button>
+      {/* Mobile-only top app bar. CSS hides the whole bar above 768px.
+          Wraps the hamburger + brand together so the navigation chrome
+          looks intentional rather than a floating orphan, and the page
+          title below has room to breathe instead of sliding under the
+          hamburger. */}
+      <header className="mobile-app-bar">
+        <button
+          type="button"
+          className="mobile-nav-toggle"
+          onClick={() => setMobileNavOpen(o => !o)}
+          aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+        >
+          <Menu size={20} />
+        </button>
+        <span className="mobile-app-bar-brand">Tusk Ledger</span>
+      </header>
       {/* Backdrop scrim — only renders + activates when the drawer is
           open. Click outside the sidebar dismisses. */}
       <div

@@ -730,6 +730,12 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
 .sync-btn:hover { color: var(--text-primary); }
 .sync-btn.syncing { opacity: 0.6; pointer-events: none; }
 
+/* Bills calendar — desktop default: show the 7-column grid, hide the
+   mobile vertical-list view. The pair is overridden inside the
+   @media (max-width: 480px) block below to swap which is visible. */
+.calendar-grid-block { display: block; }
+.calendar-mobile-list { display: none; }
+
 /* Mobile top app bar + hamburger.
    The bar is hidden on desktop (sidebar is always visible there) and
    fixed at top:0 on mobile. Wraps the hamburger together with the
@@ -976,6 +982,14 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
     font-size: 16px;
     align-self: center;
   }
+
+  /* ── Bills calendar mobile/desktop view swap ─────────────────────
+     The 7-column calendar grid is unusable on phone (cells are tiny,
+     event labels truncate immediately). The mobile vertical-list view
+     is hidden on desktop and swapped in on phone. Both render in the
+     DOM; CSS hides the wrong one. */
+  .calendar-grid-block { display: none; }
+  .calendar-mobile-list { display: block; }
 
   /* ── Holdings table → card-per-row on phone ──────────────────────
      Same pattern as .txn-table. The Investments page Holdings tab

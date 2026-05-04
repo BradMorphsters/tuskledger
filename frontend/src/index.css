@@ -840,7 +840,13 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
     /* Clear the fixed app bar — the bar is 52px tall plus any iOS
        safe-area inset above the notch */
     padding-top: calc(68px + env(safe-area-inset-top));
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    /* Clear the floating buttons stacked at the bottom-right (Ask
+       pill ~24px from bottom + 36px tall, QuickAddFab ~92px from
+       bottom + 44px tall when both visible). Without enough
+       clearance the bottom of the page content slides under them
+       and you can't read it. 152px gives breathing room above the
+       tallest stack; respects iOS home-indicator inset on top. */
+    padding-bottom: max(152px, calc(env(safe-area-inset-bottom) + 144px));
   }
   .stats-grid { grid-template-columns: 1fr 1fr; }
 }

@@ -293,8 +293,129 @@ export default function CashFlowCalendar() {
             </div>
           </div>
 
+          {/* ── Mobile vertical list (under 768px) ────────────────────
+              The calendar grid below is unusable on phone — too many
+              cells per row, too much horizontal scroll. The mobile
+              version is a vertical list grouped by date, with per-day
+              running balance inline so the user can see "this week
+              dips low here" without scanning a 7-column grid.
+              Both views render; CSS swaps which is visible. */}
+          <div className="calendar-mobile-list">
+            {sortedDateKeys.length === 0 ? (
+              <div style={{
+                padding: 32, textAlign: 'center',
+                background: 'var(--bg-secondary)',
+                borderRadius: 8, color: 'var(--text-muted)',
+              }}>
+                No predicted events in the next 30 days.
+              </div>
+            ) : (
+              sortedDateKeys
+                .filter(k => new Date(k + 'T00:00') >= new Date(today.getFullYear(), today.getMonth(), today.getDate()))
+                .map(k => {
+                  const dayEvents = eventsByDate[k]
+                  const dayInfo = balanceByDate[k]
+                  const dateObj = new Date(k + 'T00:00')
+                  const isToday = dateKey(today) === k
+                  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
+                  const isTomorrow = dateKey(tomorrow) === k
+                  const dayLabel = isToday ? 'Today'
+                    : isTomorrow ? 'Tomorrow'
+                    : dateObj.toLocaleDateString('en-US', {
+                        weekday: 'short', month: 'short', day: 'numeric',
+                      })
+                  const isLow = dayInfo && dayInfo.balance < 1000
+                  return (
+                    <div
+                      key={k}
+                      style={{
+                        background: 'var(--bg-card)',
+                        border: `1px solid ${isLow ? 'var(--accent-orange)' : 'var(--border)'}`,
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        marginBottom: 10,
+                      }}
+                    >
+                      {/* Date header */}
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        alignItems: 'baseline', marginBottom: 8,
+                      }}>
+                        <div style={{
+                          fontSize: 13, fontWeight: 600,
+                          color: isToday ? 'var(--accent-green)' : 'var(--text-primary)',
+                        }}>
+                          {dayLabel}
+                        </div>
+                        {dayInfo && (
+                          <div style={{
+                            fontSize: 11,
+                            color: isLow ? 'var(--accent-orange)' : 'var(--text-muted)',
+                          }}>
+                            balance: {fmtMoney(dayInfo.balance)}
+                          </div>
+                        )}
+                      </div>
+                      {/* Events for this date */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {dayEvents.map((event, idx) => {
+                          const isIncome = event.type === 'income'
+                          const wasMoved = event._originalDate !== event.date
+                          return (
+                            <div
+                              key={idx}
+                              style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                alignItems: 'center', gap: 8,
+                                padding: '6px 8px',
+                                background: 'var(--bg-elevated)',
+                                borderRadius: 6,
+                              }}
+                            >
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                minWidth: 0, flex: 1,
+                              }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  width: 6, height: 6, borderRadius: '50%',
+                                  background: isIncome ? 'var(--accent-green)' : 'var(--accent-red)',
+                                  flexShrink: 0,
+                                }} />
+                                <span style={{
+                                  fontSize: 13,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {event.merchant}
+                                  {wasMoved && (
+                                    <span style={{
+                                      fontSize: 10, marginLeft: 6,
+                                      color: 'var(--accent-blue)',
+                                    }}>· moved</span>
+                                  )}
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: 13, fontWeight: 600,
+                                color: isIncome ? 'var(--accent-green)' : 'var(--text-primary)',
+                                flexShrink: 0,
+                              }}>
+                                {isIncome ? '+' : '−'}{fmtMoney(Math.abs(event.amount))}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })
+            )}
+          </div>
+
           {/* Calendar Grid */}
-          <div style={{
+          <div className="calendar-grid-block" style={{
             backgroundColor: 'var(--bg-secondary)',
             borderRadius: 8,
             padding: 16,

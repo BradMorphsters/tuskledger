@@ -316,8 +316,36 @@ def clear_splits(transaction_id: int, db: Session = Depends(get_db)):
 
 @router.get("/spending-summary", response_model=SpendingSummary)
 def spending_summary(
-    month: int = Query(...),
-    year: int = Query(...),
+    month: Optional[int] = Query(
+        None,
+        ge=1,
+        le=12,
+        description="Calendar month 1–12. Pair with year. Mutually exclusive with start_date/end_date.",
+    ),
+    year: Optional[int] = Query(
+        None,
+        ge=1900,
+        le=2200,
+        description="Calendar year. Pair with month. Mutually exclusive with start_date/end_date.",
+    ),
+    start_date: Optional[date] = Query(
+        None,
+        description=(
+            "ISO date YYYY-MM-DD. Lower bound (inclusive) of an arbitrary "
+            "range. Must be paired with end_date. When both are provided, "
+            "they take precedence over month/year. Used by the MCP server "
+            "and other API consumers that need ranges that don't align "
+            "to calendar months."
+        ),
+    ),
+    end_date: Optional[date] = Query(
+        None,
+        description=(
+            "ISO date YYYY-MM-DD. Upper bound (EXCLUSIVE) of the range. "
+            "Pass the day after the last day you want included. Pair with "
+            "start_date."
+        ),
+    ),
     business_filter: str = Query(
         "all",
         regex="^(all|personal|business)$",
@@ -332,8 +360,16 @@ def spending_summary(
     ),
     db: Session = Depends(get_db),
 ):
-    """Get spending by category for a given month, compared against budget
+    """Get spending by category for a date range, compared against budget
     limits.
+
+    Three ways to specify the range, in priority order:
+      1. start_date + end_date — arbitrary half-open range. Use this for
+         ranges that don't fit a single calendar month (e.g. 90-day
+         rolling windows from the MCP server).
+      2. month + year — single calendar month. The original UI shape.
+      3. Neither — defaults to the current calendar month so casual
+         callers ("what have I spent this month") work without args.
 
     The business_filter param lets the Budgets UI render personal categories
     without business pollution while still surfacing business spend as its
@@ -341,12 +377,48 @@ def spending_summary(
     category — a regular BudgetCategory with category="Business" — is used
     to track business spend against a target without showing up in the
     normal categories list.
+
+    Budget lookup is keyed on the response's month/year (which mirrors the
+    effective range's starting month). For multi-month start_date/end_date
+    ranges this means the budget compared against is the start month's —
+    accept this lossiness; users pulling arbitrary ranges via the MCP are
+    asking about totals, not budget pacing.
     """
-    start = date(year, month, 1)
-    if month == 12:
-        end = date(year + 1, 1, 1)
+    # Resolve the effective date range. Validation: start_date and end_date
+    # are paired (one without the other is a footgun, not a useful default).
+    # When the explicit range is provided, derive month/year from start_date
+    # so the response shape stays stable for clients that read those fields.
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_date and end_date must be provided together.",
+        )
+    if start_date is not None and end_date is not None:
+        if end_date <= start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="end_date must be strictly after start_date (range is half-open).",
+            )
+        start = start_date
+        end = end_date
+        month = start.month
+        year = start.year
     else:
-        end = date(year, month + 1, 1)
+        # Default to current calendar month if month/year both missing.
+        if month is None and year is None:
+            today = date.today()
+            month = today.month
+            year = today.year
+        elif month is None or year is None:
+            raise HTTPException(
+                status_code=400,
+                detail="month and year must be provided together (or omit both for current month).",
+            )
+        start = date(year, month, 1)
+        if month == 12:
+            end = date(year + 1, 1, 1)
+        else:
+            end = date(year, month + 1, 1)
 
     # Expand splits so each split's amount lands in its own category rather
     # than the parent transaction's single category. Transfers (CC

@@ -61,7 +61,7 @@ export default function App() {
   // edit affordances — QuickAddFab, sync button, etc. — so the phone
   // UX matches what the backend will allow. The backend middleware
   // is the safety net; this is the UX layer.
-  const readOnly = useReadOnlyMode()
+  const { readOnly, setMode: setViewModeLocal } = useReadOnlyMode()
   // Mobile drawer state — only matters at < 768px (CSS hides the
   // hamburger on wider viewports). Closes automatically when the route
   // changes so tapping a nav item dismisses the drawer.
@@ -259,7 +259,7 @@ export default function App() {
       {/* Read-only banner — only renders when this device's view cookie
           is "readonly". Sits above everything else so the visual context
           is unmissable; explains why edit affordances are gone. */}
-      <ReadOnlyBanner show={readOnly} />
+      <ReadOnlyBanner show={readOnly} onModeChange={setViewModeLocal} />
       {/* Mobile-only top app bar. CSS hides the whole bar above 768px.
           Wraps the hamburger + brand together so the navigation chrome
           looks intentional rather than a floating orphan, and the page

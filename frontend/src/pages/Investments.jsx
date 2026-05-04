@@ -316,7 +316,7 @@ export default function Investments() {
           {tab === 'holdings' && (
             <div className="card">
               <div className="table-wrapper">
-                <table>
+                <table className="holdings-table">
                   <thead>
                     <tr>
                       <th>Security</th>

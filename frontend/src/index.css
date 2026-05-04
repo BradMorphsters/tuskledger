@@ -1011,6 +1011,46 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
   .stats-grid > :nth-child(3) { order: 3; }  /* Total Debt   → 3rd */
   .stats-grid > :nth-child(2) { order: 4; }  /* Total Assets → 4th */
 
+  /* ── Recharts mobile sweep ───────────────────────────────────────
+     Recharts renders to SVG with predictable class names. Targeting
+     them here lets us tune every chart at once instead of touching
+     every page that uses charts. The two highest-traffic charts
+     (SpendingIncome bars, NetWorth area) have additional JS-level
+     tuning via useIsMobile for height + margin control that CSS
+     can't reach; this block handles the rest:
+
+       .recharts-cartesian-axis-tick text — axis labels (X + Y dates,
+         money amounts). Drop from default ~12px to 10px so labels
+         have a chance of fitting without overlap.
+       .recharts-legend-wrapper — hide. On phone the legend takes
+         disproportionate vertical space and the colored series
+         usually have obvious meaning from context (green = income /
+         positive, red = spending / debt).
+       .recharts-text — catch-all for label-style text. Same drop.
+       .recharts-cartesian-axis .recharts-text.recharts-label — axis
+         titles ('Year', 'Month'). Hide on phone; the axis values
+         are self-explanatory.
+       .recharts-tooltip-wrapper — keep visible but tighten the
+         default font in the wrapped block.
+
+     !important is required because Recharts sets these via inline
+     style attributes. If a specific chart needs different sizing it
+     can override at the chart-component level via JS props. */
+  .recharts-cartesian-axis-tick text,
+  .recharts-text {
+    font-size: 10px !important;
+  }
+  .recharts-legend-wrapper {
+    /* Some charts genuinely need their legend (Retirement projection
+       fan chart for example). For those, opt back in by overriding
+       in the chart's own scoped class. */
+    display: none !important;
+  }
+  .recharts-cartesian-axis .recharts-text.recharts-label {
+    display: none;
+  }
+  .recharts-tooltip-wrapper { font-size: 11px !important; }
+
   /* ── Holdings table → card-per-row on phone ──────────────────────
      Same pattern as .txn-table. The Investments page Holdings tab
      has 7 columns (security, account, qty, price, market value,

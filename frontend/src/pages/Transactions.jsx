@@ -459,7 +459,7 @@ export default function Transactions() {
       {/* Transaction table */}
       <div className="card">
         <div className="table-wrapper">
-          <table>
+          <table className="txn-table">
             <thead>
               <tr>
                 <th style={{ width: 24 }}>

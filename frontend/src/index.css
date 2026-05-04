@@ -849,6 +849,159 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
     /* QuickAddFab sits above the Ask pill — preserve the stack. */
     bottom: max(92px, calc(env(safe-area-inset-bottom) + 68px));
   }
+
+  /* ── Transactions table → card-per-row on phone ──────────────────
+     The default mobile fallback (above) wraps every table in a
+     horizontal-scroll container, which technically works but is
+     unreadable on a phone — you can't see the row context while
+     scrolling sideways. The .txn-table class on the Transactions
+     page opts into a real card layout instead: each row stacks
+     vertically with date+amount on top, merchant in the middle,
+     and category+account on the bottom. Pure CSS transformation;
+     no React changes beyond the className.
+
+     Layout per card:
+       ┌───────────────────────────────┐
+       │ May 1                $-187.42 │   ← row 1: date | amount
+       │ Costco                        │   ← row 2: merchant (full width)
+       │ Groceries     Everyday Check  │   ← row 3: category | account
+       └───────────────────────────────┘
+
+     Hidden on mobile: bulk-select checkbox (desktop workflow) +
+     business column (most users don't have businesses; managing
+     them is a desktop task anyway). Both are still in the DOM, just
+     display: none — no JS changes needed. */
+  .txn-table {
+    display: block;
+    /* Undo the horizontal-scroll container styling above */
+    white-space: normal;
+    overflow-x: visible;
+  }
+  .txn-table thead { display: none; }
+  .txn-table tbody { display: block; }
+  .txn-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "date amount"
+      "desc desc"
+      "cat acct";
+    column-gap: 12px;
+    row-gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: var(--bg-card);
+    /* Wipe table-row defaults that would otherwise show through */
+    box-shadow: none;
+  }
+  .txn-table td {
+    display: block;
+    border: none;
+    padding: 0;
+  }
+  /* Hide checkbox + business columns on phone (positions 1 and 5) */
+  .txn-table td:nth-child(1),
+  .txn-table td:nth-child(5) { display: none; }
+  /* Date — top-left, small, muted */
+  .txn-table td:nth-child(2) {
+    grid-area: date;
+    font-size: 12px;
+    color: var(--text-muted);
+    align-self: center;
+  }
+  /* Description (merchant + pin + transfer pill) — full width middle */
+  .txn-table td:nth-child(3) { grid-area: desc; }
+  /* Category — bottom-left */
+  .txn-table td:nth-child(4) { grid-area: cat; }
+  /* Account — bottom-right, small, muted */
+  .txn-table td:nth-child(6) {
+    grid-area: acct;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+    align-self: center;
+  }
+  /* Amount — top-right, bold, larger */
+  .txn-table td:nth-child(7) {
+    grid-area: amount;
+    text-align: right;
+    font-weight: 600;
+    font-size: 16px;
+    align-self: center;
+  }
+
+  /* ── Holdings table → card-per-row on phone ──────────────────────
+     Same pattern as .txn-table. The Investments page Holdings tab
+     has 7 columns (security, account, qty, price, market value,
+     cost basis, gain/loss); on phone we show only the four that
+     answer "is this position doing what I expect?" — security,
+     account, market value, gain/loss. Quantity, price, and cost
+     basis are details available on the desktop view; not worth
+     the cramped phone real estate.
+
+     Card layout:
+       ┌──────────────────────────────────┐
+       │ AAPL                  $12,450.00 │   ← security | market value
+       │ Apple Inc.                       │   ← (subtitle inside td 1)
+       │ Brokerage             +$2,100.00 │   ← account | gain/loss
+       └──────────────────────────────────┘ */
+  .holdings-table {
+    display: block;
+    white-space: normal;
+    overflow-x: visible;
+  }
+  .holdings-table thead { display: none; }
+  .holdings-table tbody { display: block; }
+  .holdings-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "security mvalue"
+      "account  gainloss";
+    column-gap: 12px;
+    row-gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: var(--bg-card);
+  }
+  .holdings-table td {
+    display: block;
+    border: none;
+    padding: 0;
+  }
+  /* Hide quantity (3), price (4), cost basis (6) — desktop-only details */
+  .holdings-table td:nth-child(3),
+  .holdings-table td:nth-child(4),
+  .holdings-table td:nth-child(6) { display: none; }
+  /* Security — top-left (incl. subtitle div for full name) */
+  .holdings-table td:nth-child(1) { grid-area: security; }
+  /* Account — bottom-left, small, muted */
+  .holdings-table td:nth-child(2) {
+    grid-area: account;
+    font-size: 12px;
+    color: var(--text-muted);
+    align-self: center;
+  }
+  /* Market value — top-right, bold */
+  .holdings-table td:nth-child(5) {
+    grid-area: mvalue;
+    text-align: right;
+    font-weight: 600;
+    font-size: 16px;
+    align-self: center;
+  }
+  /* Gain/loss — bottom-right, colored */
+  .holdings-table td:nth-child(7) {
+    grid-area: gainloss;
+    text-align: right;
+    font-weight: 500;
+    font-size: 13px;
+    align-self: center;
+  }
 }
 
 /* ----- Auth screens (Login / Setup) ----- */

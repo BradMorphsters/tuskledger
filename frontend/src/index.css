@@ -810,6 +810,18 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
     height: calc(100vh - 52px - env(safe-area-inset-top));
   }
   .sidebar.open { transform: translateX(0); }
+  /* Brand text is already in the app bar above the drawer — no need
+     to repeat it inside the drawer. Hides the .sidebar-logo on mobile
+     to avoid the duplicated 'Tusk Ledger' header. */
+  .sidebar .sidebar-logo { display: none; }
+  /* Drawer fills its own viewport area — the user/Sync section was
+     overflowing below the drawer and letting page content (Food &
+     Dining alert, Ask pill) bleed through the bottom. overflow-y:auto
+     keeps everything inside the drawer's solid background. */
+  .sidebar {
+    overflow-y: auto;
+    padding-top: 16px;
+  }
   .mobile-nav-scrim.open {
     display: block;
     /* Scrim sits under the app bar so the bar (+ hamburger to close)

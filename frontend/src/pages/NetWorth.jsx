@@ -13,6 +13,7 @@ import {
 import AccountFreshness from '../components/AccountFreshness'
 import Stat from '../components/Stat'
 import Pill from '../components/Pill'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 function formatCurrency(val) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0)
@@ -53,6 +54,7 @@ function iconFor(type) {
 }
 
 export default function NetWorth() {
+  const isMobile = useIsMobile()
   const [history, setHistory] = useState([])
   const [accounts, setAccounts] = useState([])
   const [manualAssets, setManualAssets] = useState([])
@@ -282,8 +284,13 @@ export default function NetWorth() {
         )}
         {history.length > 1 ? (
           <>
-            <ResponsiveContainer width="100%" height={350}>
-              <AreaChart data={showProjection && projectionData ? [...chartHistory, ...projectionData.projected] : chartHistory}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 350}>
+              <AreaChart
+                data={showProjection && projectionData ? [...chartHistory, ...projectionData.projected] : chartHistory}
+                margin={isMobile
+                  ? { top: 8, right: 4, left: -8, bottom: 0 }
+                  : { top: 8, right: 12, left: 0, bottom: 0 }}
+              >
               <defs>
                 <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
@@ -291,8 +298,19 @@ export default function NetWorth() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-              <XAxis dataKey="date" stroke="#6b7280" fontSize={12} />
-              <YAxis stroke="#6b7280" fontSize={12} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+              <XAxis
+                dataKey="date"
+                stroke="#6b7280"
+                fontSize={isMobile ? 10 : 12}
+                interval={isMobile ? 'preserveStartEnd' : 'preserveEnd'}
+                minTickGap={isMobile ? 30 : 5}
+              />
+              <YAxis
+                stroke="#6b7280"
+                fontSize={isMobile ? 10 : 12}
+                tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
+                width={isMobile ? 40 : 60}
+              />
               <Tooltip
                 formatter={(val) => formatCurrency(val)}
                 contentStyle={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8 }}

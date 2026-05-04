@@ -41,6 +41,7 @@ import Stat from '../components/Stat'
 import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import TrendStat from '../components/TrendStat'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { SpendingHeatmap } from '../components/SpendingExtras'
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6', '#22d3ee', '#c084fc']
@@ -683,6 +684,7 @@ function IncomeSourcesCard({ sources = [] }) {
 // ═══════════════════════════════════════════════════════════════
 export default function SpendingIncome() {
   const today = new Date()
+  const isMobile = useIsMobile()
   const [monthlyData, setMonthlyData] = useState([])
   const [breakdown, setBreakdown] = useState(null)
   const [trends, setTrends] = useState(null)
@@ -952,13 +954,27 @@ export default function SpendingIncome() {
             )}
 
             {monthlyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={monthlyData} barGap={4}>
+              <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
+                <BarChart
+                  data={monthlyData}
+                  barGap={isMobile ? 2 : 4}
+                  margin={isMobile
+                    ? { top: 8, right: 4, left: -8, bottom: 0 }
+                    : { top: 8, right: 12, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="month" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
-                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 12 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
+                    interval={isMobile ? 'preserveStartEnd' : 0}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
+                    tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
+                    width={isMobile ? 36 : 60}
+                  />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 13 }} />
+                  {!isMobile && <Legend wrapperStyle={{ fontSize: 13 }} />}
                   <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="spending" name="Spending" fill="#f87171" radius={[4, 4, 0, 0]} />
                 </BarChart>

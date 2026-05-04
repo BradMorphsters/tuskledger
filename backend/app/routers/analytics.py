@@ -1690,22 +1690,65 @@ def cash_flow_health(db: Session = Depends(get_db)):
 # ─── Anomaly Insight Cards ─────────────────────────────────
 @router.get("/top-merchants")
 def top_merchants(
-    months: int = Query(6, ge=1, le=24, description="Lookback window in months"),
+    months: int = Query(6, ge=1, le=24, description="Lookback window in months. Ignored if start_date/end_date provided."),
     limit: int = Query(20, ge=1, le=100),
     business_id: Optional[int] = Query(None, description="Filter to one business"),
+    start_date: Optional[date] = Query(
+        None,
+        description=(
+            "ISO date YYYY-MM-DD. Lower bound (inclusive). When paired "
+            "with end_date, the explicit range overrides the months "
+            "lookback. Used by the MCP server for arbitrary windows."
+        ),
+    ),
+    end_date: Optional[date] = Query(
+        None,
+        description="ISO date YYYY-MM-DD. Upper bound (EXCLUSIVE). Pair with start_date.",
+    ),
     db: Session = Depends(get_db),
 ):
     """Top merchants by total $ spent in the lookback window, with a
     sparkline showing month-over-month spend at each merchant. Used by
     the Spending & Income page's "Top merchants" table.
 
+    Two ways to bound the range, in priority order:
+      1. start_date + end_date (arbitrary half-open range)
+      2. months (rolling lookback ending today; the existing UI shape)
+
+    Half-supplied ranges are rejected with 400 — silently falling back
+    to the months default would mislead callers who got the args wrong.
+
     Optional business_id filter constrains to transactions tagged to
     that business — useful for the per-business dashboard view.
     """
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_date and end_date must be provided together.",
+        )
+
     today = date.today()
-    cutoff = today - timedelta(days=months * 31)
+    if start_date is not None and end_date is not None:
+        if end_date <= start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="end_date must be strictly after start_date (range is half-open).",
+            )
+        range_start = start_date
+        range_end = end_date
+        # Effective months for sparkline scaling: round up so the chart
+        # has at least one bucket. The sparkline is informational; users
+        # passing an arbitrary range care about the totals + counts.
+        days = (range_end - range_start).days
+        effective_months = max(1, (days + 30) // 31)
+    else:
+        range_start = today - timedelta(days=months * 31)
+        range_end = today + timedelta(days=1)  # include today (half-open)
+        effective_months = months
+
     q = db.query(Transaction).filter(
-        Transaction.date >= cutoff,
+        Transaction.date >= range_start,
+        Transaction.date < range_end,
         Transaction.amount > 0,  # outflows only
         Transaction.is_transfer == False,  # noqa: E712
     )
@@ -1720,20 +1763,23 @@ def top_merchants(
         norm = normalize_merchant(raw) or raw
         by_merchant[norm].append(t)
 
-    # Build entries with monthly sparkline
+    # Build entries with monthly sparkline.
+    # Sparkline anchor: end of range when an explicit window is given,
+    # else "today" for the months-lookback shape (back-compat).
+    sparkline_anchor = (range_end - timedelta(days=1)) if start_date is not None else today
     out = []
     for merchant, ts in by_merchant.items():
         total = sum(x.amount for x in ts)
-        # Per-month buckets (newest first)
+        # Per-month buckets
         monthly = defaultdict(float)
         for t in ts:
             key = (t.date.year, t.date.month)
             monthly[key] += t.amount
-        # Sparkline: last `months` months, oldest → newest
+        # Sparkline: last `effective_months` months, oldest → newest, ending at anchor
         sparkline = []
-        for back in range(months - 1, -1, -1):
-            y = today.year + (today.month - back - 1) // 12
-            m = ((today.month - back - 1) % 12) + 1
+        for back in range(effective_months - 1, -1, -1):
+            y = sparkline_anchor.year + (sparkline_anchor.month - back - 1) // 12
+            m = ((sparkline_anchor.month - back - 1) % 12) + 1
             sparkline.append(round(monthly.get((y, m), 0.0), 2))
         out.append({
             "merchant": merchant,
@@ -1743,7 +1789,7 @@ def top_merchants(
             "sparkline": sparkline,
         })
     out.sort(key=lambda x: x["total"], reverse=True)
-    return {"merchants": out[:limit], "months": months}
+    return {"merchants": out[:limit], "months": effective_months}
 
 
 @router.get("/spending-heatmap")

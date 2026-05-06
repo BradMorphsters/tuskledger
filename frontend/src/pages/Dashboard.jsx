@@ -16,7 +16,7 @@ import StaleBalanceAlert from '../components/StaleBalanceAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
-import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot } from '../components/DashboardTiles'
+import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
 
 // Strip noisy ACH prefixes from raw transaction descriptions for inline
@@ -66,17 +66,18 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v9. Reordered row 2 so DCFSA sits directly to the right
-// of Cash flow forecast (matches user's preference for grouping the
-// recurring/scheduled-money tiles together). With snapshot returning
-// null, the visible 6 tiles render row-by-row across 3 columns:
-//   Row 1: Pulse | HSA | Portfolio
-//   Row 2: Forecast | DCFSA | Loans
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v9'
-const DEFAULT_TILE_ORDER = ['pulse', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
+// Bumped to v10. Added CashBalances tile and placed it second in row 1
+// so the "is anything low?" view sits next to the Pulse score —
+// together they answer "am I OK right now?" at a glance.
+//   Row 1: Pulse | Cash | HSA
+//   Row 2: Portfolio | Forecast | DCFSA
+//   Row 3: Loans (alone — stretches; snapshot is null)
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v10'
+const DEFAULT_TILE_ORDER = ['pulse', 'cash', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
+  cash: 'Cash',
 }
 
 function HealthTilesRow() {
@@ -109,6 +110,7 @@ function HealthTilesRow() {
     if (key === 'dcfsa') return <DcfsaTracker />
     if (key === 'loans') return <LoanPayoffCountdown />
     if (key === 'portfolio') return <PortfolioSnapshot />
+    if (key === 'cash') return <CashBalances />
     return null
   }
 

@@ -71,6 +71,14 @@ export const getTransactions = (params = {}) => {
   const qs = new URLSearchParams(params).toString();
   return request(`/transactions/?${qs}`);
 };
+// Aggregate income / spending / count for ALL rows matching the current
+// filter — not just the visible page. Pass the same filter params as
+// getTransactions (limit/offset are ignored server-side).
+export const getTransactionsTotals = (params = {}) => {
+  const { limit, offset, ...filterParams } = params;
+  const qs = new URLSearchParams(filterParams).toString();
+  return request(`/transactions/totals${qs ? `?${qs}` : ''}`);
+};
 export const updateTransaction = (id, data) =>
   request(`/transactions/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const getTransactionSplits = (id) => request(`/transactions/${id}/splits`);

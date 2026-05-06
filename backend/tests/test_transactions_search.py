@@ -174,3 +174,117 @@ def test_transaction_search_partial_match(db, factory):
     response = client.get("/api/transactions/?q=bucks")
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+# ─── /transactions/totals ──────────────────────────────────────
+# These guard the fix where the page header summary was summing
+# only the visible 50-row page instead of the full filtered scope.
+
+def test_totals_aggregates_all_matching_rows_not_just_a_page(db, factory):
+    """Totals must reflect every row matching the filter, even when the
+    result set is bigger than the default list-transactions page size.
+
+    Regression: the page header used to compute totals from the loaded
+    page (limit=50), which silently under-reported whenever the filter
+    returned more than 50 rows.
+    """
+    acct = factory.account(name="Test Account")
+    factory.commit()
+
+    # Create 75 spending rows ($10 each) — more than one default page.
+    for _ in range(75):
+        factory.transaction(account_id=acct.id, merchant_name="Coffee", amount=10.0)
+    # And 5 income rows ($100 each, Plaid sign convention: negative).
+    for _ in range(5):
+        factory.transaction(account_id=acct.id, merchant_name="Payroll", amount=-100.0)
+    factory.commit()
+
+    client = TestClient(app)
+    r = client.get("/api/transactions/totals")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 80
+    assert body["spending"] == 750.0   # 75 × $10
+    assert body["income"] == 500.0     # 5 × $100, returned as positive
+    assert body["transfers_excluded"] == 0
+
+
+def test_totals_excludes_transfers_by_default(db, factory):
+    """Income/spending must exclude is_transfer rows so account-to-account
+    moves don't double-count.
+
+    Without this, a $1,000 CC autopay (Family Checking → Apple Card)
+    appears as $1,000 spending on Family Checking AND $1,000 income on
+    Apple Card, inflating both totals symmetrically. Real-world result
+    on Eduardo's data: ~$222K on each side, almost equal — clearly wrong.
+    """
+    checking = factory.account(name="Checking")
+    credit = factory.account(name="Credit Card")
+    factory.commit()
+
+    # Real spending ($50) + real income ($200) — these should land in totals.
+    factory.transaction(account_id=checking.id, merchant_name="Coffee", amount=50.0)
+    factory.transaction(account_id=checking.id, merchant_name="Payroll", amount=-200.0)
+    # CC autopay pair — both flagged as transfer. Should NOT appear in totals.
+    factory.transaction(
+        account_id=checking.id, merchant_name="CC Autopay",
+        amount=1000.0, is_transfer=True,
+    )
+    factory.transaction(
+        account_id=credit.id, merchant_name="Payment Received",
+        amount=-1000.0, is_transfer=True,
+    )
+    factory.commit()
+
+    client = TestClient(app)
+
+    # Default: transfers excluded
+    r = client.get("/api/transactions/totals")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 4              # all rows visible in list
+    assert body["spending"] == 50.0        # transfers excluded from sum
+    assert body["income"] == 200.0
+    assert body["transfers_excluded"] == 2
+
+    # Opt-in: include transfers (for reconciliation / auditing)
+    r = client.get("/api/transactions/totals?include_transfers=true")
+    body = r.json()
+    assert body["spending"] == 1050.0      # 50 + 1000 transfer side
+    assert body["income"] == 1200.0        # 200 + 1000 transfer side
+    assert body["transfers_excluded"] == 0
+
+
+def test_totals_respects_filters(db, factory):
+    """Filters (q, category, account_id, date range) narrow the totals."""
+    acct1 = factory.account(name="A")
+    acct2 = factory.account(name="B")
+    factory.commit()
+
+    factory.transaction(account_id=acct1.id, merchant_name="Starbucks", amount=5.0)
+    factory.transaction(account_id=acct1.id, merchant_name="Starbucks", amount=7.0)
+    factory.transaction(account_id=acct2.id, merchant_name="Starbucks", amount=20.0)
+    factory.transaction(account_id=acct1.id, merchant_name="Target", amount=99.0)
+    factory.commit()
+
+    client = TestClient(app)
+
+    # Filter to Starbucks rows in account 1 only — 2 rows totaling $12
+    r = client.get(f"/api/transactions/totals?q=Starbucks&account_id={acct1.id}")
+    assert r.status_code == 200
+    assert r.json() == {
+        "count": 2, "spending": 12.0, "income": 0.0, "transfers_excluded": 0,
+    }
+
+
+def test_totals_empty_filter_returns_zeros(db, factory):
+    """No matching rows must return zeros, not null/None."""
+    factory.account(name="Empty")
+    factory.commit()
+
+    client = TestClient(app)
+    r = client.get("/api/transactions/totals?q=nothing-matches-this")
+    assert r.status_code == 200
+    assert r.json() == {
+        "count": 0, "spending": 0.0, "income": 0.0, "transfers_excluded": 0,
+    }

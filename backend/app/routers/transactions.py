@@ -200,6 +200,107 @@ def list_transactions(
     return query.order_by(Transaction.date.desc()).offset(offset).limit(limit).all()
 
 
+@router.get("/totals")
+def list_transactions_totals(
+    account_id: Optional[int] = None,
+    category: Optional[str] = None,
+    business_id: Optional[int] = None,
+    is_business: Optional[bool] = Query(
+        None,
+        description=(
+            "Filter on whether the transaction is tagged to ANY business. "
+            "Mirrors list_transactions semantics."
+        ),
+    ),
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    q: Optional[str] = None,
+    include_transfers: bool = Query(
+        False,
+        description=(
+            "If true, include is_transfer rows in the income/spending "
+            "totals. Default false to match the dashboard's "
+            "spending-summary endpoint, which excludes transfers because "
+            "they double-count: an account-to-account move shows on both "
+            "the leaving side (negative) and the receiving side (positive), "
+            "inflating both totals symmetrically. Same for CC autopays, "
+            "HELOC pays, mortgage autopays, brokerage funding moves, etc."
+        ),
+    ),
+    db: Session = Depends(get_db),
+):
+    """Aggregate income / spending / count across the full filter scope.
+
+    The Transactions page paginates 50 rows at a time, but the summary
+    line at the top should reflect *every* transaction matching the
+    current filter — not just the page that's currently rendered.
+
+    Transfers are excluded by default to match the dashboard, where
+    "income" and "spending" are real money movement, not internal
+    paired flows. The list itself still shows transfer rows (so they
+    can be inspected and re-categorized), but the headline numbers
+    represent net cash activity. Pass include_transfers=true to get
+    raw sums (e.g. for reconciliation or auditing).
+    """
+    query = db.query(Transaction)
+    if account_id:
+        query = query.filter(Transaction.account_id == account_id)
+    if business_id:
+        query = query.filter(Transaction.business_id == business_id)
+    elif is_business is True:
+        query = query.filter(Transaction.business_id.isnot(None))
+    elif is_business is False:
+        query = query.filter(Transaction.business_id.is_(None))
+    if category:
+        query = query.filter(
+            (Transaction.custom_category == category) | (Transaction.category == category)
+        )
+    if start_date:
+        query = query.filter(Transaction.date >= start_date)
+    if end_date:
+        query = query.filter(Transaction.date <= end_date)
+    if q and q.strip():
+        search_term = f"%{q.strip()}%"
+        query = query.filter(
+            (func.lower(Transaction.name).like(func.lower(search_term))) |
+            (func.lower(Transaction.merchant_name).like(func.lower(search_term)))
+        )
+
+    # Total count reflects every matching row including transfers — that's
+    # what the user sees in the list. The income/spending sums below
+    # exclude transfers by default so they represent real money movement.
+    count = query.with_entities(func.count(Transaction.id)).scalar()
+    transfers_count = (
+        query.with_entities(func.count(Transaction.id))
+        .filter(Transaction.is_transfer.is_(True))
+        .scalar()
+    )
+
+    money_query = query
+    if not include_transfers:
+        money_query = money_query.filter(Transaction.is_transfer.is_(False))
+
+    # Plaid sign convention: positive amount = outflow (spending),
+    # negative amount = inflow (income).
+    spending_sum = (
+        money_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .filter(Transaction.amount > 0)
+        .scalar()
+    )
+    income_sum_signed = (
+        money_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .filter(Transaction.amount < 0)
+        .scalar()
+    )
+
+    return {
+        "count": int(count or 0),
+        "spending": float(spending_sum or 0.0),
+        "income": float(abs(income_sum_signed or 0.0)),
+        "transfers_excluded": int(transfers_count or 0) if not include_transfers else 0,
+    }
+
+
 @router.patch("/{transaction_id}", response_model=TransactionOut)
 def update_transaction(transaction_id: int, body: TransactionUpdate, db: Session = Depends(get_db)):
     txn = db.query(Transaction).filter_by(id=transaction_id).first()

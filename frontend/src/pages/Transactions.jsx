@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight, Split, X, Plus, Star } from 'lucide-react'
 import {
-  getTransactions, getAccounts, updateTransaction, getCategories, getBusinesses,
+  getTransactions, getTransactionsTotals, getAccounts, updateTransaction, getCategories, getBusinesses,
   replaceTransactionSplits, clearTransactionSplits, getExportUrl,
 } from '../api/client'
 import BusinessBadge from '../components/BusinessBadge'
@@ -19,6 +19,11 @@ function formatDate(dateStr) {
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState([])
+  // Server-computed aggregate across the FULL filter scope (not just the
+  // current page). The header summary line reads from this so it stays
+  // accurate when results exceed the page limit. Falls back to local
+  // page sums while loading / on error.
+  const [scopeTotals, setScopeTotals] = useState(null)
   const [accounts, setAccounts] = useState([])
   const [categories, setCategories] = useState([])
   const [filters, setFilters] = useState({
@@ -77,6 +82,12 @@ export default function Transactions() {
     params.limit = filters.limit
     params.offset = filters.offset
     getTransactions(params).then(setTransactions).catch(() => {})
+    // Totals are computed across the full filter scope on the server —
+    // limit/offset are stripped by getTransactionsTotals so paginating
+    // doesn't change the summary line.
+    getTransactionsTotals(params)
+      .then(setScopeTotals)
+      .catch(() => setScopeTotals(null))
   }
 
   useEffect(() => {
@@ -258,17 +269,54 @@ export default function Transactions() {
   }, [displayed, cursorIdx, editingId])
 
   // Totals
-  const totalSpending = displayed.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0)
-  const totalIncome = displayed.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
+  // ──────
+  // Source of truth depends on which filter set is active:
+  //
+  //   1. Default — server-computed scopeTotals across ALL rows matching
+  //      the current backend filter (account/category/business/dates/q).
+  //      This is what the user expects: "Spent / Income at the top
+  //      reflects the entire filtered result, not just the visible
+  //      page." Paginating no longer changes the numbers.
+  //
+  //   2. Pinned-only toggle — pinning is a client-only annotation, so
+  //      the server can't compute its scope. In that case fall back to
+  //      summing the displayed rows (which are already filtered to
+  //      pinned). The pinned-only filter is intended for spot-checking
+  //      a small handful of starred items, so a page-bound sum is
+  //      acceptable here.
+  //
+  //   3. Loading / error — fall back to page-derived totals so the
+  //      header doesn't disappear during the first request.
+  const pageSpending = displayed.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0)
+  const pageIncome = displayed.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
+  const useScope = scopeTotals && !pinnedOnly
+  const totalSpending = useScope ? scopeTotals.spending : pageSpending
+  const totalIncome = useScope ? scopeTotals.income : pageIncome
+  const totalCount = useScope ? scopeTotals.count : displayed.length
 
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">Transactions</h1>
         <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {displayed.length} transaction{displayed.length !== 1 ? 's' : ''}
+          {totalCount} transaction{totalCount !== 1 ? 's' : ''}
+          {!useScope && displayed.length !== totalCount && (
+            <span title="Pinned-only is a local filter, so totals reflect the loaded page."> (page)</span>
+          )}
           {totalSpending > 0 && <span> · Spent: <span style={{ color: 'var(--accent-red)' }}>{formatCurrency(totalSpending)}</span></span>}
           {totalIncome > 0 && <span> · Income: <span style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalIncome)}</span></span>}
+          {useScope && scopeTotals?.transfers_excluded > 0 && (
+            <span
+              title={
+                `Excludes ${scopeTotals.transfers_excluded} transfer row${scopeTotals.transfers_excluded !== 1 ? 's' : ''} ` +
+                `(account-to-account moves, CC autopays, etc.) so income and spending reflect real money movement, ` +
+                `not paired internal flows. Transfer rows are still visible in the list below.`
+              }
+              style={{ marginLeft: 6, fontSize: 11, opacity: 0.7, cursor: 'help' }}
+            >
+              · excludes {scopeTotals.transfers_excluded} transfer{scopeTotals.transfers_excluded !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
       </div>
 
@@ -716,6 +764,7 @@ export default function Transactions() {
           </button>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             Showing {filters.offset + 1}–{filters.offset + displayed.length}
+            {useScope && totalCount > displayed.length && ` of ${totalCount}`}
           </span>
           <button
             onClick={() => setFilters(f => ({ ...f, offset: f.offset + f.limit }))}

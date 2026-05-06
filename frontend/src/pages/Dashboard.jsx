@@ -436,6 +436,26 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Inline This Month breakdown — rendered immediately below the
+          stat row so it's visible without scrolling when the user
+          clicks the Spending or Income chevron above. (Was previously
+          rendered after HealthTilesRow, which pushed it well below the
+          fold and made the dropdown look unresponsive — clicking
+          flipped the chevron but no panel appeared in the visible
+          viewport.) */}
+      {expandedThisMonth && (
+        <ThisMonthBreakdown
+          side={expandedThisMonth}
+          breakdown={breakdown}
+          patterns={patterns}
+          totalSpending={totalSpending}
+          totalIncome={totalIncome}
+          month={thisMonth}
+          year={thisYear}
+          onClose={() => setExpandedThisMonth(null)}
+        />
+      )}
+
       {/* AI narrative + rule-based anomaly cards. Promoted high on the
           page so they sit directly under the user's headline numbers
           (Net Worth, This Month) instead of buried below the trend
@@ -533,22 +553,9 @@ export default function Dashboard() {
       </div>
 
       {/* (AI narrative + InsightsBar moved up to sit directly under the
-          stat cards — see above HealthTilesRow.) */}
-
-      {/* Inline This Month breakdown — appears between the stat cards and
-          the charts row when the user clicks Spending or Income above. */}
-      {expandedThisMonth && (
-        <ThisMonthBreakdown
-          side={expandedThisMonth}
-          breakdown={breakdown}
-          patterns={patterns}
-          totalSpending={totalSpending}
-          totalIncome={totalIncome}
-          month={thisMonth}
-          year={thisYear}
-          onClose={() => setExpandedThisMonth(null)}
-        />
-      )}
+          stat cards — see above HealthTilesRow. ThisMonthBreakdown
+          also moved up so the dropdown panel renders adjacent to its
+          trigger rather than below the tiles row.) */}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
         {/* Spending breakdown with friendly categories */}

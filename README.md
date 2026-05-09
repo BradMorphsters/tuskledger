@@ -39,7 +39,7 @@ Everything stays on your computer. No cloud. No third-party analytics. Just your
 
 > **🤖 Working with an AI assistant?** Read [AGENTS.md](AGENTS.md) — it's a working-memory doc written for Claude Code, Cursor, Cowork, and similar agents. It covers permission boundaries, common operations, and the project's known footguns so an agent can be productive without grepping the whole tree first.
 
-> **📝 What changed recently?** [CHANGELOG.md](CHANGELOG.md) — curated release notes with rationale, kept up-to-date with the work. Sibling docs: [ARCHITECTURE.md](ARCHITECTURE.md) for the load-bearing design decisions, [MOBILE.md](MOBILE.md) for phone access via PWA + Cloudflare Tunnel, [DEMO.md](DEMO.md) for the public demo deployment, [CONTRIBUTING.md](CONTRIBUTING.md) for project scope.
+> **📝 What changed recently?** [CHANGELOG.md](CHANGELOG.md) — curated release notes with rationale, kept up-to-date with the work. Sibling docs: [ARCHITECTURE.md](ARCHITECTURE.md) for the load-bearing design decisions, [mobile/README.md](mobile/README.md) for the native iOS companion app, [MOBILE.md](MOBILE.md) for the PWA fallback path + Cloudflare Tunnel setup, [DEMO.md](DEMO.md) for the public demo deployment, [CONTRIBUTING.md](CONTRIBUTING.md) for project scope.
 
 ---
 
@@ -253,14 +253,21 @@ The MCP server ([tuskledger-mcp](https://github.com/BradMorphsters/tuskledger-mc
 
 ---
 
-## Optional: phone access (PWA + read-only mode)
+## Optional: phone access
 
-Tusk Ledger installs as a Progressive Web App, so the iPhone home-screen icon launches it full-screen without Safari chrome. The phone is a thin client: data lives on your laptop, the phone reads it over the network.
+Two ways to use Tusk Ledger from your iPhone, depending on whether you want a real native app or just to install the web UI as a PWA.
 
-**Two-stage path** (full runbook in [MOBILE.md](MOBILE.md)):
+### Native iOS companion app (preferred)
 
-1. **LAN-only** — works today, no extra setup. Get your laptop's IP (`ipconfig getifaddr en0`), open `http://<ip>:3000/?view=readonly` in mobile Safari, then Share → Add to Home Screen. The `?view=readonly` param sets a per-device cookie that hides edit affordances and 403s any mutating request server-side. Banner up top tells you which mode you're in.
-2. **Off-WiFi** — install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), create a named tunnel pointing at `127.0.0.1:3000`, put Cloudflare Access in front (single-email allowlist via Google OAuth), and run as a launchd service so it survives reboot. Documented step-by-step in MOBILE.md.
+A real native iOS app at [`mobile/`](mobile/) — Expo + React Native + TypeScript, currently in private TestFlight. Pairs with the laptop over your home Wi-Fi via a one-time QR code, mirrors accounts and transactions to a local SQLite on the phone, and reads from that mirror so screens are instant and keep working when the laptop is asleep. Read-only by design — edits stay on the laptop. Includes a Demo Mode toggle that swaps the mirror to the laptop's synthetic dataset for screenshots.
+
+Architecture: a new `/api/mobile/*` namespace on the backend, gated by per-device bearer tokens (`X-Device-Token`) issued through the QR pairing flow. Auth is independent of session cookies and `DEV_BYPASS_AUTH`. Bonjour/mDNS advertisement on the LAN so the phone can re-discover the laptop if its DHCP lease changes.
+
+To enable, set `LAN_SYNC_ENABLED=true` in `backend/.env` and restart — the launchers (`Tusk Ledger.command` / `start.sh`) will auto-bind to `0.0.0.0:8000`. Open the laptop's **Pair phone** sidebar entry, generate a code, scan from the iOS app. Full setup walkthrough in [`mobile/README.md`](mobile/README.md), including the EAS Build / TestFlight path.
+
+### PWA (fallback)
+
+The laptop's React UI also installs as a Progressive Web App from mobile Safari — useful when you don't want a TestFlight build, or for off-Wi-Fi access via Cloudflare Tunnel. Get your laptop's IP (`ipconfig getifaddr en0`), open `http://<ip>:3000/?view=readonly` in mobile Safari, Share → Add to Home Screen. The `?view=readonly` param sets a per-device cookie that hides edit affordances and 403s any mutating request server-side. Off-WiFi: install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), create a named tunnel pointing at `127.0.0.1:3000`, and put Cloudflare Access in front with a single-email allowlist. Step-by-step in [MOBILE.md](MOBILE.md).
 
 The read-only middleware is enforced server-side, layered on top of `require_auth` — even an authenticated session that's flagged read-only cannot POST/PUT/DELETE outside a tiny allowlist (auth, view toggle, demo-mode toggle). Flip back to edit mode by hitting any URL with `?view=edit`.
 

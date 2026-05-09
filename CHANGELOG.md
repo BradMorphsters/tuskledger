@@ -6,6 +6,35 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added
+- **Native iOS companion app** (currently in private TestFlight). New
+  `mobile/` directory: Expo + React Native + TypeScript app that pairs
+  with the laptop over home Wi-Fi via a one-time QR code, mirrors
+  accounts / transactions / holdings / manual_assets to a local
+  SQLite on the phone, and reads from that mirror so screens are
+  instant and work when the laptop is asleep. Read-only by design;
+  edits stay on the laptop. Includes a Demo Mode toggle that swaps
+  the mirror to the laptop's synthetic dataset for safe screenshots.
+- **`/api/mobile/*` namespace** on the backend, gated by per-device
+  bearer tokens (`X-Device-Token`) issued through the QR pairing
+  flow. New `DeviceToken` model, migration `0017_device_tokens`,
+  `pair/start`, `pair/claim`, `manifest`, `sync`, and
+  `devices/:id/revoke` endpoints. Auth uses `get_real_db` so the
+  demo-mode cookie never breaks token lookup.
+- **Bonjour/mDNS advertisement** (`services/bonjour.py`) on a daemon
+  thread so Zeroconf I/O never blocks FastAPI startup. Advertises
+  `_tuskledger._tcp.local.` so the iPhone re-discovers the laptop
+  if its DHCP lease changes.
+- **`LAN_SYNC_ENABLED` setting** in `backend/.env`. Tells the
+  launchers (`Tusk Ledger.command` / `start.sh`) to bind the
+  backend to `0.0.0.0:8000` instead of `127.0.0.1` so the phone
+  can reach it. Startup guard in `main.py` updated to allow this
+  bind alongside `DEV_BYPASS_AUTH=true` — the mobile API has its
+  own auth, independent of session cookies.
+- **"Pair phone" page** in the laptop frontend. Generates a code +
+  QR via the existing `qrcode[pil]` dep, lists paired devices,
+  supports per-device revoke.
+
 ### Changed
 - **Dependency bumps applied directly** (Dependabot's first-week backlog,
   consolidated into one commit so the 12 auto-opened PRs close as superseded

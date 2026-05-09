@@ -16,6 +16,7 @@ from app.models.mortgage_detail import MortgageDetail
 from app.models.credit_card_detail import CreditCardDetail
 from app.models.manual_asset import ManualAsset
 from app.models.savings_goal import SavingsGoal
+from app.models.device_token import DeviceToken
 
 __all__ = [
     "Account",
@@ -37,4 +38,5 @@ __all__ = [
     "CreditCardDetail",
     "ManualAsset",
     "SavingsGoal",
+    "DeviceToken",
 ]

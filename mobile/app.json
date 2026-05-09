@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "Tusk Ledger",
+    "slug": "tuskledger-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "tuskledger",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e0f12"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "ios": {
+      "bundleIdentifier": "com.tuskledger.mobile",
+      "supportsTablet": true,
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Tusk Ledger uses the camera to scan the pairing QR code shown on your laptop.",
+        "NSLocalNetworkUsageDescription": "Tusk Ledger connects to your laptop on the same Wi-Fi to fetch your finances. Your data stays on your home network.",
+        "NSBonjourServices": [
+          "_tuskledger._tcp"
+        ],
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.tuskledger.mobile",
+      "versionCode": 1,
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0e0f12"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tusk Ledger uses the camera to scan the pairing QR code shown on your laptop."
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3530ebb3-0ae0-4abb-b52d-28f1af33602b"
+      }
+    },
+    "owner": "bradmorphsters"
+  }
+}

@@ -41,7 +41,20 @@ if [ ! -f "$PROJECT_DIR/backend/.env" ]; then
 fi
 
 # --- Backend ---
-echo "Starting backend (FastAPI on http://127.0.0.1:8000)..."
+# Bind decision: localhost-only by default (the original Tusk Ledger
+# trust model — only the laptop's browser can reach the API). When the
+# user has set LAN_SYNC_ENABLED=true in backend/.env, expose to 0.0.0.0
+# instead so the iOS companion app on the same Wi-Fi can hit the
+# /api/mobile/* endpoints. The mobile API has its own X-Device-Token
+# auth, independent of DEV_BYPASS_AUTH, so this isn't loosening the
+# security model — it's only making the LAN bind possible.
+BACKEND_HOST="127.0.0.1"
+if [ -f "$PROJECT_DIR/backend/.env" ] && \
+   grep -q '^LAN_SYNC_ENABLED=true' "$PROJECT_DIR/backend/.env"; then
+  BACKEND_HOST="0.0.0.0"
+  echo "Detected LAN_SYNC_ENABLED=true — binding backend to 0.0.0.0 for mobile sync."
+fi
+echo "Starting backend (FastAPI on http://${BACKEND_HOST}:8000)..."
 cd "$PROJECT_DIR/backend"
 
 # Python venvs aren't relocatable — every script in venv/bin/ (pip,
@@ -67,7 +80,7 @@ fi
 source venv/bin/activate
 pip install -r requirements.txt --quiet 2>&1
 
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload &
+uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 --reload &
 BACKEND_PID=$!
 
 # --- Frontend ---

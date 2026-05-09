@@ -23,6 +23,7 @@ import {
   CreditCard,
   Receipt,
   Menu,
+  Smartphone,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -45,6 +46,7 @@ import Insights from './pages/Insights'
 import BusinessPage from './pages/Business'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
+import PairPhone from './pages/PairPhone'
 import { triggerSync, getAuthStatus, logout, refreshDemoData, setMode } from './api/client'
 import { useTheme, ThemeToggle, QuickAddFab, CommandPalette } from './components/QuickActions'
 import { BudgetAlertsMonitor, BudgetAlertsToggle } from './components/BudgetAlertsMonitor'
@@ -252,6 +254,7 @@ export default function App() {
     { to: '/tax-prep', icon: Receipt, label: 'Tax Prep' },
     { to: '/rules', icon: Filter, label: 'Rules' },
     { to: '/connect', icon: Link2, label: 'Accounts' },
+    { to: '/pair-phone', icon: Smartphone, label: 'Pair phone' },
   ]
 
   return (
@@ -517,6 +520,7 @@ export default function App() {
           <Route path="/business" element={<BusinessPage />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/connect" element={<ConnectAccounts />} />
+          <Route path="/pair-phone" element={<PairPhone />} />
         </Routes>
       </main>
 

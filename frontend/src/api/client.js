@@ -115,6 +115,27 @@ export const getIncomeVsSpending = (months = 6) =>
 export const getCategoryBreakdown = (month, year) =>
   request(`/transactions/category-breakdown?month=${month}&year=${year}`);
 export const getCategories = () => request('/transactions/categories');
+// Custom-category CRUD. Reads come through getCategories() above (it
+// merges customs + standards). Writes hit the dedicated routes below.
+// Naming note: the routes live under /transactions/categories/custom
+// rather than a top-level /categories namespace because the existing
+// list endpoint is /transactions/categories — keeping both under the
+// same prefix mirrors how the rest of the app groups category-related
+// things with transactions.
+export const createCustomCategory = ({ name, icon }) =>
+  request('/transactions/categories/custom', {
+    method: 'POST',
+    body: JSON.stringify({ name, icon }),
+  });
+export const updateCustomCategory = (id, { name, icon }) =>
+  request(`/transactions/categories/custom/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name, icon }),
+  });
+export const deleteCustomCategory = (id) =>
+  request(`/transactions/categories/custom/${id}`, { method: 'DELETE' });
+export const getCustomCategoryUsage = (id) =>
+  request(`/transactions/categories/custom/${id}/usage`);
 
 // Analytics
 export const getRules = () => request('/analytics/rules');

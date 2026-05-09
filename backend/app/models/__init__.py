@@ -17,6 +17,7 @@ from app.models.credit_card_detail import CreditCardDetail
 from app.models.manual_asset import ManualAsset
 from app.models.savings_goal import SavingsGoal
 from app.models.device_token import DeviceToken
+from app.models.custom_category import CustomCategory
 
 __all__ = [
     "Account",
@@ -39,4 +40,5 @@ __all__ = [
     "ManualAsset",
     "SavingsGoal",
     "DeviceToken",
+    "CustomCategory",
 ]

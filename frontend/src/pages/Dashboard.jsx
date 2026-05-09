@@ -16,7 +16,7 @@ import StaleBalanceAlert from '../components/StaleBalanceAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
-import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances } from '../components/DashboardTiles'
+import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
 
 // Strip noisy ACH prefixes from raw transaction descriptions for inline
@@ -73,11 +73,17 @@ const CustomTooltip = ({ active, payload }) => {
 //   Row 2: Portfolio | Forecast | DCFSA
 //   Row 3: Loans (alone — stretches; snapshot is null)
 const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v10'
-const DEFAULT_TILE_ORDER = ['pulse', 'cash', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
+// 'accounts' lands second in the default order, right after Pulse,
+// because "what's the balance on each of my accounts" is the most
+// common reason a user opens the dashboard. Existing users with a
+// stored tile order will fall back to this default — the saved-order
+// validation rejects orders that don't include every key, which is
+// exactly what we want when adding a new tile.
+const DEFAULT_TILE_ORDER = ['pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
-  cash: 'Cash',
+  cash: 'Cash', accounts: 'Accounts',
 }
 
 function HealthTilesRow() {
@@ -111,6 +117,7 @@ function HealthTilesRow() {
     if (key === 'loans') return <LoanPayoffCountdown />
     if (key === 'portfolio') return <PortfolioSnapshot />
     if (key === 'cash') return <CashBalances />
+    if (key === 'accounts') return <AccountsOverview />
     return null
   }
 

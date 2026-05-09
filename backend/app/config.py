@@ -62,6 +62,27 @@ class Settings(BaseSettings):
     # bind is actually reachable from the public internet.
     DEMO_LOCKED: bool = False
 
+    # ── LAN sync for the mobile app ───────────────────────────────
+    #
+    # Tusk Ledger normally binds to 127.0.0.1 — only the laptop's
+    # browser can reach it. When LAN_SYNC_ENABLED=true we expect the
+    # process to be bound to 0.0.0.0 (or a LAN-routable interface) so
+    # a phone on the same Wi-Fi can hit the mobile sync endpoints.
+    #
+    # Two effects:
+    #   1. The DEV_BYPASS_AUTH startup guard is loosened — non-localhost
+    #      bind is OK because the mobile API has its own device-token
+    #      auth (see routers/mobile.py). The web UI on the LAN is the
+    #      user's deliberate choice on their own home network; treat it
+    #      the same way the desktop session is treated.
+    #   2. Bonjour advertisement (services/bonjour.py) registers
+    #      _tuskledger._tcp.local. so the phone discovers the host
+    #      without the user typing an IP.
+    #
+    # Off by default — enabling it is an explicit "I'm running this on
+    # my home Wi-Fi and want my phone to see it" decision.
+    LAN_SYNC_ENABLED: bool = False
+
     # ── Optional local LLM (Ollama) ───────────────────────────────
     # When LLM_ENABLED=true, the Dashboard's "AI narrative" card calls
     # Ollama at LLM_URL with LLM_MODEL to summarize this month's

@@ -18,7 +18,16 @@ if [ ! -f "$SCRIPT_DIR/backend/.env" ]; then
 fi
 
 # Start backend
-echo "Starting backend (FastAPI on :8000)..."
+# Bind to 0.0.0.0 instead of 127.0.0.1 when LAN_SYNC_ENABLED=true, so a
+# phone on the same Wi-Fi can reach /api/mobile/*. Default stays
+# localhost — see the Tusk Ledger.command launcher for the rationale.
+BACKEND_HOST="127.0.0.1"
+if [ -f "$SCRIPT_DIR/backend/.env" ] && \
+   grep -q '^LAN_SYNC_ENABLED=true' "$SCRIPT_DIR/backend/.env"; then
+  BACKEND_HOST="0.0.0.0"
+  echo "LAN_SYNC_ENABLED=true detected — binding backend to 0.0.0.0 for mobile sync."
+fi
+echo "Starting backend (FastAPI on ${BACKEND_HOST}:8000)..."
 cd "$SCRIPT_DIR/backend"
 if [ ! -d "venv" ]; then
   echo "Creating Python virtual environment..."
@@ -26,7 +35,7 @@ if [ ! -d "venv" ]; then
 fi
 source venv/bin/activate
 pip install -r requirements.txt --quiet
-uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 &
 BACKEND_PID=$!
 
 # Start frontend

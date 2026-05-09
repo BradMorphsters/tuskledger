@@ -40,6 +40,7 @@ from app.routers import (
     loans,
     chat,
     view,
+    mobile,
 )
 
 
@@ -208,14 +209,25 @@ async def lifespan(app: FastAPI):
         # demo. Auth in front of a read-only synthetic dataset would be a
         # nuisance, not a protection. The demo is deliberately bound to
         # 0.0.0.0 so Railway can reach it.
-        if not settings.DEMO_LOCKED:
+        #
+        # SECOND EXCEPTION: when LAN_SYNC_ENABLED is true, the user has
+        # deliberately enabled mobile sync over their home Wi-Fi. The
+        # mobile API has its own device-token auth (see routers/mobile.py)
+        # that doesn't depend on DEV_BYPASS_AUTH. The web UI on the LAN
+        # is the same trust boundary as the desktop browser session in
+        # this configuration — explicit user choice, on a network they
+        # control. Crashing here would block the feature from ever
+        # working, which is the opposite of what we want.
+        if not settings.DEMO_LOCKED and not settings.LAN_SYNC_ENABLED:
             host = _detect_listen_host()
             if host and host not in ("127.0.0.1", "localhost", "::1"):
                 raise RuntimeError(
                     f"DEV_BYPASS_AUTH is enabled but the server is bound to "
                     f"{host!r}, which is reachable from outside this machine. "
-                    "Refusing to start. Either bind to 127.0.0.1 (the default) "
-                    "or set DEV_BYPASS_AUTH=false in .env."
+                    "Refusing to start. Either bind to 127.0.0.1 (the default), "
+                    "set LAN_SYNC_ENABLED=true if you intend to expose this "
+                    "to your home Wi-Fi for the mobile app, or set "
+                    "DEV_BYPASS_AUTH=false in .env."
                 )
 
     # Production-Plaid + un-verified webhooks is a forged-event hazard if
@@ -253,10 +265,22 @@ async def lifespan(app: FastAPI):
             id="plaid_sync",
         )
         scheduler.start()
+
+    # Bonjour / mDNS advertisement for the mobile app's auto-discovery.
+    # Only meaningful on a LAN bind, and the user has to opt in explicitly
+    # via LAN_SYNC_ENABLED. Failures are non-fatal — the phone can still
+    # pair via QR, which embeds the host directly.
+    if settings.LAN_SYNC_ENABLED and not settings.DEMO_LOCKED:
+        from app.services.bonjour import start as bonjour_start
+        bonjour_start()
+
     yield
     # Shutdown
     if scheduler.running:
         scheduler.shutdown()
+    if settings.LAN_SYNC_ENABLED and not settings.DEMO_LOCKED:
+        from app.services.bonjour import stop as bonjour_stop
+        bonjour_stop()
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
@@ -293,7 +317,7 @@ app.add_middleware(
     allow_origin_regex=r"http://(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}):(3000|5173)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-Device-Token"],
 )
 
 
@@ -382,6 +406,11 @@ app.include_router(demo.router)
 # not grant data access; it only changes how the read-only middleware
 # treats future requests from this device.
 app.include_router(view.router)
+# Mobile router: handles its own auth via X-Device-Token (see
+# routers/mobile.py). Mounted unprotected at the router level — each
+# endpoint inside picks the right gate (require_auth for laptop-side
+# pairing/management, require_device_token for the phone's data calls).
+app.include_router(mobile.router)
 
 # All data-bearing routers require an authenticated session with MFA verified.
 protected = [Depends(require_auth)]

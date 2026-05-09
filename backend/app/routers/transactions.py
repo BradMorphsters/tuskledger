@@ -607,9 +607,194 @@ def migrate_categories(db: Session = Depends(get_db)):
 
 
 @router.get("/categories")
-def list_categories():
-    """Return the list of standard categories and their icons."""
-    return [{"name": c, "icon": CATEGORY_ICONS.get(c, "📦")} for c in STANDARD_CATEGORIES]
+def list_categories(db: Session = Depends(get_db)):
+    """Return the list of categories the dropdown should show.
+
+    Two sources merged into one list:
+
+      1. STANDARD_CATEGORIES — hardcoded, tied to the Plaid mapper, never
+         deleted. Each gets `is_custom: false` so the frontend can
+         disable the delete button on these.
+      2. CustomCategory rows — user-defined additions. Each gets
+         `is_custom: true` and an `id` so the frontend can target
+         them for delete/edit.
+
+    Customs that collide by name with a standard are dropped (the
+    standard wins) so renaming a category to something already in
+    the standard list doesn't duplicate the dropdown row. The `name`
+    uniqueness constraint on the table normally prevents this, but a
+    standard could be added in code that already matches an existing
+    custom — we handle that gracefully.
+    """
+    from app.models import CustomCategory
+
+    out = [
+        {"name": c, "icon": CATEGORY_ICONS.get(c, "📦"), "is_custom": False}
+        for c in STANDARD_CATEGORIES
+    ]
+    standard_names = {c["name"] for c in out}
+
+    customs = (
+        db.query(CustomCategory)
+        .order_by(CustomCategory.sort_order.asc(), CustomCategory.name.asc())
+        .all()
+    )
+    for c in customs:
+        if c.name in standard_names:
+            continue
+        out.append({"name": c.name, "icon": c.icon or "📦", "is_custom": True, "id": c.id})
+    return out
+
+
+# ─── Custom-category management ─────────────────────────────────────
+
+
+class CustomCategoryRequest(BaseModel):
+    """Body for create + update. `name` is required, `icon` is optional
+    and defaults to a parcel emoji on the model side. `sort_order` is
+    accepted but not exposed in v1 UI — included so a future reorder
+    interface doesn't need a separate endpoint."""
+    name: str = Field(..., min_length=1, max_length=64)
+    icon: Optional[str] = Field(None, max_length=8)
+    sort_order: Optional[int] = Field(None, ge=0, le=10000)
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/categories/custom")
+def create_custom_category(
+    body: CustomCategoryRequest,
+    db: Session = Depends(get_db),
+):
+    """Add a user-defined category to the dropdown.
+
+    Refuses names that match a STANDARD_CATEGORIES entry — those are
+    already in the dropdown, no need to duplicate. Refuses duplicate
+    custom names too (DB unique index would catch this anyway, but
+    we surface a friendly 409 instead of a 500).
+    """
+    from app.models import CustomCategory
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Category name cannot be empty.")
+    if name in STANDARD_CATEGORIES:
+        raise HTTPException(
+            409,
+            f"'{name}' is already a built-in category. Pick a different name "
+            "or just use the existing one.",
+        )
+    existing = db.query(CustomCategory).filter(CustomCategory.name == name).first()
+    if existing:
+        raise HTTPException(409, f"A custom category named '{name}' already exists.")
+
+    row = CustomCategory(
+        name=name,
+        icon=(body.icon or "📦").strip() or "📦",
+        sort_order=body.sort_order if body.sort_order is not None else 100,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name, "icon": row.icon, "is_custom": True}
+
+
+@router.patch("/categories/custom/{category_id}")
+def update_custom_category(
+    category_id: int,
+    body: CustomCategoryRequest,
+    db: Session = Depends(get_db),
+):
+    """Edit a custom category's name and/or icon.
+
+    Doesn't rename existing transactions tagged with the old name —
+    deliberate, see models/custom_category.py for the rationale. Add
+    a /categories/custom/:id/rename-transactions endpoint later if we
+    want bulk rename.
+    """
+    from app.models import CustomCategory
+
+    row = db.query(CustomCategory).filter(CustomCategory.id == category_id).first()
+    if not row:
+        raise HTTPException(404, "Custom category not found.")
+
+    new_name = body.name.strip()
+    if new_name and new_name != row.name:
+        if new_name in STANDARD_CATEGORIES:
+            raise HTTPException(409, f"'{new_name}' is already a built-in category.")
+        clash = (
+            db.query(CustomCategory)
+            .filter(CustomCategory.name == new_name)
+            .filter(CustomCategory.id != category_id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(409, f"A custom category named '{new_name}' already exists.")
+        row.name = new_name
+    if body.icon is not None:
+        row.icon = body.icon.strip() or "📦"
+    if body.sort_order is not None:
+        row.sort_order = body.sort_order
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name, "icon": row.icon, "is_custom": True}
+
+
+@router.delete("/categories/custom/{category_id}")
+def delete_custom_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+):
+    """Hard-delete a custom category from the dropdown.
+
+    Existing transactions tagged with this category keep the string
+    in their custom_category column — they just stop showing up in
+    the dropdown. The frontend Categories page surfaces a count of
+    affected transactions before the delete is confirmed so the
+    Operator isn't surprised.
+    """
+    from app.models import CustomCategory
+
+    row = db.query(CustomCategory).filter(CustomCategory.id == category_id).first()
+    if not row:
+        raise HTTPException(404, "Custom category not found.")
+    affected = (
+        db.query(Transaction)
+        .filter(
+            (Transaction.custom_category == row.name)
+            | (Transaction.category == row.name)
+        )
+        .count()
+    )
+    db.delete(row)
+    db.commit()
+    return {"status": "deleted", "id": category_id, "transactions_still_referencing": affected}
+
+
+@router.get("/categories/custom/{category_id}/usage")
+def custom_category_usage(
+    category_id: int,
+    db: Session = Depends(get_db),
+):
+    """How many transactions are tagged with this custom category?
+
+    Used by the frontend before showing a "Delete" confirmation so the
+    Operator sees the impact ('312 transactions still tagged "Pet
+    Care"') before they hit Delete and orphan those tags.
+    """
+    from app.models import CustomCategory
+
+    row = db.query(CustomCategory).filter(CustomCategory.id == category_id).first()
+    if not row:
+        raise HTTPException(404, "Custom category not found.")
+    count = (
+        db.query(Transaction)
+        .filter(
+            (Transaction.custom_category == row.name)
+            | (Transaction.category == row.name)
+        )
+        .count()
+    )
+    return {"id": row.id, "name": row.name, "transaction_count": count}
 
 
 @router.get("/income-vs-spending")

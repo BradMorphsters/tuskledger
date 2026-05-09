@@ -322,6 +322,85 @@ export default function Transactions() {
 
       {/* Filters */}
       <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        {/* Account pills row — fastest path to "just show me Chase Checking"
+            without diving into the dropdown. Pills are sorted with depository
+            first (where most filtering happens), then credit, then everything
+            else; loans are excluded because users rarely filter the
+            transactions list to a mortgage account. The full list is still
+            available in the Account dropdown below for users with many
+            accounts or unusual types. Horizontal scroll keeps the row a
+            single line even with 15+ accounts. */}
+        {accounts.length > 1 && (
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            overflowX: 'auto',
+            paddingBottom: 8,
+            marginBottom: 12,
+            borderBottom: '1px solid var(--border-soft)',
+          }}>
+            {(() => {
+              // Sort: depository → credit → investment → other.
+              // Loans excluded — filtering txns to a mortgage account is
+              // a rare workflow and adds noise to the chip row.
+              const TYPE_ORDER = { depository: 0, credit: 1, investment: 2 }
+              const visible = accounts
+                .filter(a => a.type !== 'loan')
+                .slice()
+                .sort((a, b) => {
+                  const oa = TYPE_ORDER[a.type] ?? 99
+                  const ob = TYPE_ORDER[b.type] ?? 99
+                  if (oa !== ob) return oa - ob
+                  return (a.custom_name || a.name || '').localeCompare(b.custom_name || b.name || '')
+                })
+              const allActive = !filters.account_id
+              const pillStyle = (active) => ({
+                whiteSpace: 'nowrap',
+                padding: '5px 12px',
+                fontSize: 12,
+                fontWeight: active ? 600 : 500,
+                background: active ? 'var(--accent-blue)' : 'var(--bg-primary)',
+                color: active ? '#000' : 'var(--text-secondary)',
+                border: `1px solid ${active ? 'var(--accent-blue)' : 'var(--border)'}`,
+                borderRadius: 999,
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+              })
+              return (
+                <>
+                  <button
+                    onClick={() => setFilters(f => ({ ...f, account_id: '', offset: 0 }))}
+                    style={pillStyle(allActive)}
+                    title="Show transactions across all accounts"
+                  >
+                    All
+                  </button>
+                  {visible.map(a => {
+                    const active = String(filters.account_id) === String(a.id)
+                    const label = a.custom_name || a.name || `Account ${a.id}`
+                    // Truncate long account names so the pill stays compact.
+                    // Full name shows in the title (browser tooltip).
+                    const short = label.length > 22 ? label.slice(0, 20) + '…' : label
+                    return (
+                      <button
+                        key={a.id}
+                        onClick={() => setFilters(f => ({
+                          ...f,
+                          account_id: active ? '' : String(a.id),
+                          offset: 0,
+                        }))}
+                        title={label + (a.mask ? ` ····${a.mask}` : '')}
+                        style={pillStyle(active)}
+                      >
+                        {short}
+                      </button>
+                    )
+                  })}
+                </>
+              )
+            })()}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Search */}
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
@@ -530,6 +609,14 @@ export default function Transactions() {
             <tbody>
               {displayed.map((t, idx) => {
                 const acct = accounts.find(a => a.id === t.account_id)
+                // Pending transactions get a muted, italicized treatment so
+                // they're visually distinct from cleared rows. The user
+                // wants to glance at the list and know "of these 30 rows,
+                // 4 are still in flight at the bank." The badge inline with
+                // the merchant name (rendered below) names it explicitly,
+                // and the row-level dimming makes the list scannable
+                // without reading every badge.
+                const isPending = !!t.pending
                 return (
                   <tr
                     key={t.id}
@@ -539,6 +626,8 @@ export default function Transactions() {
                         : (idx === cursorIdx ? 'rgba(96,165,250,0.06)' : undefined),
                       // Subtle left-border highlight for the keyboard-cursor row
                       boxShadow: idx === cursorIdx ? 'inset 3px 0 0 var(--accent-blue)' : undefined,
+                      opacity: isPending ? 0.65 : 1,
+                      fontStyle: isPending ? 'italic' : 'normal',
                     }}
                   >
                     <td style={{ width: 24 }}>
@@ -574,6 +663,14 @@ export default function Transactions() {
                         {t.is_transfer && (
                           <Pill tone="info" title="Account-to-account transfer or bill payment (not counted as spending)">
                             ↔ Transfer
+                          </Pill>
+                        )}
+                        {isPending && (
+                          <Pill
+                            tone="warning"
+                            title="Plaid reports this transaction as pending — amount, merchant, and category may all change once it clears."
+                          >
+                            Pending
                           </Pill>
                         )}
                       </div>

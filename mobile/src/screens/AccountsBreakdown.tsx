@@ -22,9 +22,17 @@
  *     above it — visually anchors the group total without needing
  *     to scan back up to the header to do the math.
  *
- *   - Final "Net (Plaid only)" card stands alone, bigger, bolder.
- *     Explicitly labeled to distinguish from the headline net-worth
- *     card above (which folds in manual_assets).
+ *   - Final "Net Worth" card stands alone, bigger, bolder. Sums every
+ *     row above (Plaid groups + manual entries) so it matches the
+ *     headline net-worth card at the top of the Dashboard exactly —
+ *     one number, one truth, regardless of which card you read first.
+ *
+ *   - Manual asset/liability entries (homes, vehicles, held-away
+ *     401(k)s, private auto loans) appear as additional cards after
+ *     the four Plaid groups when the user has any. They share the
+ *     same row layout but suppress the mask + stale chips because
+ *     manual entries don't have account numbers and follow the
+ *     user's own update cadence rather than a Plaid sync cadence.
  */
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -45,17 +53,22 @@ function staleDays(updatedAt: string | null): number | null {
 }
 
 // Color accent per group. Kept subtle (single hue, used only on the
-// stripe + header text + subtotal) so a stack of four cards reads as
-// a unified composition. Cash gets the income green, credit gets a
+// stripe + header text + subtotal) so a stack of cards reads as a
+// unified composition. Cash gets the income green, credit gets a
 // warning orange, etc. — the same semantic palette the rest of the
 // app uses, so the color tells you something instead of being decor.
+// Manual assets reuse the income green and manual liabilities reuse
+// the expense red — same side-of-the-balance-sheet meaning as the
+// Plaid groups they sit next to.
 function accentForKey(key: string): string {
   switch (key) {
-    case 'depository': return colors.income;
-    case 'investment': return colors.accent;
-    case 'credit':     return colors.warning;
-    case 'loan':       return colors.expense;
-    default:           return colors.textMuted;
+    case 'depository':         return colors.income;
+    case 'investment':         return colors.accent;
+    case 'credit':             return colors.warning;
+    case 'loan':               return colors.expense;
+    case 'manual-assets':      return colors.income;
+    case 'manual-liabilities': return colors.expense;
+    default:                   return colors.textMuted;
   }
 }
 
@@ -64,12 +77,23 @@ function accentForKey(key: string): string {
 // of what the bucket *means* keeps the visual hierarchy human.
 function subtitleForKey(key: string): string {
   switch (key) {
-    case 'depository': return 'Checking, savings, money market';
-    case 'investment': return 'Brokerage, retirement, HSA';
-    case 'credit':     return 'Credit cards';
-    case 'loan':       return 'Mortgage, auto, student';
-    default:           return '';
+    case 'depository':         return 'Checking, savings, money market';
+    case 'investment':         return 'Brokerage, retirement, HSA';
+    case 'credit':             return 'Credit cards';
+    case 'loan':               return 'Mortgage, auto, student';
+    case 'manual-assets':      return 'Homes, vehicles, held-away accounts';
+    case 'manual-liabilities': return 'Manually tracked debts';
+    default:                   return '';
   }
+}
+
+// True for manual_assets / manual_liabilities groups. Used to swap
+// the count noun ("entries" vs "accounts") and to suppress the
+// per-row stale badge, since manual entries follow the user's own
+// update cadence rather than a Plaid sync cadence — flagging them
+// as "30d stale" would be nagging, not useful.
+function isManualGroup(key: string): boolean {
+  return key.startsWith('manual-');
 }
 
 export default function AccountsBreakdown() {
@@ -100,11 +124,24 @@ export default function AccountsBreakdown() {
   return (
     <>
       {/* Section heading lives outside the cards so each card can have
-          its own header without competing with a wrapper title. */}
+          its own header without competing with a wrapper title. The
+          count splits "synced" (Plaid accounts) from "manual" so the
+          user can tell at a glance how much of their balance sheet is
+          automated vs hand-maintained. */}
       <View style={styles.sectionHeading}>
         <Text style={type.caption}>ACCOUNTS</Text>
         <Text style={[type.small, { marginTop: space(1) }]}>
-          {groups.reduce((s, g) => s + g.items.length, 0)} synced
+          {(() => {
+            const synced = groups
+              .filter((g) => !isManualGroup(g.key))
+              .reduce((s, g) => s + g.items.length, 0);
+            const manual = groups
+              .filter((g) => isManualGroup(g.key))
+              .reduce((s, g) => s + g.items.length, 0);
+            return manual > 0
+              ? `${synced} synced · ${manual} manual`
+              : `${synced} synced`;
+          })()}
         </Text>
       </View>
 
@@ -112,15 +149,17 @@ export default function AccountsBreakdown() {
         <GroupCard key={g.key} group={g} accent={accentForKey(g.key)} />
       ))}
 
-      {/* Net (Plaid only) — the headline summary card. Visually heavier
-          than the per-group cards via a thicker border-top accent and
+      {/* Net Worth — the headline summary card. Visually heavier than
+          the per-group cards via a thicker border-top accent and a
           bigger headline number, so the eye lands here at the end of
-          the section. */}
+          the section. Sums every row above (Plaid groups + manual
+          entries) so it matches the headline net-worth card at the
+          top of the Dashboard exactly. */}
       <View style={[styles.netCard, { borderTopColor: net >= 0 ? colors.income : colors.expense }]}>
         <View style={{ flex: 1 }}>
-          <Text style={type.caption}>NET (PLAID ONLY)</Text>
+          <Text style={type.caption}>NET WORTH</Text>
           <Text style={[type.small, { marginTop: 2 }]}>
-            Excludes manual assets · see Net Worth above
+            Plaid accounts + manual entries
           </Text>
         </View>
         <Text
@@ -183,7 +222,10 @@ function GroupCard({
               {formatCurrency(group.subtotal)}
             </Text>
             <Text style={[type.caption, { marginTop: 2 }]}>
-              {group.items.length} {group.items.length === 1 ? 'ACCOUNT' : 'ACCOUNTS'}
+              {group.items.length}{' '}
+              {isManualGroup(group.key)
+                ? (group.items.length === 1 ? 'ENTRY' : 'ENTRIES')
+                : (group.items.length === 1 ? 'ACCOUNT' : 'ACCOUNTS')}
             </Text>
           </View>
         </View>

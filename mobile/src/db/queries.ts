@@ -174,18 +174,23 @@ export interface AccountBreakdownGroup {
 }
 
 /**
- * Per-account balances grouped by Plaid account type, mirroring the
- * AccountsOverview tile on the web Dashboard.
+ * Per-account balances grouped by Plaid account type, plus the user's
+ * manual_assets entries split by side. Mirrors the AccountsOverview
+ * tile on the web Dashboard — the bottom Net Worth number now matches
+ * the headline net-worth card at the top of the phone Dashboard, so
+ * the user sees one consistent figure regardless of which card they
+ * read first.
  *
- * Loans are folded in at the end so the phone view is complete; the
- * web tile excludes them only because filtering txns to a mortgage
- * isn't a useful pill, which is a different concern.
+ * Loans are folded in so the phone view is complete; the web tile
+ * excludes them only because filtering txns to a mortgage isn't a
+ * useful pill, which is a different concern.
  *
- * Manual_assets are deliberately not included here — the phone has
- * no separate UI surface for "house + cars + manual liabilities" yet,
- * and the existing net-worth card already folds them in for the
- * headline number. If you want to surface them per-row later, query
- * the `manual_assets` table separately and merge.
+ * Manual entries (homes, vehicles, held-away investments, private
+ * auto loans) appear as additional groups after the four Plaid groups.
+ * Each manual entry maps to the same row shape — name, value — but
+ * with `mask: null` (no account number) and `updated_at: null` (manual
+ * entries follow the user's own update cadence, not a Plaid sync
+ * cadence, so the screen suppresses the stale badge for them).
  */
 export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
   const db = await getDb();
@@ -210,7 +215,7 @@ export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
     { key: 'loan',       label: 'Loans',      side: 'liability' },
   ];
 
-  const groups: AccountBreakdownGroup[] = groupDef.map((g) => {
+  const plaidGroups: AccountBreakdownGroup[] = groupDef.map((g) => {
     const items: AccountBreakdownRow[] = rows
       .filter((r) => (r.type || '').toLowerCase() === g.key)
       .map((r) => ({
@@ -228,7 +233,61 @@ export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
     return { ...g, items, subtotal };
   });
 
-  return groups.filter((g) => g.items.length > 0);
+  // Manual entries — split by side, surfaced as two additional groups.
+  // Hidden when empty so a user with no manual entries sees a clean
+  // four-card stack, not empty placeholder cards.
+  const manualRows = await db.getAllAsync<{
+    id: number;
+    name: string;
+    side: string | null;
+    current_value: number | null;
+  }>(
+    `SELECT id, name, side, current_value
+     FROM manual_assets
+     ORDER BY side, name`,
+  );
+
+  const buildManualGroup = (
+    side: 'asset' | 'liability',
+    key: string,
+    label: string,
+  ): AccountBreakdownGroup | null => {
+    const items: AccountBreakdownRow[] = manualRows
+      .filter((m) => (m.side || 'asset') === side)
+      .map((m) => ({
+        id: m.id,
+        name: m.name || '(unnamed)',
+        // Manual entries don't have account numbers or sync timestamps;
+        // the screen treats null on either as "don't render the chip".
+        mask: null,
+        type: 'manual',
+        current_balance: m.current_value ?? 0,
+        updated_at: null,
+      }))
+      .sort((a, b) => Math.abs(b.current_balance) - Math.abs(a.current_balance));
+    if (items.length === 0) return null;
+    const subtotal = items.reduce((s, a) => s + a.current_balance, 0);
+    return { key, label, side, items, subtotal };
+  };
+
+  const manualAssetGroup = buildManualGroup(
+    'asset',
+    'manual-assets',
+    'Manual assets',
+  );
+  const manualLiabilityGroup = buildManualGroup(
+    'liability',
+    'manual-liabilities',
+    'Manual liabilities',
+  );
+
+  const allGroups = [
+    ...plaidGroups.filter((g) => g.items.length > 0),
+    ...(manualAssetGroup ? [manualAssetGroup] : []),
+    ...(manualLiabilityGroup ? [manualLiabilityGroup] : []),
+  ];
+
+  return allGroups;
 }
 
 export async function netWorth(): Promise<NetWorthSnapshot> {

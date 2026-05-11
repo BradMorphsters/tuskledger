@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts'
 import { Activity, TrendingDown, TrendingUp, Calendar, Heart, Settings, PieChart, Wallet, AlertTriangle, Landmark } from 'lucide-react'
-import { getFinancialPulse, getCashFlowForecast, getTransactions, getHsaStatus, getInvestmentsSummary, getAccounts } from '../api/client'
+import { getFinancialPulse, getCashFlowForecast, getTransactions, getHsaStatus, getInvestmentsSummary, getAccounts, getManualAssets } from '../api/client'
 import { SkeletonCard } from './Skeleton'
 import { useStoredState } from '../lib/storage'
 import { formatCurrencyZero as fmtFull } from '../lib/format'
@@ -1970,20 +1970,29 @@ function StaleBadge({ updatedAt }) {
 
 export function AccountsOverview() {
   const [accounts, setAccounts] = useState(null)
+  const [manualAssets, setManualAssets] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAccounts()
-      .then(setAccounts)
-      .catch(() => setAccounts([]))
+    // Fetch Plaid accounts and manual entries in parallel. Manual
+    // assets are optional; failure (e.g. brand-new install with the
+    // table empty) shouldn't take the whole tile down.
+    Promise.all([
+      getAccounts().catch(() => []),
+      getManualAssets().catch(() => []),
+    ])
+      .then(([acc, manual]) => {
+        setAccounts(acc)
+        setManualAssets(Array.isArray(manual) ? manual : [])
+      })
       .finally(() => setLoading(false))
   }, [])
 
   if (loading) return <SkeletonCard titleWidth="40%" rows={6} />
   if (!accounts || accounts.length === 0) return null
 
-  // Bucket accounts into the four groups, dropping anything we don't
-  // know how to classify (rare — Plaid's type vocabulary is small).
+  // Bucket Plaid accounts into the four groups, dropping anything we
+  // don't know how to classify (rare — Plaid's type vocabulary is small).
   const grouped = ACCOUNT_GROUPS.map((g) => {
     const items = accounts
       .filter((a) => (a.type || '').toLowerCase() === g.key)
@@ -1992,16 +2001,55 @@ export function AccountsOverview() {
     return { ...g, items, subtotal }
   }).filter((g) => g.items.length > 0)
 
-  // Net worth = sum of asset-side current_balance − sum of
-  // liability-side current_balance. Plaid's `current_balance` on a
-  // credit card is the amount owed (positive number), so we subtract
-  // it. Same for loans. Manual-asset rollup lives in its own
-  // dashboard area; deliberately not folded in here so the user can
-  // tell at a glance "Plaid alone says my net is X."
-  const totalAssets = grouped
+  // Manual entries: split by side. These cover things Plaid can't
+  // see — homes, vehicles, held-away 401(k)s (Fidelity NetBenefits,
+  // Voya, PlanMember, etc.), private auto loans, etc.
+  const manualAssetItems = manualAssets.filter(
+    (m) => (m.side || 'asset') === 'asset'
+  )
+  const manualLiabilityItems = manualAssets.filter(
+    (m) => (m.side || 'asset') === 'liability'
+  )
+  const manualAssetSubtotal = manualAssetItems.reduce(
+    (s, m) => s + (m.current_value || 0), 0
+  )
+  const manualLiabilitySubtotal = manualLiabilityItems.reduce(
+    (s, m) => s + (m.current_value || 0), 0
+  )
+
+  // Build the manual rows the same shape as `grouped` so the renderer
+  // is uniform. Hidden when empty — new users without any manual
+  // entries see a clean 4-row tile, not empty placeholder rows.
+  const manualRows = []
+  if (manualAssetItems.length > 0) {
+    manualRows.push({
+      key: 'manual-assets',
+      label: 'Manual assets',
+      side: 'asset',
+      color: 'var(--accent-green)',
+      items: manualAssetItems,
+      subtotal: manualAssetSubtotal,
+    })
+  }
+  if (manualLiabilityItems.length > 0) {
+    manualRows.push({
+      key: 'manual-liabilities',
+      label: 'Manual liabilities',
+      side: 'liability',
+      color: 'var(--accent-red)',
+      items: manualLiabilityItems,
+      subtotal: manualLiabilitySubtotal,
+    })
+  }
+  const allRows = [...grouped, ...manualRows]
+
+  // Net worth = sum of asset-side − sum of liability-side, across both
+  // Plaid accounts and manual entries. This now matches the Net Worth
+  // page exactly — one number, one truth.
+  const totalAssets = allRows
     .filter((g) => g.side === 'asset')
     .reduce((s, g) => s + g.subtotal, 0)
-  const totalLiabilities = grouped
+  const totalLiabilities = allRows
     .filter((g) => g.side === 'liability')
     .reduce((s, g) => s + g.subtotal, 0)
   const net = totalAssets - totalLiabilities
@@ -2017,81 +2065,74 @@ export function AccountsOverview() {
         </a>
       </div>
 
-      <div style={{ marginTop: 8, flex: 1 }}>
-        {grouped.map((g) => (
-          <div key={g.key} style={{ marginBottom: 14 }}>
-            {/* Group header: label, count, signed subtotal. The
-                subtotal renders with a leading minus on liability
-                groups so the balance-sheet math reads straight down. */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between',
-              alignItems: 'baseline',
-              fontSize: 11, fontWeight: 600,
-              color: g.color, letterSpacing: 0.4, textTransform: 'uppercase',
-              marginBottom: 4,
-            }}>
-              <span>{g.label} · {g.items.length}</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)' }}>
+      {/* Body: four-row balance-sheet summary + Net footer.
+          Per-account inventory deliberately lives on /connect, not
+          here. The dashboard tile answers "what does my balance
+          sheet look like" at a glance; drilling into individual
+          accounts is one click away via "Manage →". This shape also
+          eliminates redundancy with the Cash Balances tile (which
+          owns the per-checking-account view) and Portfolio (which
+          owns the investments roll-up). */}
+      <div style={{
+        marginTop: 8, flex: 1,
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{ flex: 1 }}>
+          {allRows.map((g) => (
+            <div
+              key={g.key}
+              style={{
+                display: 'flex', justifyContent: 'space-between',
+                alignItems: 'baseline',
+                padding: '12px 0',
+                borderBottom: '1px solid var(--border-soft)',
+              }}
+            >
+              {/* Group label + count. Color comes from the group
+                  config (CASH=green, INVESTMENT=purple, etc.). */}
+              <span style={{
+                fontSize: 12, fontWeight: 600,
+                color: g.color,
+                letterSpacing: 0.4, textTransform: 'uppercase',
+              }}>
+                {g.label}
+                <span style={{
+                  marginLeft: 8,
+                  color: 'var(--text-dim)',
+                  fontWeight: 400, letterSpacing: 0,
+                  textTransform: 'none',
+                }}>
+                  {/* "accounts" reads right for the four Plaid groups
+                      (which really are accounts); manual rows use
+                      "entries" since a manual asset is a hand-entered
+                      record, not a synced account. */}
+                  · {g.items.length} {g.key.startsWith('manual-')
+                    ? (g.items.length === 1 ? 'entry' : 'entries')
+                    : (g.items.length === 1 ? 'account' : 'accounts')}
+                </span>
+              </span>
+              {/* Signed subtotal. Liabilities render with a leading
+                  minus so the balance-sheet math reads top-to-bottom. */}
+              <span style={{
+                fontVariantNumeric: 'tabular-nums',
+                fontWeight: 600, fontSize: 14,
+                color: 'var(--text-primary)',
+              }}>
                 {g.side === 'liability' ? '−' : ''}
                 {fmtMoney(g.subtotal)}
               </span>
             </div>
-            {/* Per-account rows. Custom name → official name fallback,
-                last-4 mask, signed balance. Stale badge appears
-                inline if the account hasn't synced in > 7 days. */}
-            {g.items.map((a) => {
-              const display = a.custom_name || a.name || '(unnamed)'
-              const balance = a.current_balance || 0
-              return (
-                <div
-                  key={a.id}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    padding: '4px 0',
-                    fontSize: 12,
-                    borderTop: '1px solid var(--border-soft)',
-                  }}
-                >
-                  <span style={{
-                    color: 'var(--text-secondary)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    paddingRight: 8, minWidth: 0, flex: 1,
-                  }}>
-                    {display}
-                    {a.mask && (
-                      <span style={{
-                        color: 'var(--text-dim)', marginLeft: 6,
-                        fontVariantNumeric: 'tabular-nums',
-                      }}>
-                        ····{a.mask}
-                      </span>
-                    )}
-                    <StaleBadge updatedAt={a.updated_at} />
-                  </span>
-                  <span style={{
-                    fontVariantNumeric: 'tabular-nums',
-                    color: 'var(--text-primary)',
-                    flexShrink: 0,
-                  }}>
-                    {g.side === 'liability' ? '−' : ''}
-                    {fmtMoney(balance)}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        ))}
+          ))}
+        </div>
 
-        {/* Net worth footer — just the four-group sum. Manual assets
-            and liabilities aren't folded in here on purpose; this
-            tile is "what does Plaid say my accounts add up to." The
-            full net-worth view (with manual_assets) lives on the
-            Net Worth page. */}
+        {/* Net worth footer — sum of every row above (Plaid groups +
+            manual assets + manual liabilities). Matches the Net Worth
+            page's headline number exactly so the dashboard and the
+            detail view tell one consistent story. */}
         <div style={{
           display: 'flex', justifyContent: 'space-between',
           alignItems: 'baseline',
-          marginTop: 8, paddingTop: 10,
+          marginTop: 12, paddingTop: 12,
           borderTop: '2px solid var(--border)',
         }}>
           <span style={{
@@ -2099,10 +2140,10 @@ export function AccountsOverview() {
             color: 'var(--text-secondary)',
             letterSpacing: 0.4, textTransform: 'uppercase',
           }}>
-            Net (Plaid only)
+            Net Worth
           </span>
           <span style={{
-            fontSize: 14, fontWeight: 700,
+            fontSize: 16, fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
             color: net >= 0 ? 'var(--text-primary)' : 'var(--accent-red)',
           }}>

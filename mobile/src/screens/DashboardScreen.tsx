@@ -25,6 +25,7 @@ import {
 } from '../db/queries';
 import { syncNow, useSyncStore } from '../sync/manager';
 import { colors, formatCurrency, formatRelative, radius, space, type } from '../theme';
+import AccountsBreakdown from './AccountsBreakdown';
 import NetWorthSparkline from './NetWorthSparkline';
 import StaleBanner from './StaleBanner';
 import SyncBadge from './SyncBadge';
@@ -183,6 +184,8 @@ export default function DashboardScreen() {
           </View>
           <NetWorthSparkline />
         </View>
+
+        <AccountsBreakdown />
 
         <View style={{ height: space(10) }} />
       </ScrollView>

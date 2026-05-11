@@ -150,6 +150,87 @@ export interface NetWorthSnapshot {
   net: number;
 }
 
+// ─── Per-account breakdown ────────────────────────────────────────
+
+export interface AccountBreakdownRow {
+  id: number;
+  name: string;          // resolved display name (custom_name → name)
+  mask: string | null;
+  type: string;
+  current_balance: number;
+  updated_at: string | null;
+}
+
+export interface AccountBreakdownGroup {
+  /** 'cash' | 'investment' | 'credit' | 'loan' */
+  key: string;
+  /** Display label for the section header */
+  label: string;
+  /** Side of the balance sheet: 'asset' | 'liability' */
+  side: string;
+  items: AccountBreakdownRow[];
+  /** Sum of current_balance for this group (unsigned). */
+  subtotal: number;
+}
+
+/**
+ * Per-account balances grouped by Plaid account type, mirroring the
+ * AccountsOverview tile on the web Dashboard.
+ *
+ * Loans are folded in at the end so the phone view is complete; the
+ * web tile excludes them only because filtering txns to a mortgage
+ * isn't a useful pill, which is a different concern.
+ *
+ * Manual_assets are deliberately not included here — the phone has
+ * no separate UI surface for "house + cars + manual liabilities" yet,
+ * and the existing net-worth card already folds them in for the
+ * headline number. If you want to surface them per-row later, query
+ * the `manual_assets` table separately and merge.
+ */
+export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    id: number;
+    name: string;
+    custom_name: string | null;
+    mask: string | null;
+    type: string;
+    current_balance: number | null;
+    updated_at: string | null;
+  }>(
+    `SELECT id, name, custom_name, mask, type, current_balance, updated_at
+     FROM accounts
+     ORDER BY type, COALESCE(custom_name, name)`,
+  );
+
+  const groupDef: { key: string; label: string; side: string }[] = [
+    { key: 'depository', label: 'Cash',       side: 'asset' },
+    { key: 'investment', label: 'Investment', side: 'asset' },
+    { key: 'credit',     label: 'Credit',     side: 'liability' },
+    { key: 'loan',       label: 'Loans',      side: 'liability' },
+  ];
+
+  const groups: AccountBreakdownGroup[] = groupDef.map((g) => {
+    const items: AccountBreakdownRow[] = rows
+      .filter((r) => (r.type || '').toLowerCase() === g.key)
+      .map((r) => ({
+        id: r.id,
+        name: r.custom_name || r.name || '(unnamed)',
+        mask: r.mask,
+        type: r.type,
+        current_balance: r.current_balance ?? 0,
+        updated_at: r.updated_at,
+      }))
+      // Highest absolute balance first so the most material accounts
+      // are at the top of each group.
+      .sort((a, b) => Math.abs(b.current_balance) - Math.abs(a.current_balance));
+    const subtotal = items.reduce((s, a) => s + a.current_balance, 0);
+    return { ...g, items, subtotal };
+  });
+
+  return groups.filter((g) => g.items.length > 0);
+}
+
 export async function netWorth(): Promise<NetWorthSnapshot> {
   const db = await getDb();
   // Mirror the laptop's account-type → side mapping AND fold in the

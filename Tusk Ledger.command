@@ -33,10 +33,22 @@ echo ""
 echo "Project: $PROJECT_DIR"
 echo ""
 
-# Sanity check: .env present?
-if [ ! -f "$PROJECT_DIR/backend/.env" ]; then
-  echo "WARNING: No backend/.env file found."
-  echo "  Copy backend/.env.example to backend/.env and add your Plaid keys."
+# Sanity check: .env present AND populated?
+# A bare existence check would silently pass when the user has run
+# `cp .env.example .env` but not edited the placeholders yet — the most
+# common first-run mistake. Catch both "file missing" and "still the
+# .env.example placeholders" so the warning fires before Plaid does.
+ENV_FILE="$PROJECT_DIR/backend/.env"
+env_warning=""
+if [ ! -f "$ENV_FILE" ]; then
+  env_warning="No backend/.env file found — copy backend/.env.example to backend/.env and add your Plaid keys."
+elif grep -qE '^PLAID_CLIENT_ID=(your_plaid_client_id_here)?$' "$ENV_FILE" || \
+     grep -qE '^PLAID_SECRET=(your_plaid_secret_here)?$' "$ENV_FILE"; then
+  env_warning="backend/.env exists but PLAID_CLIENT_ID / PLAID_SECRET still look unset — edit it and add your Plaid dashboard keys."
+fi
+if [ -n "$env_warning" ]; then
+  echo "WARNING: $env_warning"
+  echo "         The app will still start, but account syncing won't work until configured."
   echo ""
 fi
 

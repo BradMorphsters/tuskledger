@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Plus, X, Search, ArrowRight } from 'lucide-react'
 import { createManualTransaction, globalSearch, getAccounts } from '../api/client'
 import { useToast } from './Toast'
+import { useNearCorner } from './AskPanel'
 
 /* ───────────────────────────── Theme toggle ───────────────────────────── */
 
@@ -71,6 +72,12 @@ export function ThemeToggle({ theme, toggle }) {
 
 export function QuickAddFab({ onSaved }) {
   const [open, setOpen] = useState(false)
+  // Proximity-aware: dims + becomes click-through unless the cursor
+  // is near the bottom-right corner. Without this, the FAB sits on
+  // top of right-aligned page controls (Apply/Delete on Rules rows,
+  // etc.) on narrow viewports and you can't click them. Shares the
+  // hook with the Ask button in AskPanel so both behave identically.
+  const active = useNearCorner()
   return (
     <>
       <button
@@ -86,7 +93,9 @@ export function QuickAddFab({ onSaved }) {
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', boxShadow: 'var(--shadow-lg)',
           zIndex: 50,
-          transition: 'transform 0.15s',
+          opacity: active ? 1 : 0.25,
+          pointerEvents: active ? 'auto' : 'none',
+          transition: 'opacity 150ms ease, transform 0.15s',
         }}
         onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.06)' }}
         onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}

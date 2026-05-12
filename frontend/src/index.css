@@ -203,7 +203,28 @@ a:hover { text-decoration: underline; }
   top: 0;
   left: 0;
   height: 100vh;
+  /* The nav has ~19 links + Sync button + Real/Demo toggle + theme
+     row + user row. On short desktop windows the lower items (Rules,
+     Categories, Accounts, Pair phone) plus the bottom user controls
+     get clipped because the fixed-height sidebar has no overflow.
+     Letting it scroll on the y-axis keeps every nav item reachable
+     regardless of window height. Mobile already had this via the
+     ≤768px breakpoint; this brings desktop in line. */
+  overflow-y: auto;
+  /* Hide the scrollbar visually but keep wheel/touch scrolling — the
+     sidebar's dark surface and dark-on-dark scrollbar would otherwise
+     read as visual noise. Users still discover the scroll via wheel /
+     trackpad / keyboard. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 .sidebar-logo {
   font-size: 22px;
@@ -233,8 +254,18 @@ a:hover { text-decoration: underline; }
 
 .main-content {
   flex: 1;
+  /* min-width:0 is critical when a flex child has wide content (cards
+     in a stats-grid, wide tables, etc.). Without it, flex's default
+     auto min-width keeps the child as wide as its content demands and
+     the page gets horizontal scroll on narrower viewports. */
+  min-width: 0;
   margin-left: 240px;
   padding: 32px;
+  /* Bottom clearance so the stacked floating buttons (Ask pill at
+     bottom:24, QuickAddFab at bottom:92) don't sit on top of the
+     last row of page content when scrolled to the bottom. The mobile
+     breakpoint sets its own (larger) value for ≤768px. */
+  padding-bottom: 152px;
   max-width: 1200px;
 }
 

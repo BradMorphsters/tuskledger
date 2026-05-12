@@ -210,7 +210,23 @@ export default function AskPanel() {
 // it (see QuickActions.jsx — its bottom value moved from 24 to 92 to
 // make room). Right-aligned to match. Hidden while the panel is open so
 // the panel's own header is the only target.
+//
+// Icon-only circle (matches QuickAddFab's silhouette) so the stacked
+// pair occupies a narrow 44px right-edge gutter instead of the older
+// 80-wide pill.
+//
+// Cursor-proximity behavior — `useNearCorner` returns true only when
+// the mouse is within ~180px of the bottom-right corner. Outside that
+// zone the button is rendered at 25% opacity AND with
+// `pointer-events: none`, so it visually recedes and, critically,
+// stops capturing clicks on the right-aligned page controls beneath
+// it (Apply/Delete on Rules rows, etc.). Move the cursor near the
+// corner and the button fades back in and becomes clickable. This is
+// the actual fix for the "can't hit button without making the browser
+// larger" bug — the previous padding-based attempt forced horizontal
+// page overflow on narrow viewports.
 function FloatingAskButton({ onClick, hidden }) {
+  const active = useNearCorner()
   return (
     <button
       type="button"
@@ -224,17 +240,19 @@ function FloatingAskButton({ onClick, hidden }) {
         zIndex: 950,                    // below modals (1000+) but above tiles
         display: hidden ? 'none' : 'inline-flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '10px 16px',
-        fontSize: 13,
-        fontWeight: 600,
+        justifyContent: 'center',
+        width: 52,
+        height: 52,
+        padding: 0,
         color: '#fff',
         background: 'var(--accent-purple, #7c6cf0)',
         border: 'none',
-        borderRadius: 999,
+        borderRadius: '50%',
         boxShadow: '0 6px 20px rgba(124, 108, 240, 0.35)',
         cursor: 'pointer',
-        transition: 'transform 120ms ease, box-shadow 120ms ease',
+        opacity: active ? 1 : 0.25,
+        pointerEvents: active ? 'auto' : 'none',
+        transition: 'opacity 150ms ease, transform 120ms ease, box-shadow 120ms ease',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-1px)'
@@ -245,10 +263,46 @@ function FloatingAskButton({ onClick, hidden }) {
         e.currentTarget.style.boxShadow = '0 6px 20px rgba(124, 108, 240, 0.35)'
       }}
     >
-      <Sparkles size={16} />
-      Ask
+      <Sparkles size={22} />
     </button>
   )
+}
+
+// Shared proximity hook — true when the cursor is inside the tight
+// rectangle that hugs the stacked floating-button cluster (Ask at
+// bottom:24 right:24, QuickAddFab at bottom:92 right:24, both 52px or
+// less wide). Outside the cluster zone the buttons run at 25% opacity
+// with `pointer-events: none`, so right-aligned page controls beneath
+// them (Apply/Delete on Rules rows, table action columns elsewhere)
+// receive clicks normally. Zone is intentionally tight — wider zones
+// activated the cluster whenever the cursor was anywhere in the
+// bottom-right quadrant and re-introduced the original bug.
+//
+// Touch fallback: pointermove never fires on touch-only devices, so a
+// 2-second timer flips `active` to true so the buttons stay reachable
+// on tablets/phones (the mobile CSS already provides bottom clearance
+// — proximity exists for desktop pointer use).
+export function useNearCorner() {
+  const [active, setActive] = useState(false)
+  useEffect(() => {
+    let touchFallback = setTimeout(() => setActive(true), 2000)
+    const onMove = (e) => {
+      clearTimeout(touchFallback)
+      const w = window.innerWidth
+      const h = window.innerHeight
+      // 80×180 hot zone at bottom-right. Wide enough to cover the
+      // 52px button + small approach buffer, but narrow enough to
+      // exclude the Apply/Delete column on Rules etc.
+      const near = e.clientX > w - 80 && e.clientY > h - 180
+      setActive(near)
+    }
+    window.addEventListener('pointermove', onMove)
+    return () => {
+      clearTimeout(touchFallback)
+      window.removeEventListener('pointermove', onMove)
+    }
+  }, [])
+  return active
 }
 
 

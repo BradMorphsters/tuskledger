@@ -32,7 +32,7 @@
  * their own.
  */
 
-const CACHE_VERSION = 'tuskledger-v1';
+const CACHE_VERSION = 'tuskledger-v2';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 
 // Resources to prefetch on install. Keep this list short — it blocks

@@ -8,11 +8,22 @@ echo "================================="
 echo "  Tusk Ledger — Personal Finance    "
 echo "================================="
 
-# Check for .env file
-if [ ! -f "$SCRIPT_DIR/backend/.env" ]; then
+# Check for .env file AND that the Plaid keys are actually filled in
+# (not still the placeholders shipped in .env.example). A bare existence
+# check would silently let the user past `touch backend/.env`; this
+# catches the much more common "I copied the example but forgot to edit
+# it" case so the failure happens at boot instead of at first sync.
+ENV_FILE="$SCRIPT_DIR/backend/.env"
+env_warning=""
+if [ ! -f "$ENV_FILE" ]; then
+  env_warning="No .env file found in backend/ — copy backend/.env.example to backend/.env and add your Plaid keys."
+elif grep -qE '^PLAID_CLIENT_ID=(your_plaid_client_id_here)?$' "$ENV_FILE" || \
+     grep -qE '^PLAID_SECRET=(your_plaid_secret_here)?$' "$ENV_FILE"; then
+  env_warning="backend/.env exists but PLAID_CLIENT_ID / PLAID_SECRET still look unset — edit it and add your Plaid dashboard keys."
+fi
+if [ -n "$env_warning" ]; then
   echo ""
-  echo "⚠  No .env file found in backend/"
-  echo "   Copy backend/.env.example to backend/.env and add your Plaid keys."
+  echo "⚠  $env_warning"
   echo "   The app will still start, but account syncing won't work until configured."
   echo ""
 fi

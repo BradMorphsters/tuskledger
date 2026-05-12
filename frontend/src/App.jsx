@@ -280,7 +280,19 @@ export default function App() {
         >
           <Menu size={20} />
         </button>
-        <span className="mobile-app-bar-brand">Tusk Ledger</span>
+        <span
+          className="mobile-app-bar-brand"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        >
+          <img
+            src="/icons/apple-touch-icon.png"
+            alt=""
+            width={22}
+            height={22}
+            style={{ display: 'block', borderRadius: 5 }}
+          />
+          Tusk Ledger
+        </span>
       </header>
       {/* Backdrop scrim — only renders + activates when the drawer is
           open. Click outside the sidebar dismisses. */}
@@ -289,7 +301,19 @@ export default function App() {
         onClick={() => setMobileNavOpen(false)}
       />
       <aside className={`sidebar${mobileNavOpen ? ' open' : ''}`}>
-        <div className="sidebar-logo">Tusk Ledger</div>
+        <div
+          className="sidebar-logo"
+          style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+        >
+          <img
+            src="/icons/apple-touch-icon.png"
+            alt=""
+            width={28}
+            height={28}
+            style={{ display: 'block', borderRadius: 6 }}
+          />
+          Tusk Ledger
+        </div>
         <nav className="sidebar-nav">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink

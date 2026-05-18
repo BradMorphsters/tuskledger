@@ -21,7 +21,7 @@
     "react-router-dom": "^6.23.1",
     "react-plaid-link": "^3.5.2",
     "recharts": "^2.12.7",
-    "lucide-react": "^0.394.0"
+    "lucide-react": "^1.16.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",

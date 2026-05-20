@@ -1724,8 +1724,9 @@ function DcfsaField({ label, children, full }) {
  * problem we're trying to surface is "did a bill autopay just empty out
  * a checking account that's about to bounce the next one?"
  *
- * Sort: ascending by current_balance so the lowest is on top — the
- * answer to "is anything low" is in the first row by construction.
+ * Sort: descending by current_balance so the largest balance is on
+ * top. Low-balance accounts are still surfaced via the headline
+ * "N account(s) below $X" summary and the red/yellow row tinting.
  *
  * Color rules:
  *   < LOW_BALANCE_RED    → red row + warning icon ("act on this")
@@ -1767,7 +1768,7 @@ export function CashBalances() {
       // Reject savings, money market, CD, prepaid, etc.
       return sub === 'checking' || sub === ''
     })
-    .sort((a, b) => (a.current_balance || 0) - (b.current_balance || 0))
+    .sort((a, b) => (b.current_balance || 0) - (a.current_balance || 0))
 
   if (checking.length === 0) return null
 
@@ -1833,8 +1834,9 @@ export function CashBalances() {
         )}
       </div>
 
-      {/* Per-account list, lowest first. flex: 1 lets the list
-          stretch when the tile shares a row with a taller sibling. */}
+      {/* Per-account list, largest balance first. flex: 1 lets the
+          list stretch when the tile shares a row with a taller
+          sibling. */}
       <div style={{
         display: 'flex', flexDirection: 'column',
         gap: 8, paddingTop: 12, marginTop: 8, flex: 1,

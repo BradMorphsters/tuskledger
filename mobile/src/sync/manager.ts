@@ -30,6 +30,7 @@ import {
   loadToken,
   saveCursor,
 } from './storage';
+import { publishSnapshot } from '../widget/snapshot';
 
 export type SyncStatus =
   | 'idle'
@@ -92,6 +93,7 @@ export async function syncNow(force = false): Promise<void> {
     try {
       let since = force ? null : await loadCursor();
       let isFirstPage = true;
+      let highwater: string | null = null;
       for (let page = 0; page < MAX_PAGES_PER_SYNC; page++) {
         const resp = await fetchSync({
           since,
@@ -113,17 +115,29 @@ export async function syncNow(force = false): Promise<void> {
             manualAssets: resp.manual_assets,
           },
         );
-        await saveCursor(resp.server_time);
+        highwater = resp.server_time;
         store.bumpVersion();
         isFirstPage = false;
         if (!resp.has_more) break;
-        // Continue from the most-recent updated_at we just saw.
-        // (Falls back to server_time if updated_at is somehow null.)
+        // Advance the page cursor only when updated_at is present.
+        // If updated_at is null, leave `since` unchanged — re-serving
+        // the same page is safe because applySync upserts.
         const last = resp.transactions[resp.transactions.length - 1];
-        since = last?.updated_at ?? resp.server_time;
+        if (last?.updated_at != null) {
+          since = last.updated_at;
+        }
+      }
+      // Persist the cursor once, after all pages land successfully.
+      // Saving mid-loop means a failure on a later page permanently
+      // skips unsynced pages because the cursor already advanced.
+      if (highwater !== null) {
+        await saveCursor(highwater);
       }
       store.setLastSynced(new Date().toISOString());
       store.setStatus('idle');
+      // Best-effort widget update — publishSnapshot already swallows
+      // all errors internally, so this never fails a successful sync.
+      publishSnapshot();
     } catch (e) {
       if (e instanceof AuthError) {
         // Token revoked or unrecognized — wipe and prompt re-pair.

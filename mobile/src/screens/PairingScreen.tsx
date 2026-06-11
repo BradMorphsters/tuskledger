@@ -26,7 +26,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { pairClaim, probeHost } from '../sync/api';
+import { fetchManifest, pairClaim, probeHost } from '../sync/api';
 import { syncNow } from '../sync/manager';
 import { savePairedHost, saveToken } from '../sync/storage';
 import { colors, radius, space, type } from '../theme';
@@ -84,11 +84,27 @@ export default function PairingScreen({ onPaired }: Props) {
       }
       const claim = await pairClaim(baseUrl, code, deviceLabel());
       await saveToken(claim.token);
+      // Save with empty hostId first so authedFetch can read the
+      // paired host record when fetchManifest runs below.
       await savePairedHost({
         baseUrl,
-        hostId: '', // populated on first manifest fetch
+        hostId: '',
         hostname: '',
       });
+      // Fetch the manifest to get the real hostId and hostname so
+      // Bonjour rediscovery (which short-circuits on falsy hostId)
+      // can find the laptop again after a Wi-Fi change.
+      try {
+        const manifest = await fetchManifest();
+        await savePairedHost({
+          baseUrl,
+          hostId: manifest.host_id,
+          hostname: manifest.hostname,
+        });
+      } catch {
+        // Non-fatal — pairing still works, rediscovery just won't
+        // have a hostId until the next successful manifest fetch.
+      }
       // First sync, primed and persistent.
       await syncNow(true);
       onPaired();

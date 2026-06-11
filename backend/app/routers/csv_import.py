@@ -21,6 +21,11 @@ from app.services.categories import map_plaid_category
 
 router = APIRouter(prefix="/api/csv-import", tags=["csv-import"])
 
+# Hard cap on upload size — `await file.read()` pulls the whole body into
+# memory, so an unbounded upload is a trivial memory-exhaustion vector.
+# 10 MB is ~100k CSV rows, far beyond any real bank export.
+MAX_CSV_BYTES = 10 * 1024 * 1024
+
 
 @router.post("/")
 async def import_csv(
@@ -43,9 +48,14 @@ async def import_csv(
     # Read file
     try:
         content = await file.read()
-        text = content.decode('utf-8')
     except Exception as e:
         raise HTTPException(400, f"Failed to read file: {str(e)}")
+    if len(content) > MAX_CSV_BYTES:
+        raise HTTPException(413, "File too large. Maximum size is 10 MB.")
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File is not valid UTF-8 text — expected a CSV export.")
 
     # Parse CSV
     try:

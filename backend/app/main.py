@@ -344,9 +344,13 @@ app.add_middleware(
 # an auth gate. An unauthenticated request still gets bounced first.
 _READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 _MUTATION_ALLOWLIST_PREFIXES = (
-    "/api/auth/",     # login / setup / logout — needed to authenticate
-    "/api/view/",     # the mode toggle itself — can't lock-out paradox
-    "/api/demo/mode", # demo-mode toggle — same reason
+    "/api/auth/login",   # needed to authenticate
+    "/api/auth/logout",  # needed to de-authenticate
+    # NOTE: /api/auth/setup/* is deliberately NOT allowlisted — first-run
+    # setup happens on the laptop, never on a read-only device or the
+    # public demo (where it would let visitors create a user + TOTP secret).
+    "/api/view/",        # the mode toggle itself — can't lock-out paradox
+    "/api/demo/mode",    # demo-mode toggle — same reason
 )
 
 

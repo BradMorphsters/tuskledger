@@ -14,9 +14,29 @@ import qrcode
 from sqlalchemy.orm import Session
 
 from app.models import User
+from app.services import crypto
 
 
 TOTP_ISSUER = "Tusk Ledger"
+
+
+# --- TOTP secret encryption at rest ----------------------------------------
+# The TOTP shared secret is as sensitive as a Plaid access token: anyone who
+# has it can mint valid MFA codes forever. It reuses the same Fernet key and
+# `enc:v1:` envelope as Plaid tokens (see services/crypto.py), so:
+#   - plaintext legacy rows keep working (decrypt_token passes them through)
+#   - rows are lazily re-encrypted on first read (see routers/auth.py)
+#   - restoring a DB backup only needs the matching .encryption_key file,
+#     which the Plaid tokens already require.
+def encrypt_totp_secret(secret: str) -> str:
+    """Encrypt a TOTP secret for storage. Idempotent."""
+    return crypto.encrypt_token(secret)
+
+
+def get_totp_secret(user: User) -> str:
+    """Return the user's TOTP secret as plaintext base32, decrypting if the
+    stored value is encrypted and passing legacy plaintext rows through."""
+    return crypto.decrypt_token(user.totp_secret)
 
 
 # bcrypt has a hard 72-byte password limit, and bcrypt>=4 raises rather than

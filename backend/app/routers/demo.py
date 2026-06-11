@@ -13,6 +13,8 @@ data loss — DO NOT remove it.
 """
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -61,6 +63,13 @@ def set_mode(body: ModeRequest, response: Response):
     return {"status": "ok", "mode": body.mode}
 
 
+# drop_all + create_all + reseed is expensive; on the public demo this
+# endpoint is reachable unauthenticated, so throttle it to one refresh
+# per minute to keep it from being a free DoS lever.
+_REFRESH_MIN_INTERVAL_SECONDS = 60
+_last_refresh_at: float = 0.0
+
+
 @router.post("/refresh")
 def refresh_demo():
     """Drop and recreate the demo DB schema, then re-seed with a fresh
@@ -79,7 +88,15 @@ def refresh_demo():
     never the real engine — even with a misconfigured request cookie,
     real data can't be touched here.
     """
+    global _last_refresh_at
     _require_demo_enabled()
+    now = time.time()
+    if now - _last_refresh_at < _REFRESH_MIN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demo was refreshed recently. Try again in a minute.",
+        )
+    _last_refresh_at = now
     if demo_engine is None or DemoSessionLocal is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

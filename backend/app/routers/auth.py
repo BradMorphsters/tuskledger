@@ -8,6 +8,8 @@ when both are present.
 from __future__ import annotations
 
 import datetime
+import time
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,6 +20,7 @@ from app.config import settings
 from app.database import get_real_db as get_db
 from app.models import User
 from app.services import auth_service
+from app.utils import utcnow
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -57,7 +60,60 @@ class OkResponse(BaseModel):
     ok: bool = True
 
 
+# ----- Brute-force / replay protection -------------------------------------
+# In-memory per-IP failed-login tracking. Resets on process restart, which
+# is fine: the goal is to make 6-digit TOTP enumeration impractical, not to
+# build a distributed lockout system. Single-user local app.
+_MAX_FAILURES = 5
+_LOCKOUT_SECONDS = 15 * 60
+_failed_logins: dict[str, list[float]] = defaultdict(list)
+# Last TOTP code that was successfully used (login or setup/verify).
+# Rejecting reuse prevents replay within the same 30s window.
+_last_used_totp: dict[int, str] = {}
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _check_lockout(request: Request) -> None:
+    ip = _client_ip(request)
+    now = time.time()
+    recent = [t for t in _failed_logins[ip] if now - t < _LOCKOUT_SECONDS]
+    _failed_logins[ip] = recent
+    if len(recent) >= _MAX_FAILURES:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again in 15 minutes.",
+        )
+
+
+def _record_failure(request: Request) -> None:
+    _failed_logins[_client_ip(request)].append(time.time())
+
+
+def _record_success(request: Request) -> None:
+    _failed_logins.pop(_client_ip(request), None)
+
+
 # ----- Helpers ------------------------------------------------------------
+def _ensure_totp_encrypted(db: Session, user: Optional[User]) -> None:
+    """Lazy one-time migration: re-write a legacy plaintext TOTP secret as
+    encrypted-at-rest. Called from /status (hit on every app load), so the
+    upgrade happens transparently the first time the app is opened after
+    this code ships. Safe to roll back BEFORE it fires (value untouched);
+    after it fires, rolling back the code requires restoring the DB backup
+    or keeping this read path (decrypt_token passes plaintext through, so
+    this code handles both states forever).
+    """
+    from app.services import crypto
+
+    if user is None or crypto.is_encrypted(user.totp_secret):
+        return
+    user.totp_secret = crypto.encrypt_token(user.totp_secret)
+    db.commit()
+
+
 def _set_session(request: Request, user: User) -> None:
     request.session["user_id"] = user.id
     request.session["mfa_verified"] = True
@@ -91,6 +147,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
 
     if settings.DEV_BYPASS_AUTH:
         user = auth_service.get_user(db)
+        _ensure_totp_encrypted(db, user)
         return StatusResponse(
             setup_required=False,
             authenticated=True,
@@ -99,6 +156,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
         )
 
     user = auth_service.get_user(db)
+    _ensure_totp_encrypted(db, user)
     if user is None or not user.totp_verified:
         return StatusResponse(setup_required=True, authenticated=False, demo_mode=False)
     authed = bool(
@@ -123,12 +181,13 @@ def setup_start(body: SetupStartRequest, db: Session = Depends(get_db)):
             detail="Setup already completed. Use /login.",
         )
     secret = auth_service.generate_totp_secret()
+    stored_secret = auth_service.encrypt_totp_secret(secret)  # encrypted at rest
     pw_hash = auth_service.hash_password(body.password)
     if existing is None:
         user = User(
             username=body.username,
             password_hash=pw_hash,
-            totp_secret=secret,
+            totp_secret=stored_secret,
             totp_verified=False,
         )
         db.add(user)
@@ -136,7 +195,7 @@ def setup_start(body: SetupStartRequest, db: Session = Depends(get_db)):
         # Setup was started but never verified — update with fresh secret.
         existing.username = body.username
         existing.password_hash = pw_hash
-        existing.totp_secret = secret
+        existing.totp_secret = stored_secret
         existing.totp_verified = False
         user = existing
     db.commit()
@@ -154,13 +213,13 @@ def setup_verify(
     user = auth_service.get_user(db)
     if user is None:
         raise HTTPException(status_code=400, detail="Setup has not been started.")
-    if not auth_service.verify_totp(user.totp_secret, body.code):
+    if not auth_service.verify_totp(auth_service.get_totp_secret(user), body.code):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid code. Check your authenticator app and try again.",
         )
     user.totp_verified = True
-    user.last_login_at = datetime.datetime.utcnow()
+    user.last_login_at = utcnow()
     db.commit()
     _set_session(request, user)
     return OkResponse()
@@ -168,6 +227,7 @@ def setup_verify(
 
 @router.post("/login", response_model=OkResponse)
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    _check_lockout(request)
     user = auth_service.get_user(db)
     if user is None or not user.totp_verified:
         raise HTTPException(
@@ -175,21 +235,30 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
             detail="Setup required. Complete MFA setup before logging in.",
         )
     if user.username != body.username:
+        _record_failure(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username, password, or MFA code.",
         )
     if not auth_service.verify_password(body.password, user.password_hash):
+        _record_failure(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username, password, or MFA code.",
         )
-    if not auth_service.verify_totp(user.totp_secret, body.code):
+    # Reject reuse of the last successfully-used code (replay within the
+    # 30s TOTP window), then verify normally.
+    if _last_used_totp.get(user.id) == body.code or not auth_service.verify_totp(
+        auth_service.get_totp_secret(user), body.code
+    ):
+        _record_failure(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username, password, or MFA code.",
         )
-    user.last_login_at = datetime.datetime.utcnow()
+    _last_used_totp[user.id] = body.code
+    _record_success(request)
+    user.last_login_at = utcnow()
     db.commit()
     _set_session(request, user)
     return OkResponse()

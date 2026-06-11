@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response models."""
 from datetime import date, datetime
 from typing import Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- Plaid / Link ---
@@ -72,8 +72,8 @@ class ManualAccountCreate(BaseModel):
 # --- Transactions ---
 class TransactionSplitIn(BaseModel):
     amount: float
-    category: str
-    note: Optional[str] = None
+    category: str = Field(max_length=128)
+    note: Optional[str] = Field(None, max_length=2000)
     business_id: Optional[int] = None
 
 
@@ -112,10 +112,10 @@ class TransactionOut(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
-    custom_category: Optional[str] = None
+    custom_category: Optional[str] = Field(None, max_length=128)
     business_id: Optional[int] = None
     is_transfer: Optional[bool] = None        # bulk reclassify: flip to/from transfer without rerunning the detector
-    notes: Optional[str] = None               # empty string clears; null leaves unchanged
+    notes: Optional[str] = Field(None, max_length=2000)  # empty string clears; null leaves unchanged
 
 
 class TransactionSplitsReplace(BaseModel):
@@ -124,14 +124,14 @@ class TransactionSplitsReplace(BaseModel):
 
 # --- Budgets ---
 class BudgetCategoryIn(BaseModel):
-    category: str
-    limit_amount: float
+    category: str = Field(max_length=128)
+    limit_amount: float = Field(ge=0)
 
 
 class BudgetIn(BaseModel):
-    month: int
-    year: int
-    total_limit: Optional[float] = None
+    month: int = Field(ge=1, le=12)
+    year: int = Field(ge=2000, le=2100)
+    total_limit: Optional[float] = Field(None, ge=0)
     categories: List[BudgetCategoryIn] = []
 
 

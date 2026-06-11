@@ -102,13 +102,21 @@ def _verify_plaid_signature(
         raise HTTPException(401, "Webhook body hash mismatch")
 
 
-_key_cache: dict[str, str] = {}
+# kid -> (pem, fetched_at). TTL'd + size-capped: Plaid rotates webhook
+# signing keys, and an unbounded forever-cache would (a) grow with every
+# rotated-away kid and (b) keep serving a key after Plaid revokes it.
+_key_cache: dict[str, tuple[str, float]] = {}
+_KEY_CACHE_TTL_SECONDS = 24 * 60 * 60
+_KEY_CACHE_MAX_ENTRIES = 8
 
 
 def _fetch_plaid_public_key(kid: str) -> str:
-    """Fetch and cache the PEM-encoded public key for a given JWT key id."""
-    if kid in _key_cache:
-        return _key_cache[kid]
+    """Fetch and cache (24h TTL) the PEM-encoded public key for a JWT key id."""
+    import time as _time
+
+    cached = _key_cache.get(kid)
+    if cached and _time.time() - cached[1] < _KEY_CACHE_TTL_SECONDS:
+        return cached[0]
 
     from plaid.model.webhook_verification_key_get_request import WebhookVerificationKeyGetRequest
 
@@ -131,7 +139,11 @@ def _fetch_plaid_public_key(kid: str) -> str:
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     ).decode("utf-8")
 
-    _key_cache[kid] = pem
+    if len(_key_cache) >= _KEY_CACHE_MAX_ENTRIES:
+        # Evict the oldest entry — simple FIFO-by-fetch-time is plenty here.
+        oldest = min(_key_cache, key=lambda k: _key_cache[k][1])
+        _key_cache.pop(oldest, None)
+    _key_cache[kid] = (pem, _time.time())
     return pem
 
 

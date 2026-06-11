@@ -12,6 +12,7 @@ import datetime
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class BusinessRule(Base):
@@ -21,6 +22,6 @@ class BusinessRule(Base):
     pattern = Column(String, nullable=False, index=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
     priority = Column(Integer, default=100)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     business = relationship("Business")

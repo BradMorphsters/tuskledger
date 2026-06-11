@@ -36,6 +36,7 @@ display a token after issuance — losing one means the phone re-pairs.
 import datetime
 from sqlalchemy import Column, String, DateTime, Integer
 from app.database import Base
+from app.utils import utcnow
 
 
 class DeviceToken(Base):
@@ -56,6 +57,6 @@ class DeviceToken(Base):
     pairing_code = Column(String, unique=True, nullable=True, index=True)
     pairing_expires_at = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     last_seen_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)

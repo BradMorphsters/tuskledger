@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, DateTime, Integer, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class Holding(Base):
@@ -28,8 +29,8 @@ class Holding(Base):
     cost_basis = Column(Float, nullable=True)                 # total cost basis if the institution reports it
     iso_currency_code = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     account = relationship("Account")
     security = relationship("Security")

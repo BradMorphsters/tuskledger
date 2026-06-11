@@ -64,6 +64,7 @@ from app.models import (
 )
 from app.models.subscription_rule import KIND_FORCE_SUB, KIND_FORCE_NOT_SUB
 from app.services.auth_service import generate_totp_secret, hash_password
+from app.utils import utcnow
 
 
 # ─── Seed configuration ──────────────────────────────────────────────
@@ -644,7 +645,7 @@ def seed_securities(db) -> dict:
             type=type_,
             iso_currency_code="USD",
             close_price=price,
-            close_price_as_of=datetime.utcnow(),
+            close_price_as_of=utcnow(),
             is_cash_equivalent=False,
         )
         db.add(sec)
@@ -665,7 +666,7 @@ def seed_holdings(db, accounts: dict, securities: dict) -> None:
             plaid_security_id=sec.plaid_security_id,
             quantity=qty,
             institution_price=sec.close_price,
-            institution_price_as_of=datetime.utcnow(),
+            institution_price_as_of=utcnow(),
             institution_value=round(qty * sec.close_price, 2),
             cost_basis=round(qty * sec.close_price * RNG.uniform(0.78, 0.95), 2),
             iso_currency_code="USD",
@@ -679,7 +680,7 @@ def seed_holdings(db, accounts: dict, securities: dict) -> None:
             plaid_security_id=sec.plaid_security_id,
             quantity=qty,
             institution_price=sec.close_price,
-            institution_price_as_of=datetime.utcnow(),
+            institution_price_as_of=utcnow(),
             institution_value=round(qty * sec.close_price, 2),
             cost_basis=round(qty * sec.close_price * RNG.uniform(0.65, 0.88), 2),
             iso_currency_code="USD",
@@ -699,7 +700,7 @@ def seed_holdings(db, accounts: dict, securities: dict) -> None:
             plaid_security_id=sec.plaid_security_id,
             quantity=qty,
             institution_price=sec.close_price,
-            institution_price_as_of=datetime.utcnow(),
+            institution_price_as_of=utcnow(),
             institution_value=round(qty * sec.close_price, 2),
             cost_basis=round(qty * sec.close_price * RNG.uniform(0.7, 0.9), 2),
             iso_currency_code="USD",
@@ -717,7 +718,7 @@ def seed_holdings(db, accounts: dict, securities: dict) -> None:
                 plaid_security_id=sec.plaid_security_id,
                 quantity=qty,
                 institution_price=sec.close_price,
-                institution_price_as_of=datetime.utcnow(),
+                institution_price_as_of=utcnow(),
                 institution_value=round(qty * sec.close_price, 2),
                 cost_basis=round(qty * sec.close_price * RNG.uniform(0.7, 0.92), 2),
                 iso_currency_code="USD",

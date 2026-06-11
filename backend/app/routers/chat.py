@@ -62,6 +62,7 @@ from app.services.chat_prompts import (
     known_prompt_ids,
 )
 from app.services.llm_ollama import LLMUnavailable, OllamaClient
+from app.utils import utcnow
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -162,7 +163,7 @@ def get_answer(
             ),
         )
 
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = utcnow().isoformat() + "Z"
     is_demo = request.cookies.get("fintrack_mode") == "demo"
 
     # Step 2: demo short-circuit. Return the canned string regardless of

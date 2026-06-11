@@ -1,6 +1,7 @@
 import datetime
 from sqlalchemy import Column, String, DateTime, Integer
 from app.database import Base
+from app.utils import utcnow
 
 
 class PlaidItem(Base):
@@ -13,5 +14,5 @@ class PlaidItem(Base):
     institution_id = Column(String, nullable=True)
     institution_name = Column(String, nullable=True)
     cursor = Column(String, nullable=True)  # for transaction sync pagination
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

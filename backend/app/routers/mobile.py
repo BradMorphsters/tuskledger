@@ -61,6 +61,7 @@ from app.models import (
     Security,
     Transaction,
 )
+from app.utils import utcnow
 
 
 router = APIRouter(prefix="/api/mobile", tags=["mobile"])
@@ -150,7 +151,7 @@ def require_device_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unknown or revoked device token.",
         )
-    row.last_seen_at = datetime.datetime.utcnow()
+    row.last_seen_at = utcnow()
     db.commit()
     return row
 
@@ -409,7 +410,7 @@ def pair_start(
     else:
         raise HTTPException(500, "Could not allocate pairing code; try again.")
 
-    now = datetime.datetime.utcnow()
+    now = utcnow()
     expires_at = now + datetime.timedelta(seconds=_PAIRING_TTL_SECONDS)
 
     row = DeviceToken(
@@ -479,7 +480,7 @@ def pair_claim(body: PairClaimRequest, db: Session = Depends(get_db)):
         # an attacker can't distinguish "wrong code" from "right code,
         # too late" by the response.
         raise HTTPException(404, "Pairing code not found or already claimed.")
-    now = datetime.datetime.utcnow()
+    now = utcnow()
     if row.pairing_expires_at and row.pairing_expires_at < now:
         # Don't leak the row — drop it so the unique index doesn't
         # block a future code with the same value.
@@ -524,7 +525,7 @@ def manifest(
         host_id=host_id,
         hostname=socket.gethostname(),
         app_name=settings.APP_NAME,
-        server_time=datetime.datetime.utcnow(),
+        server_time=utcnow(),
         # 2 = adds securities + holdings + net_worth_snapshots to /sync.
         # Older phone clients (v1) ignore the new fields safely; their
         # SyncResponse type just doesn't reference them.
@@ -579,7 +580,7 @@ def sync(
     last_seen_at bump in `require_device_token`.
     """
     is_full = full or since is None
-    server_time = datetime.datetime.utcnow()
+    server_time = utcnow()
 
     accounts_q = db.query(Account)
     transactions_q = db.query(Transaction).order_by(Transaction.updated_at.asc())
@@ -759,6 +760,6 @@ def revoke_device(device_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Device not found.")
     if row.revoked_at is None:
-        row.revoked_at = datetime.datetime.utcnow()
+        row.revoked_at = utcnow()
         db.commit()
     return {"status": "revoked", "id": row.id}

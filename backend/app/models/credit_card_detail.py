@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, Date, DateTime, Integer, ForeignKey, Boolean, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class CreditCardDetail(Base):
@@ -37,7 +38,7 @@ class CreditCardDetail(Base):
     minimum_payment_amount = Column(Float, nullable=True)
     next_payment_due_date = Column(Date, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     account = relationship("Account")

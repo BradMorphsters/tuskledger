@@ -8,6 +8,7 @@ Plaid data.
 import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from app.database import Base
+from app.utils import utcnow
 
 
 class User(Base):
@@ -18,5 +19,5 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     totp_secret = Column(String, nullable=False)
     totp_verified = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     last_login_at = Column(DateTime, nullable=True)

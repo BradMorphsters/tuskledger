@@ -2,7 +2,7 @@
   "expo": {
     "name": "Tusk Ledger",
     "slug": "tuskledger-mobile",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "tuskledger",
@@ -19,7 +19,13 @@
     "ios": {
       "bundleIdentifier": "com.tuskledger.mobile",
       "supportsTablet": true,
-      "buildNumber": "1",
+      "buildNumber": "2",
+      "appleTeamId": "MB9R3Y3KSW",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.tuskledger.mobile"
+        ]
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Tusk Ledger uses the camera to scan the pairing QR code shown on your laptop.",
         "NSLocalNetworkUsageDescription": "Tusk Ledger connects to your laptop on the same Wi-Fi to fetch your finances. Your data stays on your home network.",
@@ -34,7 +40,7 @@
     },
     "android": {
       "package": "com.tuskledger.mobile",
-      "versionCode": 1,
+      "versionCode": 2,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {

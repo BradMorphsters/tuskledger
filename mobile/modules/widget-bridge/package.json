@@ -1,0 +1,12 @@
+{
+  "name": "widget-bridge",
+  "version": "0.1.0",
+  "description": "Bridge between the Tusk Ledger RN app and the iOS Widget extension.",
+  "main": "src/index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

@@ -42,6 +42,7 @@ import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import TrendStat from '../components/TrendStat'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { yearOptions, cleanMerchantName } from '../lib/format'
 import { SpendingHeatmap } from '../components/SpendingExtras'
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6', '#22d3ee', '#c084fc']
@@ -54,26 +55,6 @@ function fmtCompact(val) {
   const n = val || 0
   if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}k`
   return `$${Math.round(n)}`
-}
-
-// Strip noisy ACH/transfer prefixes from raw transaction descriptions so
-// the page reads cleanly. We get strings like
-//   "DEPOSIT EMPLOYER NAME TYPE: PAYROLL ID: *0391 DATA: 04/03/26 ..."
-// and want just "Employer Name".
-function cleanMerchantName(raw) {
-  if (!raw) return raw
-  let s = String(raw)
-  // Drop everything after the first "TYPE:", "ID:", "DATA:", "CO:" sentinel
-  s = s.replace(/\s+(TYPE:|ID:|DATA:|CO:|PPD|ACH ECC|ACH Trace).*/i, '')
-  // Drop leading verbs we don't need to see
-  s = s.replace(/^(DEPOSIT|WITHDRAWAL|TRANSFER|PAYMENT|PURCHASE)\s+/i, '')
-  // Collapse whitespace
-  s = s.replace(/\s+/g, ' ').trim()
-  // Title-case ALL CAPS strings (but leave mixed-case alone — it's already pretty)
-  if (s === s.toUpperCase() && s.length > 3) {
-    s = s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-  }
-  return s || raw
 }
 
 // ─── Sparkline ────────────────────────────────────────────────
@@ -988,21 +969,41 @@ export default function SpendingIncome() {
 
       {/* ─── Month + view picker ───────────────────────────── */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select
-          value={selectedMonth}
-          onChange={e => setSelectedMonth(Number(e.target.value))}
-          style={SELECT_STYLE}
-        >
-          {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
-            <option key={i} value={i + 1}>{m}</option>
-          ))}
-        </select>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button
+            aria-label="Previous month"
+            onClick={() => {
+              if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1) }
+              else setSelectedMonth(m => m - 1)
+            }}
+            className="btn btn-secondary"
+            style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
+          >←</button>
+          <select
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(Number(e.target.value))}
+            style={SELECT_STYLE}
+          >
+            {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
+              <option key={i} value={i + 1}>{m}</option>
+            ))}
+          </select>
+          <button
+            aria-label="Next month"
+            onClick={() => {
+              if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1) }
+              else setSelectedMonth(m => m + 1)
+            }}
+            className="btn btn-secondary"
+            style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
+          >→</button>
+        </div>
         <select
           value={selectedYear}
           onChange={e => setSelectedYear(Number(e.target.value))}
           style={SELECT_STYLE}
         >
-          {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={showYoY} onChange={e => setShowYoY(e.target.checked)} />
@@ -1176,8 +1177,8 @@ export default function SpendingIncome() {
                       padding: '8px',
                       textAlign: 'right',
                       color: view === 'spending'
-                        ? (cat.delta_pct < 0 ? '#28a745' : '#dc3545')
-                        : (cat.delta_pct > 0 ? '#28a745' : '#dc3545'),
+                        ? (cat.delta_pct < 0 ? 'var(--accent-green)' : 'var(--accent-red)')
+                        : (cat.delta_pct > 0 ? 'var(--accent-green)' : 'var(--accent-red)'),
                       fontWeight: 600,
                     }}>
                       {cat.delta_pct > 0 ? '+' : ''}{cat.delta_pct.toFixed(1)}%
@@ -1201,8 +1202,8 @@ export default function SpendingIncome() {
                 fontWeight: 600,
                 fontSize: 'var(--text-base)',
                 color: view === 'spending'
-                  ? (yoyData.deltas.spending_pct < 0 ? '#28a745' : '#dc3545')
-                  : (yoyData.deltas.spending_pct > 0 ? '#28a745' : '#dc3545'),
+                  ? (yoyData.deltas.spending_pct < 0 ? 'var(--accent-green)' : 'var(--accent-red)')
+                  : (yoyData.deltas.spending_pct > 0 ? 'var(--accent-green)' : 'var(--accent-red)'),
               }}>
                 {yoyData.deltas.spending_pct > 0 ? '+' : ''}{yoyData.deltas.spending_pct.toFixed(1)}%
               </div>
@@ -1212,7 +1213,7 @@ export default function SpendingIncome() {
               <div style={{
                 fontWeight: 600,
                 fontSize: 'var(--text-base)',
-                color: yoyData.deltas.income_pct > 0 ? '#28a745' : '#dc3545',
+                color: yoyData.deltas.income_pct > 0 ? 'var(--accent-green)' : 'var(--accent-red)',
               }}>
                 {yoyData.deltas.income_pct > 0 ? '+' : ''}{yoyData.deltas.income_pct.toFixed(1)}%
               </div>
@@ -1222,7 +1223,7 @@ export default function SpendingIncome() {
               <div style={{
                 fontWeight: 600,
                 fontSize: 'var(--text-base)',
-                color: yoyData.deltas.net_pct > 0 ? '#28a745' : '#dc3545',
+                color: yoyData.deltas.net_pct > 0 ? 'var(--accent-green)' : 'var(--accent-red)',
               }}>
                 {yoyData.deltas.net_pct > 0 ? '+' : ''}{yoyData.deltas.net_pct.toFixed(1)}%
               </div>

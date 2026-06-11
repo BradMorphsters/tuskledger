@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, Trophy, Target, Plane, Home as HomeIcon, ShieldCheck, Briefcase, Activity } from 'lucide-react'
-import { getGoals, createGoal, updateGoal, deleteGoal, getAccounts } from '../api/client'
+import { getGoals, createGoal, updateGoal, deleteGoal } from '../api/client'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
+import { useAccounts } from '../hooks/useAccounts'
 
 const INPUT_STYLE = {
   width: '100%',
@@ -321,7 +322,7 @@ function Field({ label, children }) {
 
 export default function Goals() {
   const [goals, setGoals] = useState(null)
-  const [accounts, setAccounts] = useState([])
+  const { accounts } = useAccounts()
   const [editing, setEditing] = useState(null)  // null | 'new' | <goalId>
 
   const reload = () => {
@@ -329,7 +330,6 @@ export default function Goals() {
   }
   useEffect(() => {
     reload()
-    getAccounts().then(setAccounts).catch(() => setAccounts([]))
   }, [])
 
   const handleSave = async (form) => {

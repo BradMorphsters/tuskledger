@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, TrendingUp } from 'lucide-react'
 import { getMerchantDetails } from '../api/client'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { formatCurrencyZero } from '../lib/format'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 /**
  * Slide-out drawer showing per-merchant drill-down:
@@ -16,6 +18,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 export default function MerchantDrawer({ merchantName, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
+  const containerRef = useRef(null)
+  useFocusTrap(containerRef, !!merchantName)
 
   useEffect(() => {
     if (!merchantName) {
@@ -35,8 +39,15 @@ export default function MerchantDrawer({ merchantName, onClose }) {
       })
   }, [merchantName])
 
-  const formatCurrency = (n) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
+  // Escape closes the drawer.
+  useEffect(() => {
+    if (!merchantName) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [merchantName, onClose])
+
+  const formatCurrency = formatCurrencyZero
 
   if (!merchantName) return null
 
@@ -54,7 +65,9 @@ export default function MerchantDrawer({ merchantName, onClose }) {
       />
       {/* Drawer panel */}
       <aside
+        ref={containerRef}
         role="dialog"
+        aria-modal="true"
         aria-label={merchantName}
         style={{
           position: 'fixed',

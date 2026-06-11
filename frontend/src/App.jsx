@@ -25,6 +25,9 @@ import {
   Menu,
   Smartphone,
   Tag,
+  Waves,
+  CalendarDays,
+  FolderOpen,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -238,7 +241,10 @@ export default function App() {
   }
 
   // Authenticated — render the app
+  // Nav items are grouped into three sections separated by dividers.
+  // { divider: true } entries render as a thin separator line.
   const navItems = [
+    // ── Everyday ─────────────────────────────────────────
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/spending', icon: BarChart3, label: 'Spending & Income' },
     { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
@@ -247,15 +253,19 @@ export default function App() {
     { to: '/net-worth', icon: TrendingUp, label: 'Net Worth' },
     { to: '/loans', icon: CreditCard, label: 'Loans' },
     { to: '/retirement', icon: Compass, label: 'Retirement' },
-    { to: '/cash-flow', icon: TrendingUp, label: 'Cash Flow' },
-    { to: '/bills-calendar', icon: BarChart3, label: 'Bills Calendar' },
+    // ── Tools ─────────────────────────────────────────────
+    { divider: true },
+    { to: '/cash-flow', icon: Waves, label: 'Cash Flow' },
+    { to: '/bills-calendar', icon: CalendarDays, label: 'Bills Calendar' },
     { to: '/investments', icon: LineChart, label: 'Investments' },
     { to: '/trading-tax', icon: Receipt, label: 'Trading Tax' },
     { to: '/insights', icon: Lightbulb, label: 'Insights' },
     { to: '/business', icon: Briefcase, label: 'Business' },
-    { to: '/tax-prep', icon: Receipt, label: 'Tax Prep' },
+    { to: '/tax-prep', icon: FolderOpen, label: 'Tax Prep' },
     { to: '/rules', icon: Filter, label: 'Rules' },
     { to: '/categories', icon: Tag, label: 'Categories' },
+    // ── Settings ──────────────────────────────────────────
+    { divider: true },
     { to: '/connect', icon: Link2, label: 'Accounts' },
     { to: '/pair-phone', icon: Smartphone, label: 'Pair phone' },
   ]
@@ -315,17 +325,32 @@ export default function App() {
           Tusk Ledger
         </div>
         <nav className="sidebar-nav">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
+          {navItems.map((item, idx) => {
+            if (item.divider) {
+              return (
+                <div
+                  key={`divider-${idx}`}
+                  style={{
+                    height: 1,
+                    background: 'var(--border)',
+                    margin: '6px 0',
+                  }}
+                />
+              )
+            }
+            const { to, icon: Icon, label } = item
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+              >
+                <Icon size={18} />
+                {label}
+              </NavLink>
+            )
+          })}
         </nav>
         {!readOnly && (
           <button

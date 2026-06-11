@@ -24,7 +24,8 @@ import {
 
 const CAPITAL_LOSS_KEY = 'tuskledger.capitalLossCarryover.v1'
 
-function fmt(n) {
+// 0-decimal formatter for tax totals — intentionally no cents (CPA handoff clarity)
+function fmtRounded(n) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(n || 0)
@@ -151,7 +152,7 @@ export default function TaxPrepPack() {
                   <tr key={a.id}>
                     <td>{a.name}</td>
                     <td>—</td>
-                    <td>{fmt(limit)}</td>
+                    <td>{fmtRounded(limit)}</td>
                     <td>(see tracker)</td>
                     <td>(see tracker)</td>
                     <td>—</td>
@@ -186,20 +187,20 @@ export default function TaxPrepPack() {
               {capitalLoss.shortTermCarryover > 0 && (
                 <tr>
                   <td>Short-term</td>
-                  <td>{fmt(capitalLoss.shortTermCarryover)}</td>
+                  <td>{fmtRounded(capitalLoss.shortTermCarryover)}</td>
                   <td>Offsets short-term gains first, then long-term, then up to $3k ordinary</td>
                 </tr>
               )}
               {capitalLoss.longTermCarryover > 0 && (
                 <tr>
                   <td>Long-term</td>
-                  <td>{fmt(capitalLoss.longTermCarryover)}</td>
+                  <td>{fmtRounded(capitalLoss.longTermCarryover)}</td>
                   <td>Offsets long-term gains first, then short-term, then up to $3k ordinary</td>
                 </tr>
               )}
               <tr style={{ fontWeight: 600 }}>
                 <td>Total available</td>
-                <td>{fmt(totalCapitalLoss)}</td>
+                <td>{fmtRounded(totalCapitalLoss)}</td>
                 <td>~{Math.ceil(totalCapitalLoss / 3000)} yrs of $3k ordinary deduction if no gains</td>
               </tr>
             </tbody>
@@ -231,7 +232,7 @@ export default function TaxPrepPack() {
                   <tr key={line.line_number}>
                     <td>Line {line.line_number}</td>
                     <td>{line.label}</td>
-                    <td>{fmt(line.amount)}</td>
+                    <td>{fmtRounded(line.amount)}</td>
                     <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                       {line.note || ''}
                     </td>
@@ -239,17 +240,17 @@ export default function TaxPrepPack() {
                 ))}
                 <tr style={{ fontWeight: 700, borderTop: '2px solid var(--text-primary)' }}>
                   <td colSpan={2}>Total expenses</td>
-                  <td>{fmt(sc.total_expenses || 0)}</td>
+                  <td>{fmtRounded(sc.total_expenses || 0)}</td>
                   <td></td>
                 </tr>
                 <tr style={{ fontWeight: 600 }}>
                   <td colSpan={2}>Gross income</td>
-                  <td>{fmt(sc.total_income || 0)}</td>
+                  <td>{fmtRounded(sc.total_income || 0)}</td>
                   <td></td>
                 </tr>
                 <tr style={{ fontWeight: 700, color: 'var(--accent-green)' }}>
                   <td colSpan={2}>Net Schedule C income</td>
-                  <td>{fmt((sc.total_income || 0) - (sc.total_expenses || 0))}</td>
+                  <td>{fmtRounded((sc.total_income || 0) - (sc.total_expenses || 0))}</td>
                   <td>SE tax applies (15.3% on net × 92.35%)</td>
                 </tr>
               </tbody>
@@ -266,7 +267,7 @@ export default function TaxPrepPack() {
                       <tr key={i}>
                         <td>{a.date}</td>
                         <td>{a.description}</td>
-                        <td>{fmt(a.amount)}</td>
+                        <td>{fmtRounded(a.amount)}</td>
                         <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.note || ''}</td>
                       </tr>
                     ))}

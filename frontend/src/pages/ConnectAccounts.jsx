@@ -7,15 +7,17 @@ import BackfillPanel from '../components/BackfillPanel'
 import CSVImportPanel from '../components/CSVImportPanel'
 import { useToast } from '../components/Toast'
 import {
-  getLinkToken, exchangeToken, getPlaidItems, getAccounts, triggerSync,
+  getLinkToken, exchangeToken, getPlaidItems, triggerSync,
   updateAccount, getMortgageDetail, getCreditCardDetail, getManualAssets,
   createManualAccount,
 } from '../api/client'
+import { formatCurrency, formatCurrencyZero } from '../lib/format'
+import { useAccounts } from '../hooks/useAccounts'
 
 export default function ConnectAccounts() {
   const [linkToken, setLinkToken] = useState(null)
   const [items, setItems] = useState([])
-  const [accounts, setAccounts] = useState([])
+  const { accounts, refresh: refreshAccounts } = useAccounts()
   const [manualAssets, setManualAssets] = useState([])
   const [status, setStatus] = useState(null) // null | 'connecting' | 'success' | 'error'
   const [error, setError] = useState('')
@@ -29,7 +31,7 @@ export default function ConnectAccounts() {
 
   const loadData = () => {
     getPlaidItems().then(setItems).catch(() => {})
-    getAccounts().then(setAccounts).catch(() => {})
+    refreshAccounts()
     getManualAssets().then(setManualAssets).catch(() => setManualAssets([]))
   }
 
@@ -279,9 +281,7 @@ export default function ConnectAccounts() {
                       fontVariantNumeric: 'tabular-nums',
                       color: m.side === 'liability' ? 'var(--accent-red)' : undefined,
                     }}>
-                      {m.value !== null && m.value !== undefined
-                        ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(m.value)
-                        : '—'}
+                      {formatCurrency(m.value)}
                     </td>
                   </tr>
                 ))}
@@ -726,10 +726,7 @@ function AccountRow({ account, onUpdated }) {
     setEditing(false)
   }
 
-  const formattedBalance = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: account.currency || 'USD',
-  }).format(account.current_balance || 0)
+  const formattedBalance = formatCurrencyZero(account.current_balance, account.currency || 'USD')
 
   return (
     <>
@@ -855,11 +852,6 @@ function AccountRow({ account, onUpdated }) {
   )
 }
 
-
-function formatCurrency(n, currency = 'USD') {
-  if (n === null || n === undefined) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n)
-}
 
 function formatPercent(n) {
   if (n === null || n === undefined) return '—'

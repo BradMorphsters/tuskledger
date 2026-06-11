@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Plus, Trash2, Repeat, Copy, Briefcase } from 'lucide-react'
 import { getSpendingSummary, getBudget, saveBudget } from '../api/client'
 import TransactionDrawer from '../components/TransactionDrawer'
-import { formatCurrencyZero as formatCurrency } from '../lib/format'
+import { formatCurrencyZero as formatCurrency, yearOptions } from '../lib/format'
 
 // View modes for separating business vs personal spend on the Budgets
 // page. Persisted to localStorage so the user's choice survives reloads.
@@ -344,7 +344,7 @@ export default function Budgets() {
             onChange={e => setYear(+e.target.value)}
             style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}
           >
-            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
       </div>

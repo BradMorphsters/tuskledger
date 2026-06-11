@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
-import { importCsv, getAccounts } from '../api/client'
+import { importCsv } from '../api/client'
+import { useAccounts } from '../hooks/useAccounts'
 
 /**
  * CSV Import Panel — drag-and-drop file upload for bulk transaction imports.
@@ -8,23 +9,19 @@ import { importCsv, getAccounts } from '../api/client'
  * Auto-deduplicates by (account_id, date, amount, merchant).
  */
 export default function CSVImportPanel() {
-  const [accounts, setAccounts] = useState([])
+  const { accounts, loading } = useAccounts()
   const [selectedAccountId, setSelectedAccountId] = useState('')
-  const [loading, setLoading] = useState(true)
   const [dragActive, setDragActive] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
-  useState(() => {
-    getAccounts()
-      .then(accts => {
-        setAccounts(accts)
-        if (accts.length > 0) setSelectedAccountId(accts[0].id.toString())
-      })
-      .catch(() => setAccounts([]))
-      .finally(() => setLoading(false))
-  }, [])
+  // Auto-select the first account once accounts load.
+  useEffect(() => {
+    if (!selectedAccountId && accounts.length > 0) {
+      setSelectedAccountId(accounts[0].id.toString())
+    }
+  }, [accounts, selectedAccountId])
 
   const handleDrag = (e) => {
     e.preventDefault()

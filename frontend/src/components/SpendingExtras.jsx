@@ -7,7 +7,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { getTopMerchants, getSpendingHeatmap } from '../api/client'
 import { SkeletonCard } from './Skeleton'
 
-function fmt(n) {
+// 0-decimal formatter for heatmap/sparkline labels — exact cents aren't needed at this resolution
+function fmtRounded(n) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0)
 }
 
@@ -48,9 +49,9 @@ export function TopMerchants({ months = 6, limit = 15 }) {
                 <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {m.merchant}
                 </td>
-                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(m.total)}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtRounded(m.total)}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)' }}>
-                  {fmt(m.avg_per_txn)}
+                  {fmtRounded(m.avg_per_txn)}
                 </td>
                 <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{m.txn_count}</td>
                 <td><Sparkline values={m.sparkline} /></td>
@@ -163,7 +164,7 @@ export function SpendingHeatmap() {
                   transition: 'transform 0.1s',
                   transform: hovered === day ? 'scale(1.5)' : 'scale(1)',
                 }}
-                title={day ? `${day.date}: ${fmt(day.total)} (${day.count} txns)` : ''}
+                title={day ? `${day.date}: ${fmtRounded(day.total)} (${day.count} txns)` : ''}
               />
             ))}
           </div>
@@ -184,7 +185,7 @@ export function SpendingHeatmap() {
         <span>More</span>
         {hovered && (
           <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>
-            {hovered.date}: <strong style={{ color: 'var(--text-primary)' }}>{fmt(hovered.total)}</strong> · {hovered.count} txns
+            {hovered.date}: <strong style={{ color: 'var(--text-primary)' }}>{fmtRounded(hovered.total)}</strong> · {hovered.count} txns
           </span>
         )}
       </div>

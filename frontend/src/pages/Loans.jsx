@@ -29,7 +29,8 @@ import {
  */
 const OVERRIDES_KEY = 'tuskledger.loanOverrides.v1'
 
-function fmt(n) {
+// 0-decimal formatter for loan tiles — whole dollars read better in amortization context
+function fmtRounded(n) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(n || 0)
@@ -148,7 +149,7 @@ export default function Loans() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{loan.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {fmt(loan.balance)}
+                    {fmtRounded(loan.balance)}
                     {loan.months_remaining != null && ` · ${loan.months_remaining} mo left`}
                   </div>
                 </div>
@@ -223,9 +224,9 @@ function LoanDetail({ loan, override, setOverride }) {
         <div>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{loan.name}</h2>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-            Balance: {fmt(loan.balance)}
+            Balance: {fmtRounded(loan.balance)}
             {loan.interest_rate != null && ` · Rate ${(loan.interest_rate * 100).toFixed(3)}%`}
-            {loan.monthly_payment != null && ` · P+I ${fmt(loan.monthly_payment)}/mo`}
+            {loan.monthly_payment != null && ` · P+I ${fmtRounded(loan.monthly_payment)}/mo`}
           </div>
         </div>
         {loan.has_pmi && (
@@ -309,12 +310,12 @@ function LoanDetail({ loan, override, setOverride }) {
           }}>
             <SummaryTile label="Payoff date" value={data.summary.payoff_date || '—'}
               sub={`${data.summary.months} payments`} />
-            <SummaryTile label="Total interest" value={fmt(data.summary.total_interest)}
+            <SummaryTile label="Total interest" value={fmtRounded(data.summary.total_interest)}
               sub="over remaining term" tone="warn" />
-            <SummaryTile label="Total paid" value={fmt(data.summary.total_paid)}
-              sub={`principal ${fmt(data.summary.total_principal)}`} />
-            <SummaryTile label="Extra paid" value={fmt(data.summary.total_extra_principal)}
-              sub={extraPrincipal > 0 ? `${fmt(extraPrincipal)}/mo extra` : 'none'} />
+            <SummaryTile label="Total paid" value={fmtRounded(data.summary.total_paid)}
+              sub={`principal ${fmtRounded(data.summary.total_principal)}`} />
+            <SummaryTile label="Extra paid" value={fmtRounded(data.summary.total_extra_principal)}
+              sub={extraPrincipal > 0 ? `${fmtRounded(extraPrincipal)}/mo extra` : 'none'} />
           </div>
 
           {/* Comparison block — only when extra > 0 */}
@@ -330,7 +331,7 @@ function LoanDetail({ loan, override, setOverride }) {
               <strong style={{ color: 'var(--accent-green)' }}>Extra payment impact: </strong>
               <span style={{ color: 'var(--text-primary)' }}>
                 Saves <strong>{Math.floor(data.comparison.months_saved / 12)}y {data.comparison.months_saved % 12}mo</strong>
-                {' '}and <strong>{fmt(data.comparison.interest_saved)}</strong> in lifetime interest.
+                {' '}and <strong>{fmtRounded(data.comparison.interest_saved)}</strong> in lifetime interest.
                 Payoff jumps from {data.comparison.baseline.payoff_date} to {data.comparison.with_extra.payoff_date}.
               </span>
             </div>
@@ -344,7 +345,7 @@ function LoanDetail({ loan, override, setOverride }) {
             }}>
               <label htmlFor="extra-slider">Extra principal per month</label>
               <strong style={{ color: 'var(--text-primary)', fontSize: 14 }}>
-                {fmt(extraPrincipal)}/mo
+                {fmtRounded(extraPrincipal)}/mo
               </strong>
             </div>
             <input
@@ -382,7 +383,7 @@ function LoanDetail({ loan, override, setOverride }) {
                   tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
                 />
                 <Tooltip
-                  formatter={(v) => fmt(v)}
+                  formatter={(v) => fmtRounded(v)}
                   labelFormatter={(y) => `Year ${y}`}
                   contentStyle={{
                     background: 'var(--bg-card)',
@@ -467,13 +468,13 @@ function BiweeklyPanel({ loan, override }) {
         borderLeft: '3px solid var(--accent-green)',
         borderRadius: 6, fontSize: 12, color: 'var(--text-primary)',
       }}>
-        Pay <strong>{fmt(data.biweekly_half_payment)}</strong> every 2 weeks
-        instead of {fmt(data.monthly_payment)}/mo and you'll{' '}
+        Pay <strong>{fmtRounded(data.biweekly_half_payment)}</strong> every 2 weeks
+        instead of {fmtRounded(data.monthly_payment)}/mo and you'll{' '}
         <strong style={{ color: 'var(--accent-green)' }}>
           {data.months_saved > 0 ? `pay off ${yrs}y ${mos}mo earlier` : 'see no meaningful change'}
         </strong>
         {data.months_saved > 0 && (
-          <> and save <strong style={{ color: 'var(--accent-green)' }}>{fmt(data.interest_saved)}</strong> in lifetime interest.</>
+          <> and save <strong style={{ color: 'var(--accent-green)' }}>{fmtRounded(data.interest_saved)}</strong> in lifetime interest.</>
         )}
         <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
           Mechanic: 26 half-payments/yr = 13 monthly equivalents. The 13th payment lands entirely on principal each year.
@@ -563,20 +564,20 @@ function RefinancePanel({ loan, override }) {
           borderRadius: 6, fontSize: 12, color: 'var(--text-primary)',
         }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 8 }}>
-            <SummaryTile label="New payment" value={`${fmt(data.refinanced.payment)}/mo`}
-              sub={`was ${fmt(data.current.payment)}/mo`} />
+            <SummaryTile label="New payment" value={`${fmtRounded(data.refinanced.payment)}/mo`}
+              sub={`was ${fmtRounded(data.current.payment)}/mo`} />
             <SummaryTile label="Monthly savings"
-              value={`${data.monthly_savings >= 0 ? '+' : '−'}${fmt(Math.abs(data.monthly_savings))}/mo`}
+              value={`${data.monthly_savings >= 0 ? '+' : '−'}${fmtRounded(Math.abs(data.monthly_savings))}/mo`}
               tone={data.monthly_savings > 0 ? null : 'warn'} />
-            <SummaryTile label="Lifetime interest saved" value={fmt(data.lifetime_interest_saved)}
-              sub={`net of ${fmt(data.refinanced.closing_costs)} closing`} />
+            <SummaryTile label="Lifetime interest saved" value={fmtRounded(data.lifetime_interest_saved)}
+              sub={`net of ${fmtRounded(data.refinanced.closing_costs)} closing`} />
           </div>
           {data.breakeven_months !== null && data.breakeven_months > 0 && (
             <div style={{ fontSize: 12 }}>
               <strong>Break-even on closing costs:</strong>{' '}
               {data.breakeven_months} months{' '}
               ({Math.floor(data.breakeven_months / 12)}y {data.breakeven_months % 12}mo).{' '}
-              Lifetime net (incl closing): <strong>{fmt(data.lifetime_total_paid_diff)}</strong>{' '}
+              Lifetime net (incl closing): <strong>{fmtRounded(data.lifetime_total_paid_diff)}</strong>{' '}
               {data.lifetime_total_paid_diff > 0 ? 'saved' : 'cost'}.
             </div>
           )}
@@ -673,10 +674,10 @@ function PmiDropoffPanel({ loan, override }) {
             <span>
               PMI cancels at month <strong>{data.months_until_dropoff}</strong>{' '}
               (<strong>{data.dropoff_date}</strong>) when balance crosses{' '}
-              <strong>{fmt(data.threshold_balance)}</strong> ({Math.round(data.ltv_threshold * 100)}% LTV).
+              <strong>{fmtRounded(data.threshold_balance)}</strong> ({Math.round(data.ltv_threshold * 100)}% LTV).
               {data.estimated_monthly_savings > 0 && (
-                <> At {fmt(data.estimated_monthly_savings)}/mo, that's{' '}
-                  <strong style={{ color: 'var(--accent-green)' }}>{fmt(data.estimated_lifetime_savings)}</strong>{' '}
+                <> At {fmtRounded(data.estimated_monthly_savings)}/mo, that's{' '}
+                  <strong style={{ color: 'var(--accent-green)' }}>{fmtRounded(data.estimated_lifetime_savings)}</strong>{' '}
                   in lifetime savings.
                 </>
               )}
@@ -825,15 +826,15 @@ function HelocPanel({ loan, override }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 8 }}>
             <SummaryTile label="Today's payment (interest-only)"
-              value={`${fmt(shock.draw_payment)}/mo`}
+              value={`${fmtRounded(shock.draw_payment)}/mo`}
               sub="while in draw period" />
             <SummaryTile label="After draw ends"
-              value={`${fmt(shock.repayment_payment)}/mo`}
+              value={`${fmtRounded(shock.repayment_payment)}/mo`}
               sub={shock.shock_date}
               tone={shockMultiple >= 1.3 ? 'warn' : null} />
             <SummaryTile label="Shock multiple"
               value={`${shockMultiple.toFixed(2)}×`}
-              sub={`+${fmt(shock.shock_amount)}/mo`}
+              sub={`+${fmtRounded(shock.shock_amount)}/mo`}
               tone={shockMultiple >= 1.3 ? 'warn' : null} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -877,7 +878,7 @@ function HelocPanel({ loan, override }) {
               value={String(data.summary.months)}
               sub={`${Math.floor(data.summary.months / 12)}y ${data.summary.months % 12}mo to payoff`} />
             <SummaryTile label="Lifetime interest"
-              value={fmt(data.summary.total_interest)}
+              value={fmtRounded(data.summary.total_interest)}
               sub="across both phases" tone="warn" />
             <SummaryTile label="Payoff date"
               value={data.summary.payoff_date || '—'}
@@ -898,7 +899,7 @@ function HelocPanel({ loan, override }) {
                   tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
                 />
                 <Tooltip
-                  formatter={(v, n) => [fmt(v), n === 'balance' ? 'Balance' : n]}
+                  formatter={(v, n) => [fmtRounded(v), n === 'balance' ? 'Balance' : n]}
                   labelFormatter={(y) => `Year ${Math.round(y)}`}
                   contentStyle={{
                     background: 'var(--bg-card)',
@@ -1053,7 +1054,7 @@ function MultiLoanTimeline({ loans, overrides }) {
               tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
             />
             <Tooltip
-              formatter={(v) => fmt(v)}
+              formatter={(v) => fmtRounded(v)}
               labelFormatter={(y) => `Year ${y}`}
               contentStyle={{
                 background: 'var(--bg-card)',

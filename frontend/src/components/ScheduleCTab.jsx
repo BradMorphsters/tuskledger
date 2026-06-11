@@ -22,7 +22,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Plus, Trash2, FileText, Box, Settings, Printer } from 'lucide-react'
 import { getScheduleCSummary } from '../api/client'
 import { useStoredState } from '../lib/storage'
-import { formatCurrencyZero as fmt } from '../lib/format'
+import { formatCurrencyZero as fmt, yearOptions } from '../lib/format'
 
 // IRS Schedule C expense lines (Part II). Order matches the form so the
 // summary at the bottom reads top-to-bottom in TaxAct's wizard order.
@@ -168,7 +168,7 @@ export default function ScheduleCTab({ businesses }) {
           </select>
           <label style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 12 }}>Tax year:</label>
           <select value={year} onChange={e => setYear(Number(e.target.value))} style={selectStyle}>
-            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button
             onClick={() => window.print()}

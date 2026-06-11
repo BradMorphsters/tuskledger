@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react'
 import { Calendar, AlertTriangle } from 'lucide-react'
 import { getUpcomingBills } from '../api/client'
 import { useToast } from './Toast'
+import { formatCurrency } from '../lib/format'
 
 // Local-only "marked paid" tracking. We don't have a server-side
 // payment ledger for bills (those would normally come from Plaid
@@ -35,11 +36,6 @@ function savePaidBills(set) {
 }
 function billKey(b) {
   return `${b.kind}-${b.account_id}-${b.due_date}`
-}
-
-function formatCurrency(n) {
-  if (n === null || n === undefined) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 }
 
 function formatDate(iso) {

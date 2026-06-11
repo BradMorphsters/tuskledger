@@ -8,21 +8,15 @@
  * sale detection (IRC §1091 applies per taxpayer); the filter only
  * scopes which matches and open positions are shown.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Receipt } from 'lucide-react'
-import { getAccounts } from '../api/client'
 import TradingTax from '../components/TradingTax'
 import TradingDataFreshness from '../components/TradingDataFreshness'
+import { useAccounts } from '../hooks/useAccounts'
 
 export default function TradingTaxPage() {
-  const [accounts, setAccounts] = useState([])
+  const { accounts } = useAccounts()
   const [accountFilter, setAccountFilter] = useState('')
-
-  useEffect(() => {
-    getAccounts()
-      .then(setAccounts)
-      .catch(() => setAccounts([]))
-  }, [])
 
   const investmentAccounts = useMemo(
     () => accounts.filter(a => a.type === 'investment'),

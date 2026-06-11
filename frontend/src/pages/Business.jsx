@@ -13,10 +13,7 @@ import {
 } from '../api/client'
 import BusinessBadge, { ICON_MAP, BUSINESS_COLORS } from '../components/BusinessBadge'
 import ScheduleCTab from '../components/ScheduleCTab'
-
-function fmt(val) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
-}
+import { fmt } from '../lib/format'
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Building2 },
@@ -280,12 +277,12 @@ function ReportTab({ report, businesses, selectedBiz, setSelectedBiz, reportMont
               <div className="card-header"><span className="card-title">Monthly Profit & Loss</span></div>
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={report.monthly}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                  <XAxis dataKey="month" stroke="#6b7280" fontSize={12} />
-                  <YAxis stroke="#6b7280" fontSize={12} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={12} />
+                  <YAxis stroke="var(--text-muted)" fontSize={12} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
                     formatter={val => fmt(val)}
-                    contentStyle={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8 }}
+                    contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}
                   />
                   <Legend />
                   <Bar dataKey="income" fill="#34d399" name="Income" radius={[4, 4, 0, 0]} />
@@ -307,7 +304,7 @@ function ReportTab({ report, businesses, selectedBiz, setSelectedBiz, reportMont
                       <Pie data={report.categories} dataKey="amount" nameKey="category" cx="50%" cy="50%" outerRadius={90} label={({ category, percentage }) => `${category} ${percentage}%`} labelLine={false}>
                         {report.categories.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                       </Pie>
-                      <Tooltip formatter={val => fmt(val)} contentStyle={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8 }} />
+                      <Tooltip formatter={val => fmt(val)} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div style={{ marginTop: 8 }}>

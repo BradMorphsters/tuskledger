@@ -32,7 +32,7 @@
  * their own.
  */
 
-const CACHE_VERSION = 'tuskledger-v2';
+const CACHE_VERSION = 'tuskledger-v3'; // v3: invalidate stale shell after the June 2026 redesign sweep
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 
 // Resources to prefetch on install. Keep this list short — it blocks

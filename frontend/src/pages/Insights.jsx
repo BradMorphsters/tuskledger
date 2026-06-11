@@ -168,8 +168,16 @@ function ReportTab() {
   if (reportError) return <EmptyState compact icon={<WifiOff size={20} />} title="Couldn't load monthly report" description="Check your connection and try refreshing." />
   if (!report) return <SkeletonCard rows={6} />
 
-  const c = report.current
-  const p = report.previous
+  const c = {
+    top_categories: [], top_merchants: [], transaction_count: 0,
+    spending: 0, income: 0, net: 0,
+    ...report.current,
+  }
+  const p = {
+    top_categories: [], top_merchants: [], transaction_count: 0,
+    spending: 0, income: 0, net: 0,
+    ...report.previous,
+  }
   const ch = report.changes
 
   return (
@@ -193,9 +201,9 @@ function ReportTab() {
       </div>
 
       {/* Insights */}
-      {report.insights.length > 0 && (
+      {(report.insights ?? []).length > 0 && (
         <div className="card" style={{ marginBottom: 20, padding: 16 }}>
-          {report.insights.map((insight, i) => (
+          {(report.insights ?? []).map((insight, i) => (
             <div key={i} style={{ padding: '6px 0', fontSize: 14, color: 'var(--text-primary)' }}>{insight}</div>
           ))}
         </div>

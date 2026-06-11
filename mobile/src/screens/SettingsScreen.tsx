@@ -1,27 +1,32 @@
 /**
- * Settings — the diagnostic + power-user screen.
+ * Settings — the diagnostic + power-user screen, iOS-grouped style:
+ * rounded section cards of rows (label left, value/control right).
  *
  * Surfaces the things that go wrong:
  *   - Which laptop am I paired with, and is it reachable?
  *   - When did I last sync, and what was the error if I haven't?
  *   - Wipe local data and re-pair when something's stuck.
  *
- * Deliberately read-only beyond the actions listed above. We don't
- * edit transactions, categories, budgets, etc. from here — that's
+ * Deliberately read-only beyond the actions listed here. We don't
+ * edit transactions, categories, budgets, etc. from the phone — that's
  * what the laptop is for. The phone is a window, not a workshop.
  * (See feedback_phone_no_writes memory.)
  */
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import {
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import appJson from '../../app.json';
+import Card from '../components/Card';
+import Screen from '../components/Screen';
+import SectionHeader from '../components/SectionHeader';
 import { resetMirror } from '../db/sqlite';
+import { useAppStore } from '../state/appStore';
 import { fetchManifest } from '../sync/api';
 import { syncNow, useSyncStore } from '../sync/manager';
 import {
@@ -33,7 +38,7 @@ import {
   setDemoMode,
 } from '../sync/storage';
 import type { PairedHost } from '../sync/types';
-import { colors, formatRelative, radius, space, type } from '../theme';
+import { colors, formatRelative, layout, space, type } from '../theme';
 
 interface Props {
   onUnpaired: () => void;
@@ -43,23 +48,31 @@ export default function SettingsScreen({ onUnpaired }: Props) {
   const status = useSyncStore((s) => s.status);
   const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt);
   const lastError = useSyncStore((s) => s.lastError);
+  const setDemoModeGlobal = useAppStore((s) => s.setDemoMode);
   const [host, setHost] = useState<PairedHost | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hostnameLive, setHostnameLive] = useState<string | null>(null);
   const [demoMode, setDemoModeLocal] = useState<boolean>(false);
   const [demoAvailable, setDemoAvailable] = useState<boolean>(true);
 
-  useEffect(() => {
-    (async () => {
-      setHost(await loadPairedHost());
-      setCursor(await loadCursor());
-      setDemoModeLocal(await loadDemoMode());
-    })();
-  }, []);
-
+  // One effect, one manifest fetch. The previous version split this
+  // into two effects — the second keyed on host?.baseUrl, which ran
+  // once with host=null and again when the first effect's load landed,
+  // double-fetching the manifest and racing the hostId backfill.
+  // Loading storage first, then fetching the manifest once with the
+  // freshly-loaded host in hand, removes the race entirely.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const [h, c, d] = await Promise.all([
+        loadPairedHost(),
+        loadCursor(),
+        loadDemoMode(),
+      ]);
+      if (cancelled) return;
+      setHost(h);
+      setCursor(c);
+      setDemoModeLocal(d);
       try {
         const m = await fetchManifest();
         if (cancelled) return;
@@ -68,20 +81,22 @@ export default function SettingsScreen({ onUnpaired }: Props) {
         // it — assume available so the toggle isn't hidden against an
         // older laptop that does support demo mode.
         setDemoAvailable(m.demo_available !== false);
-        // Backfill the manifest fields into the stored host record on
-        // first successful manifest fetch (the pair flow stores them
-        // empty because pair/claim doesn't return them).
-        if (host && (!host.hostId || !host.hostname)) {
-          const updated = { ...host, hostId: m.host_id, hostname: m.hostname };
+        // Backfill the manifest fields into the stored host record
+        // (the pair flow stores them empty because pair/claim doesn't
+        // return them).
+        if (h && (!h.hostId || !h.hostname)) {
+          const updated = { ...h, hostId: m.host_id, hostname: m.hostname };
           await savePairedHost(updated);
-          setHost(updated);
+          if (!cancelled) setHost(updated);
         }
       } catch {
         // Manifest is best-effort — Settings should still render.
       }
     })();
-    return () => { cancelled = true; };
-  }, [host?.baseUrl]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleResync() {
     Alert.alert(
@@ -101,7 +116,7 @@ export default function SettingsScreen({ onUnpaired }: Props) {
     );
   }
 
-  async function handleToggleDemo() {
+  function handleToggleDemo() {
     const turningOn = !demoMode;
     Alert.alert(
       turningOn ? 'Switch to demo mode?' : 'Switch back to real data?',
@@ -115,6 +130,9 @@ export default function SettingsScreen({ onUnpaired }: Props) {
           onPress: async () => {
             await setDemoMode(turningOn);
             setDemoModeLocal(turningOn);
+            // Keep the app store in step so SyncBadge flips its DEMO
+            // pill immediately instead of polling SecureStore.
+            setDemoModeGlobal(turningOn);
             await resetMirror();
             await syncNow(true);
           },
@@ -143,66 +161,92 @@ export default function SettingsScreen({ onUnpaired }: Props) {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={{ padding: space(5) }}>
-        <Text style={type.h1}>Settings</Text>
+    <Screen title="Settings" banner={false}>
+      {/* ── Connection ──────────────────────────────────────────── */}
+      <SectionHeader label="Connection" topGap={false} />
+      <Card padded={false}>
+        <Row label="Laptop" value={host?.baseUrl ?? '—'} first />
+        <Row label="Name" value={hostnameLive ?? host?.hostname ?? '—'} />
+        <Row
+          label="Status"
+          value={prettyStatus(status)}
+          dot={statusColor(status)}
+        />
+        {lastError ? (
+          <Text style={styles.errorText}>{lastError}</Text>
+        ) : null}
+        <Row label="Unpair this phone" onPress={handleUnpair} danger />
+      </Card>
 
-        <Text style={[type.caption, styles.section]}>PAIRED LAPTOP</Text>
-        <View style={styles.card}>
-          <KV label="Host" value={host?.baseUrl ?? '—'} />
-          <KV
-            label="Name"
-            value={hostnameLive ?? host?.hostname ?? '—'}
-          />
-          <KV label="Status" value={prettyStatus(status)} />
-          <KV label="Last synced" value={formatRelative(lastSyncedAt)} />
-          <KV
-            label="Cursor"
-            value={cursor ? cursor.slice(0, 19).replace('T', ' ') : '—'}
-          />
-          {lastError && (
-            <Text style={[type.small, { color: colors.expense, marginTop: space(2) }]}>
-              {lastError}
+      {/* ── Sync ────────────────────────────────────────────────── */}
+      <SectionHeader label="Sync" />
+      <Card padded={false}>
+        <Row label="Last synced" value={formatRelative(lastSyncedAt)} first />
+        <Row
+          label="Cursor"
+          value={cursor ? cursor.slice(0, 19).replace('T', ' ') : '—'}
+        />
+        <Row label="Sync now" onPress={() => syncNow()} link />
+        <Row label="Resync from scratch" onPress={handleResync} danger />
+      </Card>
+
+      {/* ── Display ─────────────────────────────────────────────── */}
+      <SectionHeader label="Display" />
+      <Card padded={false}>
+        <Row
+          label="Demo mode"
+          first
+          control={
+            <Switch
+              value={demoMode}
+              onValueChange={demoAvailable ? handleToggleDemo : undefined}
+              disabled={!demoAvailable}
+              trackColor={{ true: colors.accent }}
+              accessibilityLabel="Demo mode"
+            />
+          }
+        />
+      </Card>
+      {demoMode ? (
+        <Text style={styles.demoNote}>
+          Demo mode is on. Numbers are synthetic Alex Carter data from the
+          laptop's demo database — safe to share screenshots.
+        </Text>
+      ) : !demoAvailable ? (
+        <Text style={styles.helpNote}>
+          Demo mode isn't enabled on the paired laptop.
+        </Text>
+      ) : (
+        <Text style={styles.helpNote}>
+          Swaps in synthetic data for safe screenshots.
+        </Text>
+      )}
+
+      {/* ── Read-only — the contract this app is built on ───────── */}
+      <SectionHeader label="Read-only" />
+      <Card style={styles.readonlyCard}>
+        <View style={styles.readonlyHeader}>
+          <Text style={styles.readonlyIcon}>👁️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={type.h2}>This phone is read-only</Text>
+            <Text style={[type.small, { marginTop: 2, color: colors.accent }]}>
+              On · by design
             </Text>
-          )}
+          </View>
         </View>
+        <Text style={[type.small, { marginTop: space(3) }]}>
+          Tusk Ledger on your phone never writes back to the laptop. Edits,
+          categorization, budgets — all that lives on the laptop. The phone
+          is a fast read of the same data.
+        </Text>
+      </Card>
 
-        <Text style={[type.caption, styles.section]}>ACTIONS</Text>
-        <View style={styles.card}>
-          <Action label="Sync now" onPress={() => syncNow()} />
-          <Divider />
-          <Action label="Resync from scratch" onPress={handleResync} />
-          <Divider />
-          <Action
-            label={demoMode ? 'Exit demo mode' : 'Switch to demo mode'}
-            onPress={demoAvailable ? handleToggleDemo : undefined}
-            disabled={!demoAvailable}
-            highlight={demoMode}
-          />
-          <Divider />
-          <Action
-            label="Unpair this phone"
-            onPress={handleUnpair}
-            danger
-          />
-        </View>
-        {demoMode && (
-          <Text style={[type.small, { marginTop: space(2), color: colors.warning }]}>
-            Demo mode is on. Numbers are synthetic Alex Carter data from the laptop's demo database — safe to share screenshots.
-          </Text>
-        )}
-
-        <Text style={[type.caption, styles.section]}>ABOUT</Text>
-        <View style={styles.card}>
-          <KV label="Read-only" value="Yes (by design)" />
-          <Text style={[type.small, { marginTop: space(2) }]}>
-            Tusk Ledger on your phone never writes back to the laptop. Edits,
-            categorization, budgets — all that lives on the laptop. The phone
-            is a fast read of the same data.
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      {/* ── About ───────────────────────────────────────────────── */}
+      <SectionHeader label="About" />
+      <Card padded={false}>
+        <Row label="Version" value={appJson.expo.version} first />
+      </Card>
+    </Screen>
   );
 }
 
@@ -218,67 +262,151 @@ function prettyStatus(s: string): string {
   }
 }
 
-function KV({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.kv}>
-      <Text style={[type.small, { flex: 1 }]}>{label}</Text>
-      <Text style={[type.body, { textAlign: 'right', flexShrink: 1 }]} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
+function statusColor(s: string): string {
+  switch (s) {
+    case 'idle': return colors.income;
+    case 'syncing': return colors.accent;
+    case 'offline': return colors.textMuted;
+    case 'error': return colors.expense;
+    default: return colors.warning;
+  }
 }
 
-function Action({
+/**
+ * iOS-grouped settings row. Three flavors:
+ *   - value row: label left, muted value right (optional status dot)
+ *   - action row: tappable label (link blue or destructive red)
+ *   - control row: label left, an inline control (Switch) right
+ */
+function Row({
   label,
+  value,
+  dot,
+  control,
   onPress,
   danger,
-  highlight,
-  disabled,
+  link,
+  first,
 }: {
   label: string;
-  onPress: (() => void) | undefined;
+  value?: string;
+  dot?: string;
+  control?: ReactNode;
+  onPress?: () => void;
   danger?: boolean;
-  highlight?: boolean;
-  disabled?: boolean;
+  link?: boolean;
+  first?: boolean;
 }) {
-  let color = colors.link;
-  if (danger) color = colors.expense;
-  else if (highlight) color = colors.warning;
-  else if (disabled) color = colors.textFaint;
-  return (
-    <Pressable
-      onPress={disabled ? undefined : onPress}
-      style={[styles.action, disabled ? { opacity: 0.5 } : null]}>
-      <Text style={[type.body, { color }]}>
+  const isAction = !!onPress;
+  const labelColor = danger ? colors.expense : link ? colors.link : colors.text;
+  const inner = (
+    <>
+      <Text
+        style={[type.body, { color: labelColor, flexShrink: 1 }]}
+        numberOfLines={1}>
         {label}
       </Text>
-    </Pressable>
+      <View style={styles.rowRight}>
+        {dot ? <View style={[styles.statusDot, { backgroundColor: dot }]} /> : null}
+        {value != null ? (
+          <Text style={styles.rowValue} numberOfLines={1}>
+            {value}
+          </Text>
+        ) : null}
+        {control ?? null}
+        {isAction && !danger && !link ? (
+          <Text style={styles.chevron}>›</Text>
+        ) : null}
+      </View>
+    </>
   );
-}
 
-function Divider() {
-  return <View style={styles.divider} />;
+  if (isAction) {
+    return (
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        style={({ pressed }) => [
+          styles.row,
+          !first && styles.rowDivider,
+          pressed && { opacity: 0.6 },
+        ]}>
+        {inner}
+      </Pressable>
+    );
+  }
+  return (
+    <View style={[styles.row, !first && styles.rowDivider]}>{inner}</View>
+  );
 }
 
 const styles = StyleSheet.create({
-  section: { marginTop: space(6), marginBottom: space(2) },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: space(4),
-  },
-  kv: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: space(1.5),
+    justifyContent: 'space-between',
+    minHeight: layout.minTouch + 4,
+    paddingHorizontal: layout.cardPad,
+    paddingVertical: space(2.5),
     gap: space(3),
   },
-  action: { paddingVertical: space(3) },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
+  rowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  rowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(2),
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  rowValue: {
+    fontSize: 15,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chevron: {
+    fontSize: 18,
+    color: colors.textFaint,
+  },
+  errorText: {
+    color: colors.expense,
+    fontSize: 13,
+    lineHeight: 18,
+    paddingHorizontal: layout.cardPad,
+    paddingBottom: space(2.5),
+  },
+  demoNote: {
+    ...type.small,
+    color: colors.warning,
+    marginTop: space(2),
+    paddingHorizontal: space(1),
+  },
+  helpNote: {
+    ...type.small,
+    color: colors.textFaint,
+    marginTop: space(2),
+    paddingHorizontal: space(1),
+  },
+  readonlyCard: {
+    borderColor: colors.accentBg,
+    backgroundColor: colors.surface,
+  },
+  readonlyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+  },
+  readonlyIcon: {
+    fontSize: 22,
   },
 });

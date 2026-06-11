@@ -55,15 +55,26 @@ export async function listTransactions(opts: {
   limit?: number;
   offset?: number;
   search?: string;
+  /** Inclusive YYYY-MM-DD lower bound — powers the date filter chips. */
+  sinceDate?: string;
 } = {}): Promise<TransactionRow[]> {
   const db = await getDb();
-  const { limit = 100, offset = 0, search } = opts;
-  const params: any[] = [];
+  const { limit = 100, offset = 0, search, sinceDate } = opts;
+  const params: (string | number)[] = [];
   let where = '1=1';
   if (search && search.trim()) {
     where += ' AND (LOWER(t.name) LIKE ? OR LOWER(COALESCE(t.merchant_name, "")) LIKE ?)';
     const pat = `%${search.toLowerCase()}%`;
     params.push(pat, pat);
+  }
+  if (sinceDate) {
+    // Uses ix_transactions_date. Note: no index is added for search —
+    // the LIKE pattern has a leading wildcard ('%term%'), which a
+    // B-tree index can't serve; FTS5 would, but that's a schema change
+    // requiring a SCHEMA_VERSION bump (full wipe + re-pull). Not worth
+    // it for a table this size.
+    where += ' AND t.date >= ?';
+    params.push(sinceDate);
   }
   params.push(limit, offset);
   return db.getAllAsync<TransactionRow>(

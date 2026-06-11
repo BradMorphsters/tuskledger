@@ -137,7 +137,7 @@ export async function topCategoriesThisMonth(
         SUM(amount) AS total
      FROM transactions
      WHERE date >= ? AND amount > 0 AND is_transfer = 0
-     GROUP BY category
+     GROUP BY COALESCE(custom_category, category, 'Uncategorized')
      ORDER BY total DESC
      LIMIT ?`,
     [start, limit],

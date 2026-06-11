@@ -150,6 +150,14 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
         DELETE FROM net_worth_snapshots;
         DELETE FROM manual_assets;
       `);
+      // Also clear the sync cursor so the next sync does a full pull
+      // against the now-empty tables. Without this, the incremental
+      // cursor would point past most history and near-nothing would
+      // be returned on the first post-migration sync.
+      // Lazy import avoids a circular dependency: sqlite ← queries ← ...
+      // sync/storage only touches SecureStore and has no DB imports.
+      const { saveCursor } = await import('../sync/storage');
+      await saveCursor('');
     }
     await db.runAsync(
       'INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)',
@@ -200,120 +208,170 @@ export async function applySync(
         DELETE FROM manual_assets;
       `);
     }
-    for (const a of accounts) {
-      await db.runAsync(
+
+    // Batch upserts using prepareAsync/executeAsync/finalizeAsync.
+    // Preparing once per table avoids re-parsing the SQL on every bridge
+    // round-trip — critical for initial syncs with hundreds of rows.
+
+    if (accounts.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO accounts
          (id, name, custom_name, type, subtype, institution_name, mask,
           current_balance, available_balance, currency, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          a.id,
-          a.name,
-          a.custom_name,
-          a.type,
-          a.subtype,
-          a.institution_name,
-          a.mask,
-          a.current_balance,
-          a.available_balance,
-          a.currency,
-          a.updated_at,
-        ],
       );
+      try {
+        for (const a of accounts) {
+          await stmt.executeAsync([
+            a.id,
+            a.name,
+            a.custom_name,
+            a.type,
+            a.subtype,
+            a.institution_name,
+            a.mask,
+            a.current_balance,
+            a.available_balance,
+            a.currency,
+            a.updated_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
-    for (const t of transactions) {
-      await db.runAsync(
+
+    if (transactions.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO transactions
          (id, account_id, name, merchant_name, amount, date, pending,
           category, custom_category, is_transfer, notes, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          t.id,
-          t.account_id,
-          t.name,
-          t.merchant_name,
-          t.amount,
-          t.date,
-          t.pending ? 1 : 0,
-          t.category,
-          t.custom_category,
-          t.is_transfer ? 1 : 0,
-          t.notes,
-          t.updated_at,
-        ],
       );
+      try {
+        for (const t of transactions) {
+          await stmt.executeAsync([
+            t.id,
+            t.account_id,
+            t.name,
+            t.merchant_name,
+            t.amount,
+            t.date,
+            t.pending ? 1 : 0,
+            t.category,
+            t.custom_category,
+            t.is_transfer ? 1 : 0,
+            t.notes,
+            t.updated_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
-    for (const s of extra.securities ?? []) {
-      await db.runAsync(
+
+    const securities = extra.securities ?? [];
+    if (securities.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO securities
          (plaid_security_id, ticker_symbol, name, type,
           close_price, close_price_as_of, is_cash_equivalent, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          s.plaid_security_id,
-          s.ticker_symbol,
-          s.name,
-          s.type,
-          s.close_price,
-          s.close_price_as_of,
-          s.is_cash_equivalent ? 1 : 0,
-          s.updated_at,
-        ],
       );
+      try {
+        for (const s of securities) {
+          await stmt.executeAsync([
+            s.plaid_security_id,
+            s.ticker_symbol,
+            s.name,
+            s.type,
+            s.close_price,
+            s.close_price_as_of,
+            s.is_cash_equivalent ? 1 : 0,
+            s.updated_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
-    for (const h of extra.holdings ?? []) {
-      await db.runAsync(
+
+    const holdings = extra.holdings ?? [];
+    if (holdings.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO holdings
          (id, account_id, plaid_security_id, quantity,
           institution_price, institution_value, cost_basis,
           iso_currency_code, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          h.id,
-          h.account_id,
-          h.plaid_security_id,
-          h.quantity,
-          h.institution_price,
-          h.institution_value,
-          h.cost_basis,
-          h.iso_currency_code,
-          h.updated_at,
-        ],
       );
+      try {
+        for (const h of holdings) {
+          await stmt.executeAsync([
+            h.id,
+            h.account_id,
+            h.plaid_security_id,
+            h.quantity,
+            h.institution_price,
+            h.institution_value,
+            h.cost_basis,
+            h.iso_currency_code,
+            h.updated_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
-    for (const n of extra.netWorthSnapshots ?? []) {
-      await db.runAsync(
+
+    const netWorthSnapshots = extra.netWorthSnapshots ?? [];
+    if (netWorthSnapshots.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO net_worth_snapshots
          (id, date, total_assets, total_liabilities, net_worth, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          n.id,
-          n.date,
-          n.total_assets,
-          n.total_liabilities,
-          n.net_worth,
-          n.created_at,
-        ],
       );
+      try {
+        for (const n of netWorthSnapshots) {
+          await stmt.executeAsync([
+            n.id,
+            n.date,
+            n.total_assets,
+            n.total_liabilities,
+            n.net_worth,
+            n.created_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
-    for (const m of extra.manualAssets ?? []) {
-      await db.runAsync(
+
+    const manualAssets = extra.manualAssets ?? [];
+    if (manualAssets.length > 0) {
+      const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO manual_assets
          (id, name, side, type, current_value, value_as_of, notes,
           plaid_mortgage_account_id, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          m.id,
-          m.name,
-          m.side,
-          m.type,
-          m.current_value,
-          m.value_as_of,
-          m.notes,
-          m.plaid_mortgage_account_id,
-          m.updated_at,
-        ],
       );
+      try {
+        for (const m of manualAssets) {
+          await stmt.executeAsync([
+            m.id,
+            m.name,
+            m.side,
+            m.type,
+            m.current_value,
+            m.value_as_of,
+            m.notes,
+            m.plaid_mortgage_account_id,
+            m.updated_at,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
     }
   });
 }

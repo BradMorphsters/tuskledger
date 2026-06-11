@@ -21,7 +21,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { syncNow, useSyncStore } from '../sync/manager';
 import { colors, formatRelative, radius, space, type } from '../theme';
 
-const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+// 4 hours rather than 1: overnight background sync can lapse by ~8 h, and
+// foreground rediscovery + resync takes up to ~8 s after the app opens.
+// A 1 h threshold false-flashes the banner almost every morning; 4 h keeps
+// it quiet during normal use while still catching genuinely stale data.
+const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 export default function StaleBanner() {
   const status = useSyncStore((s) => s.status);

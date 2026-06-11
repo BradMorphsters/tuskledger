@@ -26,6 +26,7 @@ at the default and lets pattern uniqueness dominate.
 import datetime
 from sqlalchemy import Column, Integer, String, DateTime
 from app.database import Base
+from app.utils import utcnow
 
 
 KIND_FORCE_SUB = "force_subscription"
@@ -45,4 +46,4 @@ class SubscriptionRule(Base):
     kind = Column(String, nullable=False)
     priority = Column(Integer, default=100)
     notes = Column(String, nullable=True)  # optional user-facing memo
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)

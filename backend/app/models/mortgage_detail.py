@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, Date, DateTime, Integer, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class MortgageDetail(Base):
@@ -58,7 +59,7 @@ class MortgageDetail(Base):
     property_postal_code = Column(String, nullable=True)
     property_country = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     account = relationship("Account")

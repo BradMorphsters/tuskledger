@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, DateTime, Integer, ForeignKey, Date, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class Transaction(Base):
@@ -38,8 +39,8 @@ class Transaction(Base):
     # Editable from the TransactionDrawer; never set by sync or import.
     notes = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     account = relationship("Account", back_populates="transactions")
     splits = relationship(

@@ -1,6 +1,7 @@
 import datetime
 from sqlalchemy import Column, String, Float, DateTime, Boolean
 from app.database import Base
+from app.utils import utcnow
 
 
 class Security(Base):
@@ -28,5 +29,5 @@ class Security(Base):
 
     is_cash_equivalent = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class Budget(Base):
@@ -12,8 +13,8 @@ class Budget(Base):
     month = Column(Integer, nullable=False)  # 1-12
     year = Column(Integer, nullable=False)
     total_limit = Column(Float, nullable=True)  # optional overall limit
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     categories = relationship("BudgetCategory", back_populates="budget", cascade="all, delete-orphan")
 
@@ -26,6 +27,6 @@ class BudgetCategory(Base):
     budget_id = Column(Integer, ForeignKey("budgets.id"), nullable=False)
     category = Column(String, nullable=False)
     limit_amount = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     budget = relationship("Budget", back_populates="categories")

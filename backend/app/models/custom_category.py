@@ -33,6 +33,7 @@ import datetime
 from sqlalchemy import Column, DateTime, Integer, String
 
 from app.database import Base
+from app.utils import utcnow
 
 
 class CustomCategory(Base):
@@ -53,5 +54,5 @@ class CustomCategory(Base):
     # can edit the row directly via SQL if they care.
     sort_order = Column(Integer, nullable=False, default=100)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

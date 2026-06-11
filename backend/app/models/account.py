@@ -2,6 +2,7 @@ import datetime
 from sqlalchemy import Column, String, Float, Date, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.utils import utcnow
 
 
 class Account(Base):
@@ -50,7 +51,7 @@ class Account(Base):
     # alone — the user maintains the ratio manually from their plan portal.
     roth_split_pct = Column(Float, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")

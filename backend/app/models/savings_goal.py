@@ -19,6 +19,7 @@ import datetime
 from sqlalchemy import Column, Date, DateTime, Float, Integer, JSON, String
 
 from app.database import Base
+from app.utils import utcnow
 
 
 class SavingsGoal(Base):
@@ -38,10 +39,10 @@ class SavingsGoal(Base):
     source_account_ids = Column(JSON, nullable=False, default=list)
     manual_current_amount = Column(Float, nullable=True)
     is_active = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.datetime.utcnow,
-        onupdate=datetime.datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
     )

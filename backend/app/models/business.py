@@ -2,6 +2,7 @@
 import datetime
 from sqlalchemy import Column, String, Integer, DateTime
 from app.database import Base
+from app.utils import utcnow
 
 
 class Business(Base):
@@ -15,5 +16,5 @@ class Business(Base):
     description = Column(String, nullable=True)
     is_active = Column(Integer, default=1)  # SQLite doesn't have native bool; 1=active
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

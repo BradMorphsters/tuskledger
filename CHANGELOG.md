@@ -6,6 +6,39 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Changed — June 2026 full-codebase review sweep
+- **Mobile UI redesign**: new design system around the tusk-gold brand
+  (semantic color tokens, 34pt tabular-numeral money type, uppercase
+  letterspaced section labels), 14 reusable zero-dependency components,
+  and rebuilt screens — Dashboard net-worth hero with 30-day delta and
+  full-bleed sparkline, Transactions with debounced search / date-range
+  chips / sticky day headers, Investments allocation bar, iOS-grouped
+  Settings, branded pairing flow. Read-only design unchanged.
+- **Security hardening**: TOTP secret encrypted at rest (lazy,
+  migration-free); login lockout + TOTP replay rejection; demo refresh
+  throttled; DEMO_LOCKED allowlist narrowed (setup endpoints blocked);
+  CSV import capped at 10 MB with content-type check.
+- **Sync integrity**: bulk transaction updates now bump `updated_at` so
+  rule/tag changes reach the phone; mobile sync cursor only persists
+  after all pages land; pairing stores `host_id` so Bonjour rediscovery
+  works; schema migrations clear the stale cursor; iOS widget publishes
+  after every sync and shows staleness on all sizes.
+- **Performance**: merchant drill-down, monthly income-vs-spending, and
+  rule application no longer scan/hydrate whole tables; Plaid sync stops
+  re-querying rules per transaction; mobile applySync uses prepared
+  statements (was one bridge round-trip per row).
+- **Frontend health**: page-level smoke tests for all 21 pages plus a
+  route ErrorBoundary (a crashing page now degrades to a friendly card
+  with Copy-to-Assistant instead of white-screening the app); light
+  theme fixed across charts; formatter/merchant-name helpers
+  consolidated into lib/format; DashboardTiles and RetirementProjection
+  monoliths split (4,117 → 290 lines); dialogs got aria-modal, Escape,
+  and focus traps; sidebar grouped with unique icons.
+- **Fixed**: CSV import ReferenceError (undefined API_BASE); mobile Top
+  Categories GROUP BY bug; year dropdowns hardcoded through 2027; four
+  null-shape page crashes caught by the new smoke tests; eternal
+  "Loading…" on fetch errors in Insights.
+
 ### Added
 - **Native iOS companion app** (currently in private TestFlight). New
   `mobile/` directory: Expo + React Native + TypeScript app that pairs

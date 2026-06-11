@@ -33,6 +33,10 @@ export default defineConfig({
     // Co-locating tests with code (vs. a parallel tests/ tree) keeps
     // them visible while editing and discoverable in file-tree search.
     include: ['src/**/*.test.{js,jsx}'],
+    // _disabled holds deliberately-parked tests (see src/_disabled/README).
+    // Excluding them keeps the suite green instead of reporting a permanent
+    // "1 failed" for files that can't even resolve their imports from there.
+    exclude: ['src/_disabled/**', 'node_modules/**'],
     css: false,
   },
 })

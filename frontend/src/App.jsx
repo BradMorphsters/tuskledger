@@ -1,4 +1,5 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import RouteErrorBoundary from './components/RouteErrorBoundary'
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -554,6 +555,7 @@ export default function App() {
             </button>
           </div>
         )}
+        <RouteErrorBoundary resetKey={location.pathname}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/spending" element={<SpendingIncome />} />
@@ -575,6 +577,7 @@ export default function App() {
           <Route path="/categories" element={<Categories />} />
           <Route path="/pair-phone" element={<PairPhone />} />
         </Routes>
+        </RouteErrorBoundary>
       </main>
 
       {/* Global floating UI: quick-add FAB + command palette. The FAB

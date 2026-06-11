@@ -152,7 +152,7 @@ def _fetch_plaid_public_key(kid: str) -> str:
 async def plaid_webhook(request: Request, db: Session = Depends(get_db)):
     body_bytes = await request.body()
 
-    if getattr(settings, "PLAID_WEBHOOK_VERIFY", False):
+    if settings.PLAID_WEBHOOK_VERIFY:
         _verify_plaid_signature(body_bytes, request.headers.get("Plaid-Verification"))
 
     try:

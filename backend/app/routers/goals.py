@@ -21,7 +21,7 @@ import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -70,8 +70,7 @@ class GoalOut(BaseModel):
     projected_date: Optional[datetime.date] = None
     on_track: Optional[bool] = None  # only when target_date is set
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Helpers ─────────────────────────────────────────────
@@ -228,8 +227,22 @@ def update_goal(goal_id: int, body: GoalUpdate, db: Session = Depends(get_db)):
     if not goal:
         raise HTTPException(404, "Goal not found")
     data = body.model_dump(exclude_unset=True)
-    for k, v in data.items():
-        setattr(goal, k, v)
+    if "name" in data:
+        goal.name = data["name"]
+    if "target_amount" in data:
+        goal.target_amount = data["target_amount"]
+    if "target_date" in data:
+        goal.target_date = data["target_date"]
+    if "goal_type" in data:
+        goal.goal_type = data["goal_type"]
+    if "notes" in data:
+        goal.notes = data["notes"]
+    if "source_account_ids" in data:
+        goal.source_account_ids = data["source_account_ids"]
+    if "manual_current_amount" in data:
+        goal.manual_current_amount = data["manual_current_amount"]
+    if "is_active" in data:
+        goal.is_active = data["is_active"]
     db.commit()
     db.refresh(goal)
     return _decorate(db, goal, _account_balance_map(db))

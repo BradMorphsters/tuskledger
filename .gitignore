@@ -10,6 +10,8 @@
 *.sqlite3
 backend/tuskledger.db*
 backend/tuskledger_demo.db*
+*.db.testwrite
+tuskledger.db.before-*
 backend/data/
 backend/backups/
 

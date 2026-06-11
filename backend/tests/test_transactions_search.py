@@ -1,10 +1,36 @@
 """Tests for transaction search functionality."""
 import datetime
+import pytest
 from fastapi.testclient import TestClient
+
+from app.database import get_db, get_real_db
 from app.main import app
 
 
-def test_transaction_search_by_merchant_name(db, factory):
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def client(db):
+    """TestClient wired to the hermetic in-memory DB.
+
+    Overrides both get_db and get_real_db so every code path — including
+    routers that import get_real_db directly — sees the same in-memory
+    session as the test fixtures.
+    """
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_real_db] = lambda: db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Search tests
+# ---------------------------------------------------------------------------
+
+def test_transaction_search_by_merchant_name(client, db, factory):
     """Test that search filters transactions by merchant_name."""
     # Create an account
     acct = factory.account(name="Test Account")
@@ -32,7 +58,6 @@ def test_transaction_search_by_merchant_name(db, factory):
     factory.commit()
 
     # Test search for "Starbucks" — should only return txn1
-    client = TestClient(app)
     response = client.get("/api/transactions/?q=Starbucks")
     assert response.status_code == 200
     results = response.json()
@@ -41,7 +66,7 @@ def test_transaction_search_by_merchant_name(db, factory):
     assert results[0]["merchant_name"] == "Starbucks Coffee"
 
 
-def test_transaction_search_by_name(db, factory):
+def test_transaction_search_by_name(client, db, factory):
     """Test that search also filters by transaction name."""
     acct = factory.account(name="Test Account")
     factory.commit()
@@ -60,7 +85,6 @@ def test_transaction_search_by_name(db, factory):
     )
     factory.commit()
 
-    client = TestClient(app)
     response = client.get("/api/transactions/?q=Grocery")
     assert response.status_code == 200
     results = response.json()
@@ -68,7 +92,7 @@ def test_transaction_search_by_name(db, factory):
     assert results[0]["id"] == txn1.id
 
 
-def test_transaction_search_case_insensitive(db, factory):
+def test_transaction_search_case_insensitive(client, db, factory):
     """Test that search is case-insensitive."""
     acct = factory.account(name="Test Account")
     factory.commit()
@@ -81,7 +105,6 @@ def test_transaction_search_case_insensitive(db, factory):
     )
     factory.commit()
 
-    client = TestClient(app)
     # Search with different cases
     response = client.get("/api/transactions/?q=starbucks")
     assert response.status_code == 200
@@ -96,7 +119,7 @@ def test_transaction_search_case_insensitive(db, factory):
     assert len(response.json()) == 1
 
 
-def test_transaction_search_empty_q_is_ignored(db, factory):
+def test_transaction_search_empty_q_is_ignored(client, db, factory):
     """Test that empty or whitespace-only q is treated as no filter."""
     acct = factory.account(name="Test Account")
     factory.commit()
@@ -104,8 +127,6 @@ def test_transaction_search_empty_q_is_ignored(db, factory):
     txn1 = factory.transaction(account_id=acct.id, merchant_name="Starbucks", amount=5.50)
     txn2 = factory.transaction(account_id=acct.id, merchant_name="Target", amount=30.0)
     factory.commit()
-
-    client = TestClient(app)
 
     # Empty q should return all transactions
     response = client.get("/api/transactions/?q=")
@@ -118,7 +139,7 @@ def test_transaction_search_empty_q_is_ignored(db, factory):
     assert len(response.json()) == 2
 
 
-def test_transaction_search_composes_with_filters(db, factory):
+def test_transaction_search_composes_with_filters(client, db, factory):
     """Test that search works in combination with other filters."""
     acct1 = factory.account(name="Account 1")
     acct2 = factory.account(name="Account 2")
@@ -144,8 +165,6 @@ def test_transaction_search_composes_with_filters(db, factory):
     )
     factory.commit()
 
-    client = TestClient(app)
-
     # Search for "Starbucks" in account 1 only — should return txn1, not txn3
     response = client.get(f"/api/transactions/?q=Starbucks&account_id={acct1.id}")
     assert response.status_code == 200
@@ -155,7 +174,7 @@ def test_transaction_search_composes_with_filters(db, factory):
     assert results[0]["account_id"] == acct1.id
 
 
-def test_transaction_search_partial_match(db, factory):
+def test_transaction_search_partial_match(client, db, factory):
     """Test that search uses partial matching (LIKE)."""
     acct = factory.account(name="Test Account")
     factory.commit()
@@ -168,8 +187,6 @@ def test_transaction_search_partial_match(db, factory):
     )
     factory.commit()
 
-    client = TestClient(app)
-
     # Search for partial word should match
     response = client.get("/api/transactions/?q=bucks")
     assert response.status_code == 200
@@ -180,7 +197,7 @@ def test_transaction_search_partial_match(db, factory):
 # These guard the fix where the page header summary was summing
 # only the visible 50-row page instead of the full filtered scope.
 
-def test_totals_aggregates_all_matching_rows_not_just_a_page(db, factory):
+def test_totals_aggregates_all_matching_rows_not_just_a_page(client, db, factory):
     """Totals must reflect every row matching the filter, even when the
     result set is bigger than the default list-transactions page size.
 
@@ -199,7 +216,6 @@ def test_totals_aggregates_all_matching_rows_not_just_a_page(db, factory):
         factory.transaction(account_id=acct.id, merchant_name="Payroll", amount=-100.0)
     factory.commit()
 
-    client = TestClient(app)
     r = client.get("/api/transactions/totals")
     assert r.status_code == 200
     body = r.json()
@@ -209,7 +225,7 @@ def test_totals_aggregates_all_matching_rows_not_just_a_page(db, factory):
     assert body["transfers_excluded"] == 0
 
 
-def test_totals_excludes_transfers_by_default(db, factory):
+def test_totals_excludes_transfers_by_default(client, db, factory):
     """Income/spending must exclude is_transfer rows so account-to-account
     moves don't double-count.
 
@@ -236,8 +252,6 @@ def test_totals_excludes_transfers_by_default(db, factory):
     )
     factory.commit()
 
-    client = TestClient(app)
-
     # Default: transfers excluded
     r = client.get("/api/transactions/totals")
     assert r.status_code == 200
@@ -255,7 +269,7 @@ def test_totals_excludes_transfers_by_default(db, factory):
     assert body["transfers_excluded"] == 0
 
 
-def test_totals_respects_filters(db, factory):
+def test_totals_respects_filters(client, db, factory):
     """Filters (q, category, account_id, date range) narrow the totals."""
     acct1 = factory.account(name="A")
     acct2 = factory.account(name="B")
@@ -267,8 +281,6 @@ def test_totals_respects_filters(db, factory):
     factory.transaction(account_id=acct1.id, merchant_name="Target", amount=99.0)
     factory.commit()
 
-    client = TestClient(app)
-
     # Filter to Starbucks rows in account 1 only — 2 rows totaling $12
     r = client.get(f"/api/transactions/totals?q=Starbucks&account_id={acct1.id}")
     assert r.status_code == 200
@@ -277,12 +289,11 @@ def test_totals_respects_filters(db, factory):
     }
 
 
-def test_totals_empty_filter_returns_zeros(db, factory):
+def test_totals_empty_filter_returns_zeros(client, db, factory):
     """No matching rows must return zeros, not null/None."""
     factory.account(name="Empty")
     factory.commit()
 
-    client = TestClient(app)
     r = client.get("/api/transactions/totals?q=nothing-matches-this")
     assert r.status_code == 200
     assert r.json() == {

@@ -449,7 +449,7 @@ def spending_summary(
     ),
     business_filter: str = Query(
         "all",
-        regex="^(all|personal|business)$",
+        pattern="^(all|personal|business)$",
         description=(
             "How business-tagged spending interacts with the categories list. "
             "'all' (default, back-compat) = include everything in categories. "

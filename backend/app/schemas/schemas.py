@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response models."""
 from datetime import date, datetime
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # --- Plaid / Link ---
@@ -35,8 +35,7 @@ class AccountOut(BaseModel):
     tax_bucket: Optional[str] = None                   # 'tax_deferred' | 'roth' | 'taxable' | 'hsa' | 'excluded' | None
     roth_split_pct: Optional[float] = None             # 0.0-1.0 fraction of balance treated as Roth (mixed 401k accounts)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AccountUpdate(BaseModel):
@@ -85,8 +84,7 @@ class TransactionSplitOut(BaseModel):
     note: Optional[str] = None
     business_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionOut(BaseModel):
@@ -107,8 +105,7 @@ class TransactionOut(BaseModel):
     notes: Optional[str] = None                 # user-entered free-text, editable via PATCH
     splits: List[TransactionSplitOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionUpdate(BaseModel):
@@ -140,8 +137,7 @@ class BudgetCategoryOut(BaseModel):
     category: str
     limit_amount: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BudgetOut(BaseModel):
@@ -151,8 +147,7 @@ class BudgetOut(BaseModel):
     total_limit: Optional[float] = None
     categories: List[BudgetCategoryOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Net Worth ---
@@ -163,8 +158,7 @@ class NetWorthSnapshotOut(BaseModel):
     net_worth: float
     account_balances: Optional[Dict] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Investments ---
@@ -176,8 +170,7 @@ class SecurityOut(BaseModel):
     close_price: Optional[float] = None
     is_cash_equivalent: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HoldingOut(BaseModel):
@@ -287,8 +280,7 @@ class MortgageDetailOut(BaseModel):
     property_postal_code: Optional[str] = None
     property_country: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class APREntry(BaseModel):
@@ -309,8 +301,7 @@ class CreditCardDetailOut(BaseModel):
     minimum_payment_amount: Optional[float] = None
     next_payment_due_date: Optional[date] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Manual Assets (homes, vehicles, etc.) ---
@@ -355,8 +346,7 @@ class ManualAssetOut(ManualAssetBase):
     id: int
     value_as_of: date
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Spending Summary ---
@@ -441,8 +431,7 @@ class BusinessRuleOut(BaseModel):
     priority: int
     business_name: Optional[str] = None        # joined for display
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BusinessRuleApplyResult(BaseModel):

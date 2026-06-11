@@ -898,7 +898,7 @@ def cash_flow_forecast(
     days: int = Query(default=30, ge=7, le=180),
     baseline: str = Query(
         default="median_3",
-        regex="^(median_3|median_6|last_month|rolling_90)$",
+        pattern="^(median_3|median_6|last_month|rolling_90)$",
         description="Variable-spend baseline: median_3 / median_6 / last_month / rolling_90",
     ),
     db: Session = Depends(get_db),

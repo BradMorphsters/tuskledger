@@ -1,6 +1,8 @@
 """Business Rules CRUD & retroactive application."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -8,6 +10,7 @@ from sqlalchemy import and_
 from app.database import get_db
 from app.models import BusinessRule, Transaction, Business
 from app.schemas.schemas import BusinessRuleIn, BusinessRuleOut, BusinessRuleApplyResult
+from app.utils import utcnow
 
 router = APIRouter(prefix="/api/business-rules", tags=["business-rules"])
 
@@ -110,7 +113,12 @@ def apply_business_rule(rule_id: int, db: Session = Depends(get_db)):
         updated_count = (
             db.query(Transaction)
             .filter(Transaction.id.in_(matched_ids))
-            .update({"business_id": rule.business_id}, synchronize_session="fetch")
+            # updated_at set explicitly: bulk UPDATE bypasses the ORM
+            # onupdate hook, and mobile incremental sync filters on it.
+            .update(
+                {"business_id": rule.business_id, "updated_at": utcnow()},
+                synchronize_session="fetch",
+            )
         )
         db.commit()
 

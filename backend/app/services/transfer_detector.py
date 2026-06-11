@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Transaction
 from app.services.merchant_normalizer import classify
+from app.utils import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +73,14 @@ def detect_transfers(db: Session, *, reset: bool = False) -> dict:
         cleared = (
             db.query(Transaction)
             .filter(Transaction.is_transfer.is_(True))
-            .update({Transaction.is_transfer: False}, synchronize_session=False)
+            .update(
+                {
+                    Transaction.is_transfer: False,
+                    # bulk UPDATE bypasses onupdate; mobile sync needs the bump
+                    Transaction.updated_at: utcnow(),
+                },
+                synchronize_session=False,
+            )
         )
         log.info("transfer detector: reset cleared %d existing flags", cleared)
         db.commit()

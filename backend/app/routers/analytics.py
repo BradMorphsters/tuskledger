@@ -26,6 +26,7 @@ from app.services.llm_ollama import LLMUnavailable, OllamaClient
 from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.tax import HSA_LIMITS, hsa_limit
 from app.services.transaction_view import expand
+from app.utils import utcnow
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -96,13 +97,22 @@ def apply_category_rule(rule_id: int, db: Session = Depends(get_db)):
                 # Safe to update: either uncategorized or already this category
                 update_ids.append(txn.id)
 
-    # Single SQL update for all matched transactions
+    # Single SQL update for all matched transactions.
+    # updated_at must be set explicitly: bulk UPDATEs bypass the ORM's
+    # onupdate hook, and the mobile incremental sync filters on updated_at —
+    # without this, rule-applied changes never reach the phone.
     updated_count = 0
     if update_ids:
         updated_count = (
             db.query(Transaction)
             .filter(Transaction.id.in_(update_ids))
-            .update({"custom_category": rule.category}, synchronize_session="fetch")
+            .update(
+                {
+                    "custom_category": rule.category,
+                    "updated_at": utcnow(),
+                },
+                synchronize_session="fetch",
+            )
         )
         db.commit()
 
@@ -117,18 +127,32 @@ def apply_category_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 def apply_rule_to_existing(db: Session, pattern: str, category: str) -> int:
-    """Apply a category rule to all existing transactions matching the pattern."""
-    txns = db.query(Transaction).filter(
-        Transaction.custom_category.is_(None)
-    ).all()
-    count = 0
-    for t in txns:
-        search_text = ((t.merchant_name or "") + " " + (t.name or "")).lower()
-        if pattern in search_text:
-            t.custom_category = category
-            count += 1
+    """Apply a category rule to all existing transactions matching the pattern.
+
+    Matching (substring in lowercased merchant+name) stays in Python to keep
+    semantics identical to apply_all_rules, but we only fetch the three
+    columns needed instead of hydrating full ORM objects, and write back
+    with one bulk UPDATE instead of N dirty-row flushes. updated_at is set
+    explicitly because bulk UPDATEs bypass the ORM onupdate hook (the
+    mobile incremental sync depends on it).
+    """
+    rows = (
+        db.query(Transaction.id, Transaction.merchant_name, Transaction.name)
+        .filter(Transaction.custom_category.is_(None))
+        .all()
+    )
+    match_ids = [
+        r.id
+        for r in rows
+        if pattern in ((r.merchant_name or "") + " " + (r.name or "")).lower()
+    ]
+    if match_ids:
+        db.query(Transaction).filter(Transaction.id.in_(match_ids)).update(
+            {"custom_category": category, "updated_at": utcnow()},
+            synchronize_session=False,
+        )
     db.commit()
-    return count
+    return len(match_ids)
 
 
 def apply_all_rules(db: Session, transaction: Transaction):
@@ -2290,7 +2314,7 @@ def get_insights(
     # Cap total at limit
     cards = cards[:limit]
 
-    return InsightsResponse(cards=cards, generated_at=datetime.utcnow())
+    return InsightsResponse(cards=cards, generated_at=utcnow())
 
 
 # ─── AI Narrative (optional, Ollama-backed) ─────────────────
@@ -2356,7 +2380,7 @@ def get_narrative(
     is uniform. Demo never caches; disabled never reaches the LLM.
     """
     is_demo = request.cookies.get("fintrack_mode") == "demo"
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = utcnow().isoformat() + "Z"
 
     if is_demo:
         meta = {

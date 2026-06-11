@@ -172,7 +172,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/setup/start", response_model=SetupStartResponse)
-def setup_start(body: SetupStartRequest, db: Session = Depends(get_db)):
+def setup_start(body: SetupStartRequest, request: Request, db: Session = Depends(get_db)):
     """Create the initial user (if none) and return a fresh TOTP secret + QR."""
     existing = auth_service.get_user(db)
     if existing and existing.totp_verified:
@@ -193,6 +193,9 @@ def setup_start(body: SetupStartRequest, db: Session = Depends(get_db)):
         db.add(user)
     else:
         # Setup was started but never verified — update with fresh secret.
+        # Clear any active session so a stale session from the previous
+        # (unverified) setup attempt can't be replayed after re-issuance.
+        request.session.clear()
         existing.username = body.username
         existing.password_hash = pw_hash
         existing.totp_secret = stored_secret

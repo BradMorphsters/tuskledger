@@ -30,4 +30,23 @@ def require_auth(request: Request) -> int:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required.",
         )
+
+    # Guard against sessions that were issued before TOTP setup completed.
+    # If a user somehow holds a session cookie from a previous partial setup
+    # (e.g. setup/start was called again before verify), their totp_verified
+    # flag will be False — treat them as unauthenticated so they go through
+    # the full login + TOTP flow rather than silently bypassing MFA.
+    from app.database import get_real_db
+    db = next(get_real_db())
+    try:
+        from app.models import User
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is not None and not user.totp_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required.",
+            )
+    finally:
+        db.close()
+
     return user_id

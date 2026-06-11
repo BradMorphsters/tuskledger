@@ -52,6 +52,22 @@ async def import_csv(
         raise HTTPException(400, f"Failed to read file: {str(e)}")
     if len(content) > MAX_CSV_BYTES:
         raise HTTPException(413, "File too large. Maximum size is 10 MB.")
+
+    # Content-type sanity check — catches obvious non-CSV uploads early.
+    # We only gate on this when the browser/client actually sends a type;
+    # many CSV upload flows send application/octet-stream or nothing at all,
+    # so we must accept those too.
+    _ALLOWED_CSV_TYPES = {
+        "text/csv",
+        "application/csv",
+        "text/plain",
+        "application/vnd.ms-excel",
+        "application/octet-stream",
+    }
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    if ct and ct not in _ALLOWED_CSV_TYPES:
+        raise HTTPException(400, "Expected a CSV file")
+
     try:
         text = content.decode('utf-8')
     except UnicodeDecodeError:

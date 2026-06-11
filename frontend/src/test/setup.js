@@ -23,6 +23,19 @@ afterEach(() => {
 })
 
 // ── jsdom shims ─────────────────────────────────────────────────────
+// ResizeObserver is undefined in jsdom; recharts' ResponsiveContainer
+// uses it to measure its container. Stub it so chart-heavy pages don't
+// crash. The stub does nothing (no actual observation) which is fine
+// because jsdom has no layout engine — containers are always 0×0 and
+// charts render with their fallback zero dimensions.
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+
 beforeEach(() => {
   // matchMedia is undefined in jsdom; QuickActions reads it for
   // prefers-color-scheme detection.

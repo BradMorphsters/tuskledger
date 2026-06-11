@@ -62,8 +62,10 @@ function ForecastView() {
 
   if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
 
-  const totalOut = data.series.reduce((s, x) => s + x.projected_outflow, 0)
-  const totalIn = data.series.reduce((s, x) => s + x.projected_inflow, 0)
+  const series = data.series ?? []
+  const upcomingEvents = data.upcoming_events ?? []
+  const totalOut = series.reduce((s, x) => s + x.projected_outflow, 0)
+  const totalIn = series.reduce((s, x) => s + x.projected_inflow, 0)
   const net = totalIn - totalOut
 
   return (
@@ -278,7 +280,7 @@ function ForecastView() {
           </span>
         </div>
         <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={data.series}>
+          <AreaChart data={series}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis
               dataKey="date"
@@ -301,9 +303,9 @@ function ForecastView() {
       <div className="card">
         <div className="card-header">
           <span className="card-title">Upcoming recurring events</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{data.upcoming_events.length} expected</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{upcomingEvents.length} expected</span>
         </div>
-        {data.upcoming_events.length === 0 ? (
+        {upcomingEvents.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>
             No recurring events detected in the forecast window.
           </p>
@@ -313,7 +315,7 @@ function ForecastView() {
               <tr><th>Date</th><th>Source</th><th>Category</th><th></th><th style={{ textAlign: 'right' }}>Amount</th></tr>
             </thead>
             <tbody>
-              {data.upcoming_events.slice(0, 25).map((e, i) => (
+              {upcomingEvents.slice(0, 25).map((e, i) => (
                 <tr key={i}>
                   <td style={{ color: 'var(--text-secondary)', fontSize: 13, whiteSpace: 'nowrap' }}>{e.date}</td>
                   <td style={{ fontWeight: 500 }}>{e.source}</td>

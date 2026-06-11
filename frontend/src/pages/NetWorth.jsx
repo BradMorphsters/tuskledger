@@ -773,7 +773,8 @@ function DebtPayoffSection() {
 
   if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
 
-  const debtsWithProjection = data.debts.filter(d => d.months_remaining)
+  const debts = data.debts ?? []
+  const debtsWithProjection = debts.filter(d => d.months_remaining)
   const longestMonths = debtsWithProjection.length
     ? Math.max(...debtsWithProjection.map(d => d.months_remaining))
     : 0
@@ -803,7 +804,7 @@ function DebtPayoffSection() {
         </div>
       </div>
 
-      {data.debts.length === 0 ? (
+      {debts.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           <CheckCircle size={28} style={{ color: 'var(--accent-green)', marginBottom: 12 }} />
           <h3 style={{ color: 'var(--text-primary)' }}>Debt-free</h3>
@@ -811,7 +812,7 @@ function DebtPayoffSection() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: 16 }}>
-          {data.debts.map(d => <DebtCard key={`${d.source}-${d.id}`} debt={d} longest={longestMonths} />)}
+          {debts.map(d => <DebtCard key={`${d.source}-${d.id}`} debt={d} longest={longestMonths} />)}
         </div>
       )}
     </div>

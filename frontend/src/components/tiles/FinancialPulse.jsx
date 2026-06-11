@@ -81,6 +81,15 @@ export function FinancialPulse() {
   if (!data) return null
   const score = data.score
   const color = pulseColor(score)
+  // Defensive: components may be absent if the backend returns a minimal
+  // shape (e.g. a 0-transaction fresh install). Guard once here so every
+  // access below is safe without per-field optional chaining.
+  const components = data.components ?? {
+    liquidity: { score: 0, value: 0, label: 'months of runway', weight: 0.3, pure_cash: 0, taxable_brokerage: 0, available_runway: 0 },
+    savings:   { score: 0, value: 0, label: 'savings rate %', weight: 0.3, visible_rate_pct: 0, true_rate_pct: 0, monthly_payroll_deferral: 0, uses_true_rate: false },
+    debt:      { score: 0, value: 0, label: 'debt-to-assets %', weight: 0.2 },
+    budget:    { score: 0, value: 0, label: 'budget adherence %', weight: 0.2 },
+  }
   return (
     <div className="card" style={tileCardStyle}>
       <div className="card-header">
@@ -104,26 +113,26 @@ export function FinancialPulse() {
             {pulseLabel(score)}
           </span>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {data.components.liquidity.value}mo runway · {data.components.savings.value}% saving
+            {components?.liquidity?.value ?? '—'}mo runway · {components?.savings?.value ?? '—'}% saving
           </span>
         </div>
       </div>
       {/* Runway composition — shown when taxable brokerage is meaningful
           (>0) so the user understands how the runway number is built. */}
-      {data.components.liquidity.taxable_brokerage > 0 && (
+      {components.liquidity.taxable_brokerage > 0 && (
         <div style={{
           marginBottom: 14, padding: '6px 10px',
           background: 'var(--bg-elevated)', borderRadius: 6,
           fontSize: 11, color: 'var(--text-secondary)',
         }}>
-          Runway = {fmtMoney(data.components.liquidity.pure_cash)} cash
-          + {fmtMoney(data.components.liquidity.taxable_brokerage)} taxable brokerage
+          Runway = {fmtMoney(components.liquidity.pure_cash)} cash
+          + {fmtMoney(components.liquidity.taxable_brokerage)} taxable brokerage
           (penalty-free, 2-day liquid)
         </div>
       )}
       {/* Component bars */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {Object.entries(data.components).map(([key, c]) => (
+        {Object.entries(components).map(([key, c]) => (
           <ComponentBar key={key} label={c.label || key} score={c.score} color={pulseColor(c.score)} />
         ))}
       </div>
@@ -137,15 +146,15 @@ export function FinancialPulse() {
         borderTop: '1px dashed var(--border)',
         fontSize: 11, color: 'var(--text-secondary)',
       }}>
-        {data.components.savings.uses_true_rate ? (
+        {components.savings.uses_true_rate ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <span>
               Savings rate: <strong style={{ color: 'var(--text-primary)' }}>
-                {data.components.savings.true_rate_pct}% true
+                {components.savings.true_rate_pct}% true
               </strong>
               <span style={{ color: 'var(--text-muted)' }}>
-                {' '}({data.components.savings.visible_rate_pct}% visible
-                + ${data.components.savings.monthly_payroll_deferral}/mo 401k)
+                {' '}({components.savings.visible_rate_pct}% visible
+                + ${components.savings.monthly_payroll_deferral}/mo 401k)
               </span>
             </span>
             <button onClick={() => setEditingDeferral(e => !e)} style={editBtnStyle}>

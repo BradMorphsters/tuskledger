@@ -10,6 +10,10 @@
  *
  * On success: stash the device token + paired host in SecureStore,
  * kick off the first sync, and let App.tsx route to the tab navigator.
+ *
+ * The pairing/claim logic in `complete()` is untouched from v1 — this
+ * file's redesign is presentation only (brand mark, step copy, corner-
+ * accented scan frame, styled manual form).
  */
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useState } from 'react';
@@ -29,7 +33,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchManifest, pairClaim, probeHost } from '../sync/api';
 import { syncNow } from '../sync/manager';
 import { savePairedHost, saveToken } from '../sync/storage';
-import { colors, radius, space, type } from '../theme';
+import { colors, layout, radius, space, type } from '../theme';
 
 interface ParsedPayload {
   host: string;
@@ -61,6 +65,23 @@ function parseDeepLink(url: string): ParsedPayload | null {
 
 interface Props {
   onPaired: () => void;
+}
+
+/** Brand mark — tusk + wordmark, shared by every pairing state. */
+function BrandMark() {
+  return (
+    <View style={styles.brand}>
+      <View style={styles.brandBadge}>
+        <Text style={styles.brandEmoji}>🐘</Text>
+      </View>
+      <Text style={styles.wordmark}>
+        Tusk <Text style={{ color: colors.accent }}>Ledger</Text>
+      </Text>
+      <Text style={[type.small, { marginTop: space(1) }]}>
+        Your finances, glanceable from the couch.
+      </Text>
+    </View>
+  );
 }
 
 export default function PairingScreen({ onPaired }: Props) {
@@ -132,28 +153,45 @@ export default function PairingScreen({ onPaired }: Props) {
     if (!permission) {
       return (
         <SafeAreaView style={styles.center}>
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.textMuted} />
         </SafeAreaView>
       );
     }
     if (!permission.granted) {
       return (
-        <SafeAreaView style={[styles.container, styles.padBig]}>
-          <Text style={type.h1}>Pair this phone</Text>
-          <Text style={[type.body, { marginTop: space(3) }]}>
-            Tusk Ledger needs camera access to scan the pairing code on your
-            laptop screen. Or you can enter the code manually.
-          </Text>
-          <Pressable
-            style={[styles.primaryButton, { marginTop: space(6) }]}
-            onPress={requestPermission}>
-            <Text style={styles.primaryButtonText}>Allow camera</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.linkButton, { marginTop: space(3) }]}
-            onPress={() => setMode('manual')}>
-            <Text style={styles.linkButtonText}>Enter code manually</Text>
-          </Pressable>
+        <SafeAreaView style={styles.container}>
+          <ScrollView contentContainerStyle={styles.padBig}>
+            <BrandMark />
+            <Text style={[type.h1, { marginTop: space(8) }]}>
+              Pair this phone
+            </Text>
+            <Text style={[type.body, styles.muted, { marginTop: space(2) }]}>
+              Tusk Ledger needs camera access to scan the pairing code on
+              your laptop screen. Or you can enter the code manually.
+            </Text>
+            <Steps
+              steps={[
+                'Open Tusk Ledger on your laptop',
+                'Go to Settings → Pair phone',
+                'Scan the QR code it shows',
+              ]}
+            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryButton,
+                { marginTop: space(6), opacity: pressed ? 0.8 : 1 },
+              ]}
+              accessibilityRole="button"
+              onPress={requestPermission}>
+              <Text style={styles.primaryButtonText}>Allow camera</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.linkButton, { marginTop: space(3) }]}
+              accessibilityRole="button"
+              onPress={() => setMode('manual')}>
+              <Text style={styles.linkButtonText}>Enter code manually</Text>
+            </Pressable>
+          </ScrollView>
         </SafeAreaView>
       );
     }
@@ -165,12 +203,25 @@ export default function PairingScreen({ onPaired }: Props) {
           onBarcodeScanned={busy ? undefined : (e) => onScan(e.data)}
         />
         <SafeAreaView style={[styles.scanOverlay, { pointerEvents: 'box-none' }]}>
-          <View style={styles.scanFrame} />
-          <Text style={[type.h2, { color: '#fff', textAlign: 'center', marginTop: space(4) }]}>
+          <Text style={styles.scanWordmark}>
+            Tusk <Text style={{ color: colors.accent }}>Ledger</Text>
+          </Text>
+          {/* Scan frame: transparent center, gold corner accents. */}
+          <View style={styles.scanFrame}>
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
+          </View>
+          <Text style={styles.scanHint}>
             Point at the pairing QR on your laptop
+          </Text>
+          <Text style={[type.small, { color: 'rgba(255,255,255,0.7)', marginTop: space(1), textAlign: 'center' }]}>
+            Laptop → Settings → Pair phone
           </Text>
           <Pressable
             style={[styles.linkButton, { marginTop: space(4) }]}
+            accessibilityRole="button"
             onPress={() => setMode('manual')}>
             <Text style={[styles.linkButtonText, { color: '#fff' }]}>
               Enter code manually
@@ -195,13 +246,14 @@ export default function PairingScreen({ onPaired }: Props) {
       style={styles.container}>
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.padBig}>
-          <Text style={type.h1}>Pair manually</Text>
-          <Text style={[type.body, { marginTop: space(3) }]}>
+          <BrandMark />
+          <Text style={[type.h1, { marginTop: space(8) }]}>Pair manually</Text>
+          <Text style={[type.body, styles.muted, { marginTop: space(2) }]}>
             On your laptop, open Tusk Ledger → Settings → Pair phone, and
             type what's shown here.
           </Text>
 
-          <Text style={[type.caption, styles.label]}>LAPTOP ADDRESS</Text>
+          <Text style={[type.caption, styles.label]}>Laptop address</Text>
           <TextInput
             value={manualHost}
             onChangeText={setManualHost}
@@ -211,24 +263,27 @@ export default function PairingScreen({ onPaired }: Props) {
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
+            accessibilityLabel="Laptop address"
           />
 
-          <Text style={[type.caption, styles.label]}>PAIRING CODE</Text>
+          <Text style={[type.caption, styles.label]}>Pairing code</Text>
           <TextInput
             value={manualCode}
             onChangeText={(s) => setManualCode(s.toUpperCase())}
             placeholder="ABCD2345"
             placeholderTextColor={colors.textFaint}
-            style={styles.input}
+            style={[styles.input, styles.codeInput]}
             autoCapitalize="characters"
             autoCorrect={false}
+            accessibilityLabel="Pairing code"
           />
 
           <Pressable
             disabled={busy}
-            style={[
+            accessibilityRole="button"
+            style={({ pressed }) => [
               styles.primaryButton,
-              { marginTop: space(6), opacity: busy ? 0.5 : 1 },
+              { marginTop: space(6), opacity: busy ? 0.5 : pressed ? 0.8 : 1 },
             ]}
             onPress={() => {
               const [host, portStr = '8000'] = manualHost.trim().split(':');
@@ -239,19 +294,35 @@ export default function PairingScreen({ onPaired }: Props) {
               }
               complete(host, port, manualCode.trim());
             }}>
-            {busy ? <ActivityIndicator color="#000" /> : (
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : (
               <Text style={styles.primaryButtonText}>Pair</Text>
             )}
           </Pressable>
 
           <Pressable
             style={[styles.linkButton, { marginTop: space(3) }]}
+            accessibilityRole="button"
             onPress={() => setMode('scan')}>
             <Text style={styles.linkButtonText}>Scan a QR instead</Text>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
     </KeyboardAvoidingView>
+  );
+}
+
+function Steps({ steps }: { steps: string[] }) {
+  return (
+    <View style={styles.steps}>
+      {steps.map((s, i) => (
+        <View key={s} style={styles.stepRow}>
+          <View style={styles.stepNum}>
+            <Text style={styles.stepNumText}>{i + 1}</Text>
+          </View>
+          <Text style={[type.body, { flex: 1 }]}>{s}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -263,31 +334,90 @@ function deviceLabel(): string {
   return `${hint} (${new Date().toISOString().slice(0, 10)})`;
 }
 
+const CORNER = 30;
+const CORNER_W = 3.5;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.bg,
   },
-  padBig: { padding: space(6) },
-  label: { marginTop: space(5), marginBottom: space(2), color: colors.textFaint },
+  padBig: { padding: space(6), paddingTop: space(10) },
+  muted: { color: colors.textMuted },
+  brand: { alignItems: 'center' },
+  brandBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: colors.accentBg,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space(3),
+  },
+  brandEmoji: { fontSize: 34 },
+  wordmark: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: colors.text,
+  },
+  steps: {
+    marginTop: space(6),
+    gap: space(3),
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+  },
+  stepNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.accentBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  label: { marginTop: space(5), marginBottom: space(2) },
   input: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: space(3),
+    padding: space(3.5),
     color: colors.text,
     fontSize: 16,
+    minHeight: layout.minTouch,
+  },
+  codeInput: {
+    fontSize: 20,
+    fontWeight: '600',
+    letterSpacing: 4,
+    fontVariant: ['tabular-nums'],
   },
   primaryButton: {
     backgroundColor: colors.accent,
     paddingVertical: space(3.5),
     borderRadius: radius.md,
     alignItems: 'center',
+    minHeight: layout.minTouch,
+    justifyContent: 'center',
   },
-  primaryButtonText: { color: '#0e0f12', fontWeight: '700', fontSize: 16 },
-  linkButton: { padding: space(3), alignItems: 'center' },
+  primaryButtonText: { color: colors.onAccent, fontWeight: '700', fontSize: 16 },
+  linkButton: {
+    padding: space(3),
+    alignItems: 'center',
+    minHeight: layout.minTouch,
+    justifyContent: 'center',
+  },
   linkButtonText: { color: colors.link, fontSize: 15 },
   scanOverlay: {
     flex: 1,
@@ -296,12 +426,48 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: space(6),
   },
+  scanWordmark: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: space(6),
+  },
   scanFrame: {
-    width: 240,
-    height: 240,
-    borderColor: '#fff',
-    borderWidth: 3,
+    width: 250,
+    height: 250,
     borderRadius: radius.lg,
+  },
+  scanHint: {
+    ...type.h2,
+    color: '#fff',
+    textAlign: 'center',
+    marginTop: space(5),
+  },
+  corner: {
+    position: 'absolute',
+    width: CORNER,
+    height: CORNER,
+    borderColor: colors.accent,
+  },
+  cornerTL: {
+    top: 0, left: 0,
+    borderTopWidth: CORNER_W, borderLeftWidth: CORNER_W,
+    borderTopLeftRadius: radius.lg,
+  },
+  cornerTR: {
+    top: 0, right: 0,
+    borderTopWidth: CORNER_W, borderRightWidth: CORNER_W,
+    borderTopRightRadius: radius.lg,
+  },
+  cornerBL: {
+    bottom: 0, left: 0,
+    borderBottomWidth: CORNER_W, borderLeftWidth: CORNER_W,
+    borderBottomLeftRadius: radius.lg,
+  },
+  cornerBR: {
+    bottom: 0, right: 0,
+    borderBottomWidth: CORNER_W, borderRightWidth: CORNER_W,
+    borderBottomRightRadius: radius.lg,
   },
   scanBusy: {
     position: 'absolute', bottom: space(20),

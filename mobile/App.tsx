@@ -21,11 +21,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import TabIcon, { TabIconName } from './src/components/TabIcon';
 import DashboardScreen from './src/screens/DashboardScreen';
 import InvestmentsScreen from './src/screens/InvestmentsScreen';
 import PairingScreen from './src/screens/PairingScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
+import { hydrateDemoMode } from './src/state/appStore';
 import {
   startPeriodicSync,
   stopPeriodicSync,
@@ -66,9 +68,12 @@ export default function App() {
     if (status === 'unauthed') setPaired(false);
   }, [status]);
 
-  // Initial pairing check + first sync.
+  // Initial pairing check + first sync. Also hydrates the demo-mode
+  // flag into the app store once, so SyncBadge & co. never have to
+  // poll SecureStore.
   useEffect(() => {
     (async () => {
+      hydrateDemoMode();
       const [host, token] = await Promise.all([loadPairedHost(), loadToken()]);
       const isPaired = !!(host && token);
       setPaired(isPaired);
@@ -127,15 +132,23 @@ export default function App() {
         ) : (
           <NavigationContainer theme={navTheme}>
             <Tab.Navigator
-              screenOptions={{
+              screenOptions={({ route }) => ({
                 headerShown: false,
                 tabBarStyle: {
                   backgroundColor: colors.surface,
-                  borderTopColor: colors.border,
+                  borderTopColor: colors.borderSubtle,
                 },
                 tabBarActiveTintColor: colors.accent,
-                tabBarInactiveTintColor: colors.textMuted,
-              }}>
+                tabBarInactiveTintColor: colors.textFaint,
+                tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+                tabBarIcon: ({ color }) => (
+                  <TabIcon
+                    name={route.name.toLowerCase() as TabIconName}
+                    color={color}
+                    size={22}
+                  />
+                ),
+              })}>
               <Tab.Screen name="Dashboard" component={DashboardScreen} />
               <Tab.Screen name="Transactions" component={TransactionsScreen} />
               <Tab.Screen name="Investments" component={InvestmentsScreen} />

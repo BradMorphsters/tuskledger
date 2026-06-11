@@ -1,230 +1,341 @@
 /**
  * Dashboard — the open-the-app-and-glance screen.
  *
- * Shows: month-to-date net cash, top spend categories, and net worth.
- * Reads exclusively from the local SQLite mirror — instant, even
- * offline. The sync indicator at the top tells the user how fresh
- * the data is.
+ * Hierarchy (top → bottom): net-worth hero with a 30-day delta chip
+ * and a full-bleed sparkline; the grouped Accounts card; this month's
+ * income vs spending; top spend categories; recent activity. All reads
+ * come from the local SQLite mirror — instant, even offline — and the
+ * SyncBadge in the header says how fresh that mirror is.
  */
 import { useEffect, useState } from 'react';
-import {
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import Card from '../components/Card';
+import Chip from '../components/Chip';
+import MoneyText from '../components/MoneyText';
+import ProgressBar from '../components/ProgressBar';
+import SectionHeader from '../components/SectionHeader';
+import Screen from '../components/Screen';
+import SkeletonBlock from '../components/SkeletonBlock';
+import Sparkline from '../components/Sparkline';
+import TransactionRow from '../components/TransactionRow';
+import { categoryGlyph } from '../components/categoryGlyph';
 import {
   CategoryTotal,
   MonthSummary,
+  NetWorthPoint,
   NetWorthSnapshot,
+  TransactionRow as Tx,
   currentMonthSummary,
+  listTransactions,
   netWorth,
+  netWorthHistory,
   topCategoriesThisMonth,
 } from '../db/queries';
-import { syncNow, useSyncStore } from '../sync/manager';
-import { colors, formatCurrency, formatRelative, radius, space, type } from '../theme';
+import { useSyncStore } from '../sync/manager';
+import { colors, formatCurrency, formatDelta, layout, space, type } from '../theme';
 import AccountsBreakdown from './AccountsBreakdown';
-import NetWorthSparkline from './NetWorthSparkline';
-import StaleBanner from './StaleBanner';
-import SyncBadge from './SyncBadge';
+
+/**
+ * Delta vs ~30 days ago, from the snapshot history. Picks the snapshot
+ * closest to the 30-day mark; returns null when history doesn't reach
+ * back far enough (≥ 20 days) to make the comparison honest.
+ */
+function delta30d(history: NetWorthPoint[], current: number): number | null {
+  if (history.length < 2) return null;
+  const target = Date.now() - 30 * 86400000;
+  let best: NetWorthPoint | null = null;
+  let bestDist = Infinity;
+  for (const p of history) {
+    const dist = Math.abs(new Date(p.date + 'T12:00:00').getTime() - target);
+    if (dist < bestDist) {
+      best = p;
+      bestDist = dist;
+    }
+  }
+  if (!best) return null;
+  const ageDays = (Date.now() - new Date(best.date + 'T12:00:00').getTime()) / 86400000;
+  if (ageDays < 20) return null; // history too short for a "30d" claim
+  return current - best.net_worth;
+}
 
 export default function DashboardScreen() {
   const dataVersion = useSyncStore((s) => s.dataVersion);
-  const status = useSyncStore((s) => s.status);
-  const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt);
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [topCats, setTopCats] = useState<CategoryTotal[]>([]);
   const [nw, setNw] = useState<NetWorthSnapshot | null>(null);
+  const [history, setHistory] = useState<NetWorthPoint[]>([]);
+  const [recent, setRecent] = useState<Tx[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [s, c, n] = await Promise.all([
+      const [s, c, n, h, r] = await Promise.all([
         currentMonthSummary(),
         topCategoriesThisMonth(5),
         netWorth(),
+        netWorthHistory(90),
+        listTransactions({ limit: 6 }),
       ]);
       if (cancelled) return;
       setSummary(s);
       setTopCats(c);
       setNw(n);
+      setHistory(h);
+      setRecent(r);
+      setLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
   }, [dataVersion]);
 
+  const delta = nw ? delta30d(history, nw.net) : null;
+  const maxFlow = Math.max(summary?.income ?? 0, summary?.spending ?? 0, 1);
+  const maxCat = Math.max(...topCats.map((c) => c.total), 1);
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StaleBanner />
-      <ScrollView
-        contentContainerStyle={{ padding: space(5) }}
-        refreshControl={
-          <RefreshControl
-            refreshing={status === 'syncing'}
-            onRefresh={() => syncNow()}
-            tintColor={colors.textMuted}
+    <Screen kicker="Tusk Ledger" title="Overview">
+      {/* ── Net worth hero ──────────────────────────────────────── */}
+      {!loaded ? (
+        <View style={styles.hero}>
+          <SkeletonBlock width={110} height={12} />
+          <SkeletonBlock width={240} height={40} style={{ marginTop: space(2) }} />
+          <SkeletonBlock height={64} style={{ marginTop: space(4) }} />
+        </View>
+      ) : (
+        <Animated.View entering={FadeInDown.duration(400)} style={styles.hero}>
+          <Text style={type.caption}>Net worth</Text>
+          <MoneyText
+            value={nw?.net}
+            size="hero"
+            whole
+            style={{ marginTop: space(1) }}
           />
-        }>
-        <View style={styles.header}>
-          <View>
-            <Text style={type.caption}>TUSK LEDGER</Text>
-            <Text style={type.h1}>This month</Text>
-          </View>
-          <SyncBadge />
-        </View>
-        <Text style={[type.small, { marginTop: space(1) }]}>
-          Last synced {formatRelative(lastSyncedAt)}
-        </Text>
-
-        {/* This-month card. Earlier version had a giant red NET number
-            on the left dominating the card with INCOME/SPENDING tucked
-            underneath; the visual hierarchy implied NET was the most
-            important number, but it's actually the derived one. New
-            layout reads top-to-bottom like the math itself: Income +
-            Spending → divider → Net. Same prominence on all three rows,
-            colors carry the up/down signal, no number outsizes the others. */}
-        <View style={[styles.card, { marginTop: space(5) }]}>
-          <View style={styles.kvRow}>
-            <Text style={type.body}>Income</Text>
-            <Text
-              style={[type.body, styles.amount, { color: colors.income }]}>
-              {formatCurrency(summary?.income ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.kvRow}>
-            <Text style={type.body}>Spending</Text>
-            <Text
-              style={[type.body, styles.amount, { color: colors.expense }]}>
-              −{formatCurrency(summary?.spending ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.kvRow}>
-            <Text style={[type.body, { fontWeight: '600' }]}>Net</Text>
-            <Text
-              style={[
-                type.h2,
-                styles.amount,
-                {
-                  color:
-                    summary && summary.net >= 0 ? colors.income : colors.expense,
-                },
-              ]}>
-              {formatCurrency(summary?.net ?? 0)}
-            </Text>
-          </View>
-          <Text style={[type.small, { marginTop: space(3) }]}>
-            {summary?.transactionCount ?? 0} transactions, transfers excluded
-          </Text>
-        </View>
-
-        <Text style={[type.caption, { marginTop: space(6) }]}>TOP CATEGORIES</Text>
-        <View style={[styles.card, { marginTop: space(2) }]}>
-          {topCats.length === 0 ? (
-            <Text style={type.small}>No spending recorded yet this month.</Text>
-          ) : (
-            topCats.map((c, i) => (
-              <View
-                key={c.category}
-                style={[
-                  styles.row,
-                  {
-                    paddingVertical: space(3),
-                    borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                    borderTopColor: colors.border,
-                  },
-                ]}>
-                <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>
-                  {c.category}
-                </Text>
-                <Text style={[type.body, { color: colors.expense }]}>
-                  {formatCurrency(c.total)}
-                </Text>
-              </View>
-            ))
+          {delta != null && (
+            <Chip
+              label={`${delta >= 0 ? '▲' : '▼'} ${formatDelta(delta)} · 30d`}
+              tone={delta >= 0 ? 'income' : 'expense'}
+              small
+              style={{ marginTop: space(2) }}
+            />
           )}
+          {/* Full-bleed sparkline — escapes the screen padding. */}
+          {history.length >= 2 && (
+            <Sparkline
+              data={history.map((p) => p.net_worth)}
+              height={64}
+              columns={72}
+              style={styles.sparkline}
+            />
+          )}
+        </Animated.View>
+      )}
+
+      {/* ── Accounts ────────────────────────────────────────────── */}
+      <AccountsBreakdown />
+
+      {/* ── This month ──────────────────────────────────────────── */}
+      <SectionHeader
+        label="This month"
+        right={
+          <Text style={type.small}>
+            {summary?.transactionCount ?? 0} transactions
+          </Text>
+        }
+      />
+      <Card>
+        <FlowRow
+          label="Income"
+          amount={summary?.income ?? 0}
+          max={maxFlow}
+          color={colors.income}
+        />
+        <FlowRow
+          label="Spending"
+          amount={summary?.spending ?? 0}
+          max={maxFlow}
+          color={colors.expense}
+          negative
+        />
+        <View style={styles.divider} />
+        <View style={styles.netRow}>
+          <Text style={[type.body, { fontWeight: '600' }]}>Net</Text>
+          <MoneyText value={summary?.net ?? 0} size="title" tone="auto" signed />
         </View>
+        <Text style={[type.small, { marginTop: space(2) }]}>
+          Transfers excluded
+        </Text>
+      </Card>
 
-        <Text style={[type.caption, { marginTop: space(6) }]}>NET WORTH</Text>
-        {/* Same kv-row treatment as the This-Month card — assets and
-            liabilities each get their own row, divider, then net worth
-            on the bottom in larger weight. Cleaner than the previous
-            "huge total + assets/liabilities side-by-side mini-row" which
-            crowded the two halves of the balance sheet into a sliver. */}
-        <View style={[styles.card, { marginTop: space(2) }]}>
-          <View style={styles.kvRow}>
-            <Text style={type.body}>Assets</Text>
-            <Text style={[type.body, styles.amount]}>
-              {formatCurrency(nw?.assets ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.kvRow}>
-            <Text style={type.body}>Liabilities</Text>
-            <Text
-              style={[type.body, styles.amount, { color: colors.expense }]}>
-              −{formatCurrency(nw?.liabilities ?? 0)}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.kvRow}>
-            <Text style={[type.body, { fontWeight: '600' }]}>Net worth</Text>
-            <Text
-              style={[
-                type.h2,
-                styles.amount,
-                {
-                  color: nw && nw.net >= 0 ? colors.text : colors.expense,
-                },
-              ]}>
-              {formatCurrency(nw?.net ?? 0)}
-            </Text>
-          </View>
-          <NetWorthSparkline />
+      {/* ── Top categories ──────────────────────────────────────── */}
+      <SectionHeader label="Top categories" />
+      <Card>
+        {topCats.length === 0 ? (
+          <Text style={type.small}>No spending recorded yet this month.</Text>
+        ) : (
+          topCats.map((c, i) => (
+            <CategoryLine
+              key={c.category}
+              cat={c}
+              max={maxCat}
+              first={i === 0}
+            />
+          ))
+        )}
+      </Card>
+
+      {/* ── Recent activity ─────────────────────────────────────── */}
+      <SectionHeader label="Recent activity" />
+      <Card padded={false}>
+        {recent.length === 0 ? (
+          <Text style={[type.small, { padding: layout.cardPad }]}>
+            Nothing here yet — pull down to sync.
+          </Text>
+        ) : (
+          recent.map((tx, i) => (
+            <View
+              key={tx.id}
+              style={[styles.txWrap, i > 0 && styles.txDivider]}>
+              <TransactionRow tx={tx} showAccount={false} />
+            </View>
+          ))
+        )}
+      </Card>
+    </Screen>
+  );
+}
+
+function FlowRow({
+  label,
+  amount,
+  max,
+  color,
+  negative = false,
+}: {
+  label: string;
+  amount: number;
+  max: number;
+  color: string;
+  negative?: boolean;
+}) {
+  return (
+    <View style={styles.flowRow}>
+      <View style={styles.flowHeader}>
+        <Text style={type.body}>{label}</Text>
+        <MoneyText
+          value={negative ? -amount : amount}
+          size="body"
+          tone={negative ? 'expense' : 'income'}
+          signed={amount > 0}
+        />
+      </View>
+      <ProgressBar
+        progress={amount / max}
+        color={color}
+        height={5}
+        style={{ marginTop: space(1.5) }}
+      />
+    </View>
+  );
+}
+
+function CategoryLine({
+  cat,
+  max,
+  first,
+}: {
+  cat: CategoryTotal;
+  max: number;
+  first: boolean;
+}) {
+  const glyph = categoryGlyph(cat.category);
+  return (
+    <View
+      style={[styles.catRow, !first && { marginTop: space(3.5) }]}
+      accessibilityLabel={`${cat.category}, ${formatCurrency(cat.total)} this month`}>
+      <View style={[styles.catGlyph, { backgroundColor: glyph.bg }]}>
+        {glyph.emoji ? (
+          <Text style={{ fontSize: 14 }}>{glyph.emoji}</Text>
+        ) : (
+          <Text style={{ fontSize: 13, fontWeight: '700', color: glyph.fg }}>
+            {glyph.initial}
+          </Text>
+        )}
+      </View>
+      <View style={styles.catMiddle}>
+        <View style={styles.catHeader}>
+          <Text style={type.body} numberOfLines={1}>
+            {cat.category}
+          </Text>
+          <MoneyText value={cat.total} size="small" tone="muted" />
         </View>
-
-        <AccountsBreakdown />
-
-        <View style={{ height: space(10) }} />
-      </ScrollView>
-    </SafeAreaView>
+        <ProgressBar
+          progress={cat.total / max}
+          color={colors.accent}
+          height={4}
+          style={{ marginTop: space(1.5) }}
+        />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  hero: {
+    paddingTop: space(3),
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: space(5),
-  },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  col: { flex: 1 },
-  // Key/value row used by the This-Month and Net Worth cards. Aligning
-  // numbers right with tabular-nums so dollar amounts line up vertically
-  // even when the integer parts have different digit counts ($821,912 vs
-  // $1,765 etc.).
-  kvRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingVertical: space(1),
-  },
-  amount: {
-    fontVariant: ['tabular-nums'],
-    textAlign: 'right',
+  sparkline: {
+    marginTop: space(4),
+    marginHorizontal: -layout.screenPad,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
-    marginVertical: space(2),
+    marginVertical: space(3),
+  },
+  netRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  flowRow: {
+    marginBottom: space(3),
+  },
+  flowHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  catRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  catGlyph: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space(3),
+  },
+  catMiddle: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  catHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: space(3),
+  },
+  txWrap: {
+    paddingHorizontal: layout.cardPad,
+  },
+  txDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
 });

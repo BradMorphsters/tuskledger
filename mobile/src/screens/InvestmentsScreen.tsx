@@ -1,36 +1,96 @@
 /**
- * Investments — holdings list + portfolio rollup.
+ * Investments — portfolio hero, allocation bar, holdings list.
  *
- * Pure read of the local SQLite mirror. The interesting query work
- * (joining holdings to securities for tickers and prices, computing
- * unrealized gain) lives in db/queries.ts so the screen stays
- * declarative.
+ * Pure read of the local SQLite mirror. The rollup math — including
+ * the LOAD-BEARING fold-in of investment-type accounts that report a
+ * balance but no positions (HSAs, 457s, pensions) — lives untouched in
+ * db/queries.ts (investmentsRollup). This screen only re-presents it.
+ *
+ * No day-change number: the mirror keeps current holdings only, not a
+ * positions history, so there is nothing honest to compute it from.
+ * The unrealized-gain chip carries the "how am I doing" signal instead.
  */
-import { useEffect, useState } from 'react';
-import {
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import Card from '../components/Card';
+import Chip from '../components/Chip';
+import MoneyText from '../components/MoneyText';
+import SectionHeader from '../components/SectionHeader';
+import Screen from '../components/Screen';
+import SkeletonBlock from '../components/SkeletonBlock';
 import {
   HoldingRow,
   InvestmentsRollup,
   investmentsRollup,
   listHoldings,
 } from '../db/queries';
-import { syncNow, useSyncStore } from '../sync/manager';
-import { colors, formatCurrency, radius, space, type } from '../theme';
-import StaleBanner from './StaleBanner';
-import SyncBadge from './SyncBadge';
+import { useSyncStore } from '../sync/manager';
+import { colors, formatCurrency, formatDelta, layout, space, type } from '../theme';
+
+// Segment palette for the allocation bar — brand gold first, then the
+// semantic greens/blues. Distinct enough at 8px tall.
+const SEGMENT_COLORS = [
+  colors.accent,
+  colors.income,
+  colors.link,
+  colors.warning,
+  '#b48ce0', // soft violet — only used here, for a 5th asset class
+  colors.expense,
+  colors.textMuted,
+];
+
+interface Segment {
+  label: string;
+  value: number;
+  color: string;
+}
+
+function typeLabel(t: string | null): string {
+  switch ((t || '').toLowerCase()) {
+    case 'equity': return 'Stocks';
+    case 'etf': return 'ETFs';
+    case 'mutual fund': return 'Funds';
+    case 'fixed income': return 'Bonds';
+    case 'cash': return 'Cash';
+    case 'cryptocurrency': return 'Crypto';
+    case 'derivative': return 'Options';
+    case '': return 'Other';
+    default:
+      return (t as string).charAt(0).toUpperCase() + (t as string).slice(1);
+  }
+}
+
+/**
+ * Allocation by security type, plus one "Accounts" segment for the
+ * balance-only investment accounts (rollup total minus holdings total)
+ * so the bar always sums to the headline portfolio value.
+ */
+function buildSegments(holdings: HoldingRow[], rollup: InvestmentsRollup | null): Segment[] {
+  const byType = new Map<string, number>();
+  let holdingsTotal = 0;
+  for (const h of holdings) {
+    const label = typeLabel(h.type);
+    byType.set(label, (byType.get(label) ?? 0) + h.value);
+    holdingsTotal += h.value;
+  }
+  const entries = [...byType.entries()]
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const accountsOnly = (rollup?.total_value ?? 0) - holdingsTotal;
+  if (accountsOnly > 0.005) entries.push(['Accounts', accountsOnly]);
+  return entries.map(([label, value], i) => ({
+    label,
+    value,
+    color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
+  }));
+}
 
 export default function InvestmentsScreen() {
   const dataVersion = useSyncStore((s) => s.dataVersion);
-  const status = useSyncStore((s) => s.status);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [rollup, setRollup] = useState<InvestmentsRollup | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,130 +99,147 @@ export default function InvestmentsScreen() {
       if (cancelled) return;
       setHoldings(h);
       setRollup(r);
+      setLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
   }, [dataVersion]);
 
-  const hasData = holdings.length > 0;
+  const segments = useMemo(
+    () => buildSegments(holdings, rollup),
+    [holdings, rollup],
+  );
+  const segTotal = segments.reduce((s, x) => s + x.value, 0);
+
+  const gain = rollup && rollup.total_cost_basis > 0 ? rollup.total_gain : null;
+  const gainPct =
+    gain != null && rollup && rollup.total_cost_basis > 0
+      ? (gain / rollup.total_cost_basis) * 100
+      : null;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={styles.header}>
-        <Text style={type.h1}>Investments</Text>
-        <SyncBadge />
-      </View>
-      <StaleBanner />
-      <ScrollView
-        contentContainerStyle={{ padding: space(5) }}
-        refreshControl={
-          <RefreshControl
-            refreshing={status === 'syncing'}
-            onRefresh={() => syncNow()}
-            tintColor={colors.textMuted}
+    <Screen title="Investments">
+      {/* ── Portfolio hero ──────────────────────────────────────── */}
+      {!loaded ? (
+        <View style={styles.hero}>
+          <SkeletonBlock width={130} height={12} />
+          <SkeletonBlock width={220} height={40} style={{ marginTop: space(2) }} />
+        </View>
+      ) : (
+        <Animated.View entering={FadeInDown.duration(400)} style={styles.hero}>
+          <Text style={type.caption}>Portfolio value</Text>
+          <MoneyText
+            value={rollup?.total_value}
+            size="hero"
+            style={{ marginTop: space(1) }}
           />
-        }>
-        <View style={styles.card}>
-          <Text style={type.caption}>PORTFOLIO VALUE</Text>
-          {/* adjustsFontSizeToFit + numberOfLines=1 lets this big
-              number shrink down on narrower iPhones rather than
-              clipping off the right edge. minimumFontScale floors how
-              small it can shrink so a $9,999,999.99 number doesn't
-              become unreadable. */}
-          <Text
-            style={[type.display, { marginTop: space(1) }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}>
-            {formatCurrency(rollup?.total_value ?? 0)}
-          </Text>
-          <View style={[styles.row, { marginTop: space(4), gap: space(3) }]}>
-            <View style={styles.col}>
-              <Text style={type.caption}>UNREALIZED GAIN</Text>
-              <Text
-                style={[
-                  type.h2,
-                  {
-                    color:
-                      (rollup?.total_gain ?? 0) >= 0 ? colors.income : colors.expense,
-                    marginTop: space(1),
-                  },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}>
-                {rollup && rollup.total_cost_basis > 0
-                  ? formatCurrency(rollup.total_gain)
-                  : '—'}
-              </Text>
-            </View>
-            <View style={styles.col}>
-              <Text style={type.caption}>CASH</Text>
-              <Text
-                style={[type.h2, { marginTop: space(1) }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}>
-                {formatCurrency(rollup?.cash_value ?? 0)}
-              </Text>
-            </View>
+          <View style={styles.chipRow}>
+            {gain != null && (
+              <Chip
+                label={`${formatDelta(gain)}${gainPct != null ? ` (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%)` : ''}`}
+                tone={gain >= 0 ? 'income' : 'expense'}
+                small
+              />
+            )}
+            {(rollup?.cash_value ?? 0) > 0 && (
+              <Chip
+                label={`${formatCurrency(rollup?.cash_value ?? 0)} cash`}
+                tone="neutral"
+                small
+              />
+            )}
           </View>
-          <Text style={[type.small, { marginTop: space(3) }]}>
+          <Text style={[type.small, { marginTop: space(2) }]}>
             {rollup?.positions ?? 0} positions
             {rollup && rollup.total_cost_basis === 0 && rollup.positions > 0
               ? ' · cost basis unavailable for some positions'
               : ''}
           </Text>
-        </View>
+        </Animated.View>
+      )}
 
-        <Text style={[type.caption, { marginTop: space(6) }]}>HOLDINGS</Text>
-        {!hasData ? (
-          <View style={[styles.card, { marginTop: space(2) }]}>
-            <Text style={type.small}>
-              No holdings synced yet. If you have investment accounts
-              connected on the laptop, run "Sync now" — Plaid pulls
-              positions on a slower cadence than transactions.
-            </Text>
-          </View>
-        ) : (
-          <View style={[styles.card, { marginTop: space(2), padding: 0 }]}>
-            {holdings.map((h, i) => (
-              <Holding key={h.id} h={h} first={i === 0} />
-            ))}
-          </View>
-        )}
+      {/* ── Allocation ──────────────────────────────────────────── */}
+      {segments.length > 0 && segTotal > 0 && (
+        <>
+          <SectionHeader label="Allocation" />
+          <Card>
+            <View
+              style={styles.allocBar}
+              accessibilityLabel={`Allocation: ${segments
+                .map((s) => `${s.label} ${((s.value / segTotal) * 100).toFixed(0)} percent`)
+                .join(', ')}`}>
+              {segments.map((s) => (
+                <View
+                  key={s.label}
+                  style={{
+                    flex: s.value,
+                    backgroundColor: s.color,
+                  }}
+                />
+              ))}
+            </View>
+            <View style={styles.legend}>
+              {segments.map((s) => (
+                <View key={s.label} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+                  <Text style={type.small} numberOfLines={1}>
+                    {s.label}
+                  </Text>
+                  <Text style={styles.legendPct}>
+                    {((s.value / segTotal) * 100).toFixed(0)}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+        </>
+      )}
 
-        <View style={{ height: space(10) }} />
-      </ScrollView>
-    </SafeAreaView>
+      {/* ── Holdings ────────────────────────────────────────────── */}
+      <SectionHeader
+        label="Holdings"
+        right={
+          holdings.length > 0 ? (
+            <Text style={type.small}>{holdings.length}</Text>
+          ) : undefined
+        }
+      />
+      {holdings.length === 0 ? (
+        <Card>
+          <Text style={type.small}>
+            No holdings synced yet. If you have investment accounts
+            connected on the laptop, run "Sync now" — Plaid pulls
+            positions on a slower cadence than transactions.
+          </Text>
+        </Card>
+      ) : (
+        <Card padded={false}>
+          {holdings.map((h, i) => (
+            <Holding key={h.id} h={h} first={i === 0} />
+          ))}
+        </Card>
+      )}
+    </Screen>
   );
 }
 
 function Holding({ h, first }: { h: HoldingRow; first: boolean }) {
-  const gainColor =
-    h.gain == null
-      ? colors.textMuted
-      : h.gain >= 0
-        ? colors.income
-        : colors.expense;
-  // Layout structure:
-  //   • Two-column row, left column flex:1 + minWidth:0 so children
-  //     can shrink below their natural width and truncate with an
-  //     ellipsis (RN/Yoga's default minWidth is 'auto', which equals
-  //     content width — that's why long security names were bleeding
-  //     into the dollar column).
-  //   • Right column lays out by content (value + gain%) and never
-  //     gets pushed by the left column.
-  //   • Ticker is on its own line above the security name, instead of
-  //     side-by-side, so long names like "Vanguard Index Funds -
-  //     Vanguard Growth Index Admiral" don't crowd the ticker.
+  // Layout notes (load-bearing, learned the hard way on Fabric):
+  //   • Left column: flex:1 + flexShrink:1 + minWidth:0 so long
+  //     security names truncate with an ellipsis instead of pushing
+  //     the dollar column off-screen (Yoga's default minWidth:'auto'
+  //     equals content width).
+  //   • marginRight instead of `gap` on the row — gap was triggering
+  //     overflow on Fabric.
   return (
     <View
-      style={[
-        styles.holdingRow,
-        first ? null : { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-      ]}>
+      style={[styles.holdingRow, !first && styles.holdingDivider]}
+      accessibilityLabel={`${h.ticker}, ${h.security_name}, ${formatCurrency(h.value)}${
+        h.gain_pct != null
+          ? `, ${h.gain_pct >= 0 ? 'up' : 'down'} ${Math.abs(h.gain_pct * 100).toFixed(1)} percent`
+          : ''
+      }`}>
       <View style={styles.holdingLeft}>
         <Text style={[type.body, { fontWeight: '600' }]} numberOfLines={1}>
           {h.ticker}
@@ -170,7 +247,7 @@ function Holding({ h, first }: { h: HoldingRow; first: boolean }) {
         <Text style={[type.small, { marginTop: 1 }]} numberOfLines={1}>
           {h.security_name}
         </Text>
-        <Text style={[type.small, { marginTop: 2 }]} numberOfLines={1}>
+        <Text style={[type.small, styles.holdingMeta]} numberOfLines={1}>
           {h.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} sh
           {' · '}
           {h.price != null ? formatCurrency(h.price) + '/sh' : '— /sh'}
@@ -179,20 +256,14 @@ function Holding({ h, first }: { h: HoldingRow; first: boolean }) {
         </Text>
       </View>
       <View style={styles.holdingRight}>
-        <Text
-          style={[type.body, { fontVariant: ['tabular-nums'], textAlign: 'right' }]}
-          numberOfLines={1}>
-          {formatCurrency(h.value)}
-        </Text>
+        <MoneyText value={h.value} size="body" />
         {h.gain_pct != null && (
-          <Text
-            style={[
-              type.small,
-              { color: gainColor, marginTop: 2, textAlign: 'right' },
-            ]}>
-            {h.gain_pct >= 0 ? '+' : ''}
-            {(h.gain_pct * 100).toFixed(1)}%
-          </Text>
+          <Chip
+            label={`${h.gain_pct >= 0 ? '+' : ''}${(h.gain_pct * 100).toFixed(1)}%`}
+            tone={h.gain_pct >= 0 ? 'income' : 'expense'}
+            small
+            style={{ marginTop: space(1) }}
+          />
         )}
       </View>
     </View>
@@ -200,42 +271,65 @@ function Holding({ h, first }: { h: HoldingRow; first: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  hero: {
+    paddingTop: space(3),
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: space(2),
+    marginTop: space(2),
+  },
+  allocBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceElevated,
+  },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: space(4),
+    rowGap: space(2),
+    marginTop: space(3),
+  },
+  legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space(5),
-    paddingTop: space(3),
-    paddingBottom: space(2),
+    gap: space(1.5),
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: space(5),
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  col: { flex: 1 },
+  legendPct: {
+    fontSize: 13,
+    color: colors.textFaint,
+    fontVariant: ['tabular-nums'],
+  },
   holdingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space(4),
+    paddingHorizontal: layout.cardPad,
     paddingVertical: space(3),
+    minHeight: layout.minTouch,
   },
-  // flex:1 lets the left column take the remaining width.
-  // flexShrink:1 + minWidth:0 are the bits that make Text children
-  // truncate via numberOfLines instead of pushing the row wider than
-  // its parent — without these, RN renders the text at natural width
-  // and the right column gets pushed off the screen edge (which is
-  // exactly the bug we just hit).
-  // marginRight gives breathing room between the two columns instead
-  // of `gap` on the row, which was triggering the overflow on Fabric.
+  holdingDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
   holdingLeft: {
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
     marginRight: space(3),
   },
-  holdingRight: { alignItems: 'flex-end' },
+  holdingMeta: {
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  holdingRight: {
+    alignItems: 'flex-end',
+  },
 });

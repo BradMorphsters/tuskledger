@@ -47,7 +47,7 @@ export default function TrendStat({ label, total, avg, color, isText = false }) 
         marginTop: 4,
         fontVariantNumeric: 'tabular-nums',
       }}>
-        {isText ? avg : `${fmtCurrency(avg)} / mo avg`}
+        {isText ? avg : `${fmt(avg)} / mo avg`}
       </div>
     </div>
   )

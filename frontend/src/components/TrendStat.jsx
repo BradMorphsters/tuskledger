@@ -12,11 +12,10 @@
  *   isText  — when true, render `total` and `avg` as plain text instead
  *             of currency-formatting them. Used for the coverage tile.
  */
-const fmtCurrency = (v) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
+import { formatCurrencyZero } from '../lib/format'
 
 export default function TrendStat({ label, total, avg, color, isText = false }) {
-  const fmt = (v) => (isText ? v : fmtCurrency(v))
+  const fmt = (v) => (isText ? v : formatCurrencyZero(v))
   return (
     <div style={{
       padding: '12px 14px',

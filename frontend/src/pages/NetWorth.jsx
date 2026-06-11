@@ -6,7 +6,7 @@ import {
 import { Plus, Pencil, Trash2, ExternalLink, Home, Car, Gem, Package, GraduationCap, Banknote, Receipt, CreditCard, AlertTriangle, CheckCircle } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  getNetWorthHistory, getAccounts, getManualAssets,
+  getNetWorthHistory, getManualAssets,
   createManualAsset, updateManualAsset, deleteManualAsset,
   getDebtPayoff, getNetWorthProjection, getNetWorthYoy,
 } from '../api/client'
@@ -14,10 +14,8 @@ import AccountFreshness from '../components/AccountFreshness'
 import Stat from '../components/Stat'
 import Pill from '../components/Pill'
 import { useIsMobile } from '../hooks/useIsMobile'
-
-function formatCurrency(val) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0)
-}
+import { formatCurrencyZero as formatCurrency } from '../lib/format'
+import { useAccounts } from '../hooks/useAccounts'
 
 function daysSince(isoDate) {
   if (!isoDate) return null
@@ -56,7 +54,7 @@ function iconFor(type) {
 export default function NetWorth() {
   const isMobile = useIsMobile()
   const [history, setHistory] = useState([])
-  const [accounts, setAccounts] = useState([])
+  const { accounts, refresh: refreshAccounts } = useAccounts()
   const [manualAssets, setManualAssets] = useState([])
   const [days, setDays] = useState(90)
   const [editingAsset, setEditingAsset] = useState(null) // null | "new" | asset object | { prefillMortgageId }
@@ -68,11 +66,14 @@ export default function NetWorth() {
 
   const reload = () => {
     getNetWorthHistory(days).then(setHistory).catch(() => [])
-    getAccounts().then(setAccounts).catch(() => [])
+    refreshAccounts()
     getManualAssets().then(setManualAssets).catch(() => [])
   }
 
-  useEffect(() => { reload() }, [days])
+  useEffect(() => {
+    getNetWorthHistory(days).then(setHistory).catch(() => [])
+    getManualAssets().then(setManualAssets).catch(() => [])
+  }, [days])
 
   useEffect(() => {
     if (showProjection) {
@@ -297,23 +298,23 @@ export default function NetWorth() {
                   <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis
                 dataKey="date"
-                stroke="#6b7280"
+                stroke="var(--text-muted)"
                 fontSize={isMobile ? 10 : 12}
                 interval={isMobile ? 'preserveStartEnd' : 'preserveEnd'}
                 minTickGap={isMobile ? 30 : 5}
               />
               <YAxis
-                stroke="#6b7280"
+                stroke="var(--text-muted)"
                 fontSize={isMobile ? 10 : 12}
                 tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
                 width={isMobile ? 40 : 60}
               />
               <Tooltip
                 formatter={(val) => formatCurrency(val)}
-                contentStyle={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8 }}
+                contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}
               />
               <Area type="monotone" dataKey="net_worth" stroke="#34d399" fill="url(#nwGrad)" strokeWidth={2} name="Net Worth" />
               {/* YoY overlay — anchored to today's dates so the user sees

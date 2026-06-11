@@ -18,20 +18,7 @@ import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
 import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
-
-// Strip noisy ACH prefixes from raw transaction descriptions for inline
-// display. Mirrors the helper on the Spending & Income page.
-function cleanMerchantName(raw) {
-  if (!raw) return raw
-  let s = String(raw)
-  s = s.replace(/\s+(TYPE:|ID:|DATA:|CO:|PPD|ACH ECC|ACH Trace).*/i, '')
-  s = s.replace(/^(DEPOSIT|WITHDRAWAL|TRANSFER|PAYMENT|PURCHASE)\s+/i, '')
-  s = s.replace(/\s+/g, ' ').trim()
-  if (s === s.toUpperCase() && s.length > 3) {
-    s = s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-  }
-  return s || raw
-}
+import { formatCurrencyZero, cleanMerchantName } from '../lib/format'
 
 /** First/last day of a month as ISO yyyy-mm-dd. `month` is 1-12. */
 function monthRange(year, month) {
@@ -44,17 +31,13 @@ function monthRange(year, month) {
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6']
 
-function formatCurrency(val) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
-}
-
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload || !payload.length) return null
   const d = payload[0].payload
   return (
-    <div style={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8, padding: '10px 14px' }}>
-      <div style={{ fontWeight: 600, color: '#e8eaed', marginBottom: 4 }}>{d.icon} {d.category}</div>
-      <div style={{ color: '#9aa0a6', fontSize: 13 }}>{formatCurrency(d.amount)} · {d.percentage}%</div>
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px' }}>
+      <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{d.icon} {d.category}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{formatCurrencyZero(d.amount)} · {d.percentage}%</div>
     </div>
   )
 }
@@ -627,12 +610,12 @@ export default function Dashboard() {
           {monthlyTrend.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={monthlyTrend} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                <XAxis dataKey="month" tick={{ fill: '#9aa0a6', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9aa0a6', fontSize: 11 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="month" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
-                  formatter={(val) => formatCurrency(val)}
-                  contentStyle={{ background: '#1e2130', border: '1px solid #2a2d3a', borderRadius: 8 }}
+                  formatter={(val) => formatCurrencyZero(val)}
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="income" name="Income" fill="#34d399" radius={[3, 3, 0, 0]} />
@@ -876,7 +859,7 @@ function ThisMonthBreakdown({
   // dominates the total.
   const maxAmt = Math.max(...rows.map(r => r.amount), 1)
 
-  const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
+  const fmt = formatCurrencyZero
   const fmtDate = (iso) => {
     const d = new Date(iso + 'T00:00:00')
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -927,7 +910,10 @@ function ThisMonthBreakdown({
             return (
               <div key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
                 <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => toggleRow(row.key)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(row.key) } }}
                   title={isOpen ? 'Hide individual transactions' : 'Show individual transactions'}
                   style={{
                     display: 'grid',

@@ -11,11 +11,8 @@ import AccountFreshness from '../components/AccountFreshness'
 import Stat from '../components/Stat'
 import Pill from '../components/Pill'
 import CapitalLossTracker from '../components/CapitalLossTracker'
-
-function formatCurrency(n, currency = 'USD') {
-  if (n === null || n === undefined) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n)
-}
+import { SkeletonStatsGrid, SkeletonCard } from '../components/Skeleton'
+import { formatCurrency } from '../lib/format'
 
 function formatNumber(n, digits = 4) {
   if (n === null || n === undefined) return '—'
@@ -75,9 +72,17 @@ export default function Investments() {
         <h1 className="page-title">Investments</h1>
       </div>
 
+      {/* Skeleton — shown while the initial Promise.all is in flight */}
+      {loading && (
+        <>
+          <SkeletonStatsGrid count={3} />
+          <SkeletonCard rows={5} />
+        </>
+      )}
+
       {/* Summary cards — uses the same Stat component the Dashboard uses
           for consistent type scale and accent stripes. */}
-      {summary && (
+      {!loading && summary && (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           <Stat
             label={<><CircleDollarSign size={14} /> Total market value</>}
@@ -167,16 +172,16 @@ export default function Investments() {
                     })
                     return (
                       <div style={{
-                        background: '#1e2130',
-                        border: '1px solid #2a2d3a',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
                         borderRadius: 8,
                         padding: '8px 12px',
                         fontSize: 12,
                       }}>
-                        <div style={{ fontWeight: 600, color: '#e8eaed', marginBottom: 2 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
                           {row.label}
                         </div>
-                        <div style={{ color: '#9aa0a6' }}>
+                        <div style={{ color: 'var(--text-muted)' }}>
                           {dollars} · {(row.pct ?? 0).toFixed(1)}%
                         </div>
                       </div>

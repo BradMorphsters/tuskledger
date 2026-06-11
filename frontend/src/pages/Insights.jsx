@@ -5,15 +5,17 @@ import {
 import {
   FileText, TrendingUp, TrendingDown, Download,
   AlertTriangle, Store, Sparkles, Calendar,
-  ChevronDown, ChevronRight, Scissors,
+  ChevronDown, ChevronRight, Scissors, WifiOff,
 } from 'lucide-react'
 import {
   getMerchantInsights, getMonthlyReport, getExportUrl,
   getFirstTimeMerchants,
   getSpendingPatterns, getTransactions, getRecurring,
 } from '../api/client'
-import { formatCurrencyZero as formatCurrency, cleanMerchantName } from '../lib/format'
+import { formatCurrencyZero as formatCurrency, cleanMerchantName, yearOptions } from '../lib/format'
 import { useStoredState } from '../lib/storage'
+import EmptyState from '../components/EmptyState'
+import { SkeletonCard } from '../components/Skeleton'
 
 
 // Reusable form input style — used in the goal modal in lieu of a global class.
@@ -32,10 +34,15 @@ const INPUT_STYLE = {
 // ─── Tab: Top Merchants ────────────────────────────────
 function MerchantsTab() {
   const [data, setData] = useState(null)
+  const [error, setError] = useState(false)
   const [months, setMonths] = useState(6)
-  useEffect(() => { getMerchantInsights(months).then(setData).catch(() => {}) }, [months])
+  useEffect(() => {
+    setData(null); setError(false)
+    getMerchantInsights(months).then(setData).catch(() => setError(true))
+  }, [months])
 
-  if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading...</p>
+  if (error) return <EmptyState compact icon={<WifiOff size={20} />} title="Couldn't load merchants" description="Check your connection and try refreshing." />
+  if (!data) return <SkeletonCard rows={5} />
 
   // Truncate generously — the merchant strings are normalized server-side
   // now ('Wells Fargo Mortgage', 'Apple Card Payment', etc.), so most fit
@@ -142,11 +149,15 @@ function MerchantsTab() {
 // ─── Tab: Monthly Report ───────────────────────────────
 function ReportTab() {
   const [report, setReport] = useState(null)
+  const [reportError, setReportError] = useState(false)
   const [newMerchants, setNewMerchants] = useState(null)
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [year, setYear] = useState(new Date().getFullYear())
 
-  useEffect(() => { getMonthlyReport(month, year).then(setReport).catch(() => {}) }, [month, year])
+  useEffect(() => {
+    setReport(null); setReportError(false)
+    getMonthlyReport(month, year).then(setReport).catch(() => setReportError(true))
+  }, [month, year])
   useEffect(() => {
     setNewMerchants(null)
     getFirstTimeMerchants(month, year)
@@ -154,7 +165,8 @@ function ReportTab() {
       .catch(() => setNewMerchants({ new_merchants: [] }))
   }, [month, year])
 
-  if (!report) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading...</p>
+  if (reportError) return <EmptyState compact icon={<WifiOff size={20} />} title="Couldn't load monthly report" description="Check your connection and try refreshing." />
+  if (!report) return <SkeletonCard rows={6} />
 
   const c = report.current
   const p = report.previous
@@ -171,7 +183,7 @@ function ReportTab() {
         </select>
         <select value={year} onChange={e => setYear(Number(e.target.value))}
           style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
-          {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <a href={getExportUrl(`${year}-${String(month).padStart(2,'0')}-01`, month === 12 ? `${year+1}-01-01` : `${year}-${String(month+1).padStart(2,'0')}-01`)}
           className="btn btn-secondary" style={{ marginLeft: 'auto', fontSize: 13 }}

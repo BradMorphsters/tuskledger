@@ -81,6 +81,15 @@ export function formatDate(dateStr) {
  * SpendingIncome, and Insights so the same paycheck shows up under
  * the same cleaned name everywhere.
  */
+/**
+ * Returns an ascending array of years centred on the current year.
+ * yearsBack=2, yearsAhead=1 from 2026 → [2024, 2025, 2026, 2027].
+ */
+export function yearOptions(yearsBack = 2, yearsAhead = 1) {
+  const thisYear = new Date().getFullYear()
+  return Array.from({ length: yearsBack + yearsAhead + 1 }, (_, i) => thisYear - yearsBack + i)
+}
+
 export function cleanMerchantName(raw) {
   if (!raw) return raw
   let s = String(raw)

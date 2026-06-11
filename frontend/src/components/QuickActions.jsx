@@ -12,9 +12,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Plus, X, Search, ArrowRight } from 'lucide-react'
-import { createManualTransaction, globalSearch, getAccounts } from '../api/client'
+import { createManualTransaction, globalSearch } from '../api/client'
 import { useToast } from './Toast'
 import { useNearCorner } from './AskPanel'
+import { useAccounts } from '../hooks/useAccounts'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 /* ───────────────────────────── Theme toggle ───────────────────────────── */
 
@@ -114,7 +116,7 @@ export function QuickAddFab({ onSaved }) {
 
 function QuickAddModal({ onClose, onSaved }) {
   const { toast } = useToast()
-  const [accounts, setAccounts] = useState([])
+  const { accounts } = useAccounts()
   const [form, setForm] = useState(() => ({
     amount: '',
     name: '',
@@ -125,10 +127,6 @@ function QuickAddModal({ onClose, onSaved }) {
   }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-
-  useEffect(() => {
-    getAccounts().then(setAccounts).catch(() => {})
-  }, [])
 
   // Default account = first depository / checking (most common for cash entries)
   useEffect(() => {
@@ -180,6 +178,9 @@ function QuickAddModal({ onClose, onSaved }) {
               placeholder="e.g. 25.50" value={form.amount}
               onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}
               style={inputStyle} />
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.3 }}>
+              Positive = expense (outflow) · negative = income (inflow)
+            </span>
           </Field>
           <Field label="Date">
             <input type="date" required value={form.date}
@@ -363,7 +364,7 @@ export function CommandPalette({ open, onClose, onAction }) {
         />
         <kbd style={kbdStyle}>Esc</kbd>
       </div>
-      <div style={{ maxHeight: 400, overflowY: 'auto', margin: '0 -8px' }}>
+      <div role="listbox" style={{ maxHeight: 400, overflowY: 'auto', margin: '0 -8px' }}>
         {allItems.length === 0 ? (
           <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
             No matches. Try a different query.
@@ -371,6 +372,8 @@ export function CommandPalette({ open, onClose, onAction }) {
         ) : (
           allItems.map((item, i) => (
             <div
+              role="option"
+              aria-selected={i === selectedIdx}
               key={`${item.type}-${item.id || item.path || item.action || i}`}
               onMouseEnter={() => setSelectedIdx(i)}
               onClick={() => executeItem(item)}
@@ -433,8 +436,12 @@ function typeBadgeColor(type) {
 
 /* ───────────────────────────── Shared modal shell ─────────────────────── */
 
-function ModalShell({ onClose, title, children, variant = 'default' }) {
+function ModalShell({ onClose, title, children, variant = 'default', ariaLabel }) {
   const isPalette = variant === 'palette'
+  const containerRef = useRef(null)
+  // Palette keeps its own focus on the query input via a separate ref,
+  // so we trap Tab but skip auto-focusing the first element.
+  useFocusTrap(containerRef, true, { autoFocus: !isPalette })
   return (
     <div
       onClick={onClose}
@@ -449,6 +456,10 @@ function ModalShell({ onClose, title, children, variant = 'default' }) {
       }}
     >
       <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel || title || (isPalette ? 'Command palette' : undefined)}
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--bg-card)',

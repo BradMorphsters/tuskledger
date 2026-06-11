@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight, Split, X, Plus, Star } from 'lucide-react'
 import {
-  getTransactions, getTransactionsTotals, getAccounts, updateTransaction, getCategories, getBusinesses,
+  getTransactions, getTransactionsTotals, updateTransaction, getCategories, getBusinesses,
   replaceTransactionSplits, clearTransactionSplits, getExportUrl,
 } from '../api/client'
+import { useAccounts } from '../hooks/useAccounts'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import BusinessBadge from '../components/BusinessBadge'
 import Pill from '../components/Pill'
 import MerchantDrawer from '../components/MerchantDrawer'
-
-function formatCurrency(val) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
-}
+import { formatCurrency } from '../lib/format'
 
 function formatDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
@@ -24,7 +23,7 @@ export default function Transactions() {
   // accurate when results exceed the page limit. Falls back to local
   // page sums while loading / on error.
   const [scopeTotals, setScopeTotals] = useState(null)
-  const [accounts, setAccounts] = useState([])
+  const { accounts } = useAccounts()
   const [categories, setCategories] = useState([])
   const [filters, setFilters] = useState({
     account_id: '',
@@ -91,7 +90,6 @@ export default function Transactions() {
   }
 
   useEffect(() => {
-    getAccounts().then(setAccounts).catch(() => {})
     getCategories().then(setCategories).catch(() => {})
     getBusinesses().then(setBusinesses).catch(() => {})
     load()
@@ -974,6 +972,15 @@ function SplitModal({ transaction, categories, onClose, onSaved }) {
   const [rows, setRows] = useState(initial)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const containerRef = useRef(null)
+  useFocusTrap(containerRef, true)
+
+  // Escape closes the modal.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const total = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
   const remaining = parentAbs - total
@@ -1026,6 +1033,10 @@ function SplitModal({ transaction, categories, onClose, onSaved }) {
       }}
     >
       <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Split transaction"
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12,
@@ -1042,7 +1053,7 @@ function SplitModal({ transaction, categories, onClose, onSaved }) {
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
           <strong>{transaction.merchant_name || transaction.name}</strong>
           {' — '}
-          {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(parentAbs)}
+          {formatCurrency(parentAbs)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>

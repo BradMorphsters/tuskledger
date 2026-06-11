@@ -520,9 +520,9 @@ export const applyCategoryRule = (id) =>
 export const importCsv = (accountId, file) => {
   const fd = new FormData();
   fd.append('file', file);
-  return fetch(`${API_BASE}/csv-import?account_id=${accountId}`, {
+  return fetch(`${BASE}/csv-import?account_id=${accountId}`, {
     method: 'POST',
     credentials: 'include',
     body: fd,
-  }).then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText)));
+  }).then(r => r.ok ? r.json() : r.json().catch(() => ({ detail: r.statusText })).then(e => Promise.reject(new Error(e.detail || r.statusText))));
 };

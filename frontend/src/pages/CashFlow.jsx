@@ -279,14 +279,14 @@ function ForecastView() {
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={data.series}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis
               dataKey="date"
-              tick={{ fill: '#9aa0a6', fontSize: 11 }}
+              tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
               tickFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               minTickGap={32}
             />
-            <YAxis tick={{ fill: '#9aa0a6', fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(1)}k`} />
+            <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(1)}k`} />
             <Tooltip
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
               labelFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

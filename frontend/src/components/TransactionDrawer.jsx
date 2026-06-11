@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { X, Split } from 'lucide-react'
 import {
   getTransactions,
@@ -7,6 +7,8 @@ import {
   updateTransaction,
 } from '../api/client'
 import Pill from './Pill'
+import { formatCurrencyZero } from '../lib/format'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 /**
  * Slide-in drawer that shows the transactions making up a summary amount.
@@ -44,6 +46,8 @@ export default function TransactionDrawer({
   const [editingNotesId, setEditingNotesId] = useState(null)
   const [editNotes, setEditNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const containerRef = useRef(null)
+  useFocusTrap(containerRef, open)
 
   // Serialize filters so we can useEffect-dep on them without object identity churn.
   const filterKey = JSON.stringify(filters)
@@ -151,7 +155,7 @@ export default function TransactionDrawer({
     }
   }
 
-  const formatCurrency = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
+  const formatCurrency = formatCurrencyZero
 
   if (!open) return null
 
@@ -167,7 +171,9 @@ export default function TransactionDrawer({
       />
       {/* Drawer panel */}
       <aside
+        ref={containerRef}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0,

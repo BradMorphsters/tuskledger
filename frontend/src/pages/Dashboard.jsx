@@ -358,17 +358,17 @@ export default function Dashboard() {
       <div className="stats-grid">
         <Stat
           label="Net Worth"
-          value={formatCurrency(totalBalance)}
+          value={formatCurrencyZero(totalBalance)}
           tone={totalBalance >= 0 ? 'positive' : 'negative'}
         />
         <Stat
           label="Total Assets"
-          value={formatCurrency(totalAssets)}
+          value={formatCurrencyZero(totalAssets)}
           tone="positive"
         />
         <Stat
           label="Total Debt"
-          value={formatCurrency(totalDebt)}
+          value={formatCurrencyZero(totalDebt)}
           tone="negative"
         />
         <div className="stat-card tone-neutral">
@@ -417,7 +417,7 @@ export default function Dashboard() {
                     textDecorationThickness: 2,
                     textUnderlineOffset: 4,
                   }}>
-                    {formatCurrency(value)}
+                    {formatCurrencyZero(value)}
                   </div>
                 </button>
               )
@@ -661,7 +661,7 @@ export default function Dashboard() {
                   <td><span className="category-badge">{a.subtype || a.type}</span></td>
                   <td style={{ textAlign: 'right' }} className="tabular">
                     <span className={a.type === 'credit' || a.type === 'loan' ? 'amount-negative' : 'amount-positive'}>
-                      {formatCurrency(a.current_balance)}
+                      {formatCurrencyZero(a.current_balance)}
                     </span>
                   </td>
                 </tr>
@@ -688,7 +688,7 @@ export default function Dashboard() {
                     </td>
                     <td style={{ textAlign: 'right' }} className="tabular">
                       <span className={isLiability ? 'amount-negative' : 'amount-positive'}>
-                        {formatCurrency(m.current_value)}
+                        {formatCurrencyZero(m.current_value)}
                       </span>
                     </td>
                   </tr>
@@ -730,7 +730,7 @@ export default function Dashboard() {
                   <td><span className="category-badge">{t.custom_category || t.category || 'Uncategorized'}</span></td>
                   <td style={{ textAlign: 'right' }}>
                     <span className={t.amount > 0 ? 'amount-negative' : 'amount-positive'}>
-                      {t.amount > 0 ? '-' : '+'}{formatCurrency(Math.abs(t.amount))}
+                      {t.amount > 0 ? '-' : '+'}{formatCurrencyZero(Math.abs(t.amount))}
                     </span>
                   </td>
                 </tr>

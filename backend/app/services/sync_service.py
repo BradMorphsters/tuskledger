@@ -154,6 +154,11 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
         sync_result = sync_transactions(client, access_token, item.cursor)
 
     added_count = 0
+    # Hoisted out of the loop: these don't change mid-sync, and querying
+    # them once per added transaction made large syncs O(N x rules-query).
+    # (The backfill path already does this.)
+    category_rules = db.query(CategoryRule).all()
+    business_rules = db.query(BusinessRule).order_by(BusinessRule.priority).all()
     for txn in sync_result["added"]:
         txn_id = str(txn["transaction_id"])
         existing = db.query(Transaction).filter_by(plaid_transaction_id=txn_id).first()
@@ -185,15 +190,13 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
             subcategory=str(cat_detailed) if cat_detailed else None,
         )
         # Apply user-defined category rules
-        rules = db.query(CategoryRule).all()
         search_text = ((new_txn.merchant_name or "") + " " + (new_txn.name or "")).lower()
-        for rule in rules:
+        for rule in category_rules:
             if rule.pattern in search_text:
                 new_txn.custom_category = rule.category
                 break
         # Apply user-defined business rules
-        biz_rules = db.query(BusinessRule).order_by(BusinessRule.priority).all()
-        for rule in biz_rules:
+        for rule in business_rules:
             if rule.pattern.lower() in search_text:
                 new_txn.business_id = rule.business_id
                 break

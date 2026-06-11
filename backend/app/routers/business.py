@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -13,6 +13,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models import Transaction, Account, Business
 from app.services.categories import CATEGORY_ICONS
+from app.utils import utcnow
 
 router = APIRouter(prefix="/api/businesses", tags=["businesses"])
 
@@ -97,7 +98,12 @@ def tag_transactions(business_id: int, body: dict, db: Session = Depends(get_db)
     count = (
         db.query(Transaction)
         .filter(Transaction.id.in_(txn_ids))
-        .update({"business_id": business_id}, synchronize_session="fetch")
+        # updated_at set explicitly: bulk UPDATE bypasses the ORM onupdate
+        # hook, and mobile incremental sync filters on updated_at.
+        .update(
+            {"business_id": business_id, "updated_at": utcnow()},
+            synchronize_session="fetch",
+        )
     )
     db.commit()
     return {"tagged": count}
@@ -113,7 +119,10 @@ def untag_transactions(body: dict, db: Session = Depends(get_db)):
     count = (
         db.query(Transaction)
         .filter(Transaction.id.in_(txn_ids))
-        .update({"business_id": None}, synchronize_session="fetch")
+        .update(
+            {"business_id": None, "updated_at": utcnow()},
+            synchronize_session="fetch",
+        )
     )
     db.commit()
     return {"untagged": count}

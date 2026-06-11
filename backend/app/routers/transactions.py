@@ -804,38 +804,41 @@ def income_vs_spending(
 ):
     """Get monthly income vs spending for the last N months."""
     today = date.today()
-    results = []
 
+    # Compute the range start (first day of the oldest month), then fetch
+    # the whole window in ONE query and bucket by month in Python — the
+    # previous per-month loop fired up to 24 separate SELECTs.
+    m0 = today.month - (months - 1)
+    y0 = today.year
+    while m0 <= 0:
+        m0 += 12
+        y0 -= 1
+    range_start = date(y0, m0, 1)
+
+    rows = db.query(Transaction.date, Transaction.amount).filter(
+        Transaction.date >= range_start,
+        Transaction.is_transfer.is_(False),
+    ).all()
+
+    buckets: dict[tuple[int, int], list[float]] = {}
+    for txn_date, amount in rows:
+        key = (txn_date.year, txn_date.month)
+        bucket = buckets.setdefault(key, [0.0, 0.0])  # [income, spending]
+        if amount < 0:
+            bucket[0] += abs(amount)
+        else:
+            bucket[1] += amount
+
+    results = []
     for i in range(months - 1, -1, -1):
-        # Calculate month/year going backwards
         m = today.month - i
         y = today.year
         while m <= 0:
             m += 12
             y -= 1
-
-        start = date(y, m, 1)
-        if m == 12:
-            end = date(y + 1, 1, 1)
-        else:
-            end = date(y, m + 1, 1)
-
-        month_txns = db.query(Transaction).filter(
-            Transaction.date >= start,
-            Transaction.date < end,
-            Transaction.is_transfer.is_(False),
-        ).all()
-
-        income = 0.0
-        spending = 0.0
-        for t in month_txns:
-            if t.amount < 0:
-                income += abs(t.amount)
-            else:
-                spending += t.amount
-
+        income, spending = buckets.get((y, m), [0.0, 0.0])
         results.append({
-            "month": start.strftime("%b %Y"),
+            "month": date(y, m, 1).strftime("%b %Y"),
             "month_num": m,
             "year": y,
             "income": round(income, 2),
@@ -928,17 +931,34 @@ def get_merchant_details(merchant_name: str, db: Session = Depends(get_db)):
     today = date.today()
     ytd_start = date(today.year, 1, 1)
 
-    # Query all transactions matching this merchant (case-insensitive) or its normalized form
-    all_txns = db.query(Transaction).all()
+    # Query transactions matching this merchant (case-insensitive) or its
+    # normalized form. The normalizer is Python-only, so the scan can't move
+    # fully into SQL — but fetching just the columns we use (instead of
+    # hydrating full ORM objects) and normalizing once per row keeps this
+    # fast even with years of history.
+    target = merchant_name.lower()
+    all_txns = db.query(
+        Transaction.id,
+        Transaction.date,
+        Transaction.amount,
+        Transaction.is_transfer,
+        Transaction.merchant_name,
+        Transaction.name,
+        Transaction.display_name,
+        Transaction.account_id,
+    ).all()
     matching_txns = []
     for txn in all_txns:
         txn_merchant = txn.merchant_name or txn.name
-        # Try exact match (case-insensitive) first
-        if txn_merchant and txn_merchant.lower() == merchant_name.lower():
+        if not txn_merchant:
+            continue
+        # Exact match (case-insensitive) first, then normalized form
+        if txn_merchant.lower() == target:
             matching_txns.append(txn)
-        # Also try matching against normalized form
-        elif normalize(txn_merchant) and normalize(txn_merchant).lower() == merchant_name.lower():
-            matching_txns.append(txn)
+        else:
+            normalized = normalize(txn_merchant)
+            if normalized and normalized.lower() == target:
+                matching_txns.append(txn)
 
     # Calculate YTD (non-transfers only for totals)
     ytd_total = 0.0

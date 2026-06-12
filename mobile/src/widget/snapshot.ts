@@ -22,7 +22,10 @@
  * crash but the new field will silently fail to render.
  */
 import { AccountRow, currentMonthSummary, listAccounts } from '../db/queries';
-import * as WidgetBridge from 'widget-bridge';
+// Relative import: the native side of this local Expo module is autolinked
+// from modules/, but Metro can't resolve the bare 'widget-bridge' name
+// without a node_modules entry — so import the JS entry directly.
+import * as WidgetBridge from '../../modules/widget-bridge/src/index';
 
 export interface CashAccountSnapshot {
   id: number;

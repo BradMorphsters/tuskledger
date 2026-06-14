@@ -15,6 +15,26 @@ tuskledger.db.before-*
 backend/data/
 backend/backups/
 
+# Research layer: keep the seed universe + schema tracked (they're the
+# shareable, PII-free source of truth), but ignore the append-only
+# runtime history files — git history of the .research.json already
+# captures scoring changes, so the JSONL would just be churn.
+research/*.history.jsonl
+# Market-price cache (real closes) — derived runtime data.
+research/*.prices.json
+# Quiver public-activity cache — derived runtime data.
+research/*.signals.json
+# Sector rotation history — derived runtime time series.
+research/*.rotation.jsonl
+# SEC EDGAR filing-activity cache + ticker→CIK map — derived runtime data.
+research/*.edgar.json
+research/sec_ciks.json
+# Runtime "active industry" pointer (set via the in-app admin switcher).
+research/.active-domain.json
+# Daily research briefings written by the scheduled monitoring task —
+# runtime output, regenerated each day, not source.
+research/briefings/
+
 # ─── One-off data-fix scripts (often contain personal account names) ──
 # backend/scripts/ tends to hard-code the user's actual accounts
 # (LIKE '%MyEmployer%', specific roth_split_pct values for one person).

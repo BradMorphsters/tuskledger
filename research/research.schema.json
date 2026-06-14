@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tuskledger.local/schemas/research.schema.json",
+  "title": "Tusk Ledger — Long-Term-Hold Research File",
+  "description": "Canonical, domain-agnostic data contract for a scored research universe that the Tusk Ledger app (or any program) reads to drive a viewer and to join against live holdings. Designed for long-term holders: thesis-, catalyst- and provenance-centric. PII-FREE: contains no balances or account data — positions are joined at query time from Tusk Ledger.",
+  "type": "object",
+  "required": ["meta", "dimensions", "entities"],
+  "additionalProperties": false,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["schema_version", "domain", "last_updated"],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": { "type": "string", "description": "SemVer of this contract. Writers must check before writing." },
+        "domain": { "type": "string", "description": "Industry/theme key, e.g. 'critical-minerals'. One file per domain." },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "last_updated": { "type": "string", "format": "date-time" },
+        "updated_by": { "type": "string", "description": "Agent/program that last wrote the file (e.g. 'claude', 'scheduler', 'manual')." },
+        "as_of": { "type": "string", "description": "Human as-of label for the dataset, e.g. '2026-06'." },
+        "base_currency": { "type": "string", "default": "USD" },
+        "disclaimer": { "type": "string" },
+        "industry": {
+          "type": "object",
+          "description": "Per-domain knobs that retarget the engine to a different industry/theme. All optional: omit and the sector-relative-strength view simply doesn't compute. This is the standard, code-free way to focus the tool on a new industry.",
+          "additionalProperties": true,
+          "properties": {
+            "label": { "type": "string", "description": "Human label used in prompts/UI, e.g. 'critical minerals', 'retail', 'defense'." },
+            "benchmark": { "type": "string", "description": "Broad-market benchmark ticker for relative strength (default 'SPY')." },
+            "sector_etfs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Sector/theme proxy ETFs measured against the benchmark to gauge whether capital is rotating into this industry. e.g. ['URA','LIT','COPX','REMX'] for critical minerals; ['XRT','RTH'] for retail."
+            },
+            "proxy_keywords": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "category-substring -> proxy ETF, for per-name backdrop mapping. e.g. {'uranium':'URA','lithium':'LIT'}."
+            },
+            "rotation_weights": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Per-industry weighting of the rotation-temperature components (auto-normalized to sum to 1). Omit for the default 0.35/0.30/0.20/0.15.",
+              "properties": {
+                "flow": { "type": "number" },
+                "rerating": { "type": "number" },
+                "momentum": { "type": "number" },
+                "cadence": { "type": "number" }
+              }
+            },
+            "flow_signals": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["gov_contracts", "congress", "lobbying", "edgar"] },
+              "description": "Which public-money-flow sub-signals count for THIS industry. Omit = all. e.g. retail might use ['edgar'] only, since federal contracts/lobbying/congressional trades rarely apply."
+            }
+          }
+        }
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "description": "Self-describing vocabulary: factor, tier, composite and enum definitions. Lets the viewer and any writer share meaning, and makes the schema reusable for other industries.",
+      "required": ["factors", "tiers", "composites"],
+      "additionalProperties": true,
+      "properties": {
+        "factors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "desc": { "type": "string" },
+              "applies_to": { "type": "array", "items": { "type": "string", "enum": ["equity", "fund"] } }
+            }
+          }
+        },
+        "scale": {
+          "type": "object",
+          "properties": { "min": { "type": "number" }, "max": { "type": "number" }, "note": { "type": "string" } }
+        },
+        "tiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": { "id": { "type": "integer" }, "label": { "type": "string" }, "desc": { "type": "string" } }
+          }
+        },
+        "risk_ratings": { "type": "array", "items": { "type": "string" } },
+        "composites": {
+          "type": "object",
+          "description": "Weight maps per security_type and per composite. composite = round(sum(factor*weight)/scale.max*100).",
+          "additionalProperties": true
+        },
+        "catalyst_status": { "type": "array", "items": { "type": "string" } },
+        "confidence_levels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entity" }
+    },
+    "snapshots": {
+      "type": "array",
+      "description": "Optional append-only time series for trend charts and thesis-drift detection. One row per entity per as_of. May also be stored in a sibling history.jsonl.",
+      "items": { "$ref": "#/$defs/snapshot" }
+    }
+  },
+  "$defs": {
+    "entity": {
+      "type": "object",
+      "required": ["id", "ticker", "name", "domain", "security_type", "scores"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "description": "Stable internal id; never reuse. Join key of last resort." },
+        "ticker": { "type": "string", "description": "Primary exchange ticker — PRIMARY JOIN KEY against Tusk Ledger security.ticker_symbol (normalize: trim, uppercase)." },
+        "aliases": { "type": "array", "items": { "type": "string" }, "description": "Alternate tickers/symbols for robust joins (class shares, OTC lines, ADR vs local)." },
+        "figi": { "type": "string", "description": "Optional OpenFIGI id for exchange-independent matching." },
+        "isin": { "type": "string" },
+        "cusip": { "type": "string" },
+        "plaid_security_id": { "type": "string", "description": "Optional: pin to a specific Tusk Ledger/Plaid security for an exact join." },
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "category": { "type": "string", "description": "Sub-sector, e.g. 'Rare earths / magnets'." },
+        "security_type": { "type": "string", "enum": ["equity", "fund", "etf", "trust", "other"] },
+        "exchange": { "type": ["string", "null"] },
+        "tier": { "type": ["integer", "null"], "enum": [1, 2, 3, null] },
+        "lifecycle_stage": { "type": ["string", "null"], "description": "e.g. 'Producing', 'Construction', 'Pre-revenue', 'fund'." },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "scores": {
+          "type": "object",
+          "required": ["factors", "conviction", "upside"],
+          "additionalProperties": true,
+          "properties": {
+            "factors": { "type": "object", "additionalProperties": { "type": "number", "minimum": 1, "maximum": 5 } },
+            "conviction": { "type": "number", "minimum": 0, "maximum": 100 },
+            "upside": { "type": "number", "minimum": 0, "maximum": 100 },
+            "as_of": { "type": "string" },
+            "method": { "type": "string", "description": "Pointer into dimensions.composites, e.g. 'dimensions.composites.equity'." }
+          }
+        },
+        "fundamentals": {
+          "type": "object",
+          "description": "Approximate point-in-time snapshot. Strings allowed (e.g. '~$10B'). Always carry as_of + source.",
+          "additionalProperties": true,
+          "properties": {
+            "as_of": { "type": "string" },
+            "source": { "type": ["string", "null"] }
+          }
+        },
+        "price_targets": {
+          "type": "object",
+          "description": "Published analyst/sell-side price-target range — NOT a Tusk Ledger forecast or recommendation. Equities only (omit for funds/ETFs). Always cite source + as_of; the viewer renders current price vs this range with a 'not investment advice' label.",
+          "additionalProperties": true,
+          "properties": {
+            "low": { "type": ["number", "null"], "description": "Lowest published target." },
+            "base": { "type": ["number", "null"], "description": "Consensus/median target." },
+            "high": { "type": ["number", "null"], "description": "Highest published target." },
+            "currency": { "type": "string", "default": "USD" },
+            "as_of": { "type": "string", "description": "Date/label the targets were gathered." },
+            "basis": { "type": ["string", "null"], "description": "e.g. 'sell-side consensus' or 'analyst range'." },
+            "n_analysts": { "type": ["integer", "null"] },
+            "source": { "type": ["string", "null"] },
+            "url": { "type": ["string", "null"] },
+            "confidence": { "type": ["string", "null"], "enum": ["low", "medium", "high", null] }
+          }
+        },
+        "govt_support": { "type": ["string", "null"] },
+        "risk_rating": { "type": ["string", "null"] },
+        "thesis": {
+          "type": "object",
+          "properties": {
+            "summary": { "type": ["string", "null"] },
+            "detail": { "type": ["string", "null"] },
+            "structural_drivers": { "type": "array", "items": { "type": "string" } },
+            "moat": { "type": ["string", "null"] }
+          }
+        },
+        "catalysts": { "type": "array", "items": { "$ref": "#/$defs/catalyst" } },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["desc"],
+            "properties": { "desc": { "type": "string" }, "severity": { "type": "string", "enum": ["low", "med", "high"] } }
+          }
+        },
+        "invalidation_triggers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What would break the thesis / prompt a sell — the discipline most useful to a long-term holder."
+        },
+        "exposure": { "type": ["string", "null"], "description": "Funds: what the basket is most exposed to." },
+        "notes": { "type": ["string", "null"] },
+        "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+        "review": {
+          "type": "object",
+          "description": "Review cadence so the viewer can flag stale entries.",
+          "properties": {
+            "last_reviewed": { "type": "string", "format": "date" },
+            "next_due": { "type": "string", "format": "date" }
+          }
+        },
+        "updated_by": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date" }
+      }
+    },
+    "catalyst": {
+      "type": "object",
+      "required": ["description"],
+      "additionalProperties": true,
+      "properties": {
+        "due": { "type": ["string", "null"], "description": "ISO date or coarse period ('2026-Q4','2029')." },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["upcoming", "in_progress", "hit", "missed", "ongoing"] },
+        "impact": { "type": "string", "enum": ["low", "med", "high"] }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": ["string", "null"] },
+        "as_of": { "type": "string" },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "as_of"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "description": "entity.id this row belongs to." },
+        "as_of": { "type": "string" },
+        "conviction": { "type": ["number", "null"] },
+        "upside": { "type": ["number", "null"] },
+        "price": { "type": ["number", "string", "null"] },
+        "tier": { "type": ["integer", "null"] }
+      }
+    }
+  }
+}

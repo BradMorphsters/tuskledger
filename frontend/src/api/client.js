@@ -455,6 +455,84 @@ export const tradingTaxForm8949Url = (params = {}) => {
   return `/api/investments/trading-tax/form-8949${qs ? '?' + qs : ''}`;
 };
 
+// Research — long-term-hold research layer (PII-free scored universe joined
+// onto live holdings at query time). See backend/app/routers/research.py.
+export const getResearchDomains = () => request('/research/domains');
+export const getResearchMeta = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/meta`);
+export const getResearchUniverse = (domain, { tier, minConviction, heldOnly } = {}) => {
+  const p = new URLSearchParams();
+  if (tier !== undefined && tier !== null && tier !== '') p.set('tier', String(tier));
+  if (minConviction) p.set('min_conviction', String(minConviction));
+  if (heldOnly) p.set('held_only', 'true');
+  const qs = p.toString();
+  return request(`/research/${encodeURIComponent(domain)}/universe${qs ? '?' + qs : ''}`);
+};
+// The headline view: held securities × research overlay (the cockpit).
+export const getResearchPositions = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/positions`);
+export const getResearchAlerts = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/alerts`);
+export const getResearchEntity = (domain, id) =>
+  request(`/research/${encodeURIComponent(domain)}/entity/${encodeURIComponent(id)}`);
+export const getResearchForTicker = (ticker) =>
+  request(`/research/ticker/${encodeURIComponent(ticker)}`);
+export const getResearchHistory = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/history`);
+// Append a current-state snapshot for every entity (thesis-drift heartbeat).
+export const recordResearchSnapshot = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/snapshot`, { method: 'POST' });
+// Real monthly close history + current price for one ticker (Stooq, on-demand).
+export const getResearchPrices = (domain, ticker, { months, refresh } = {}) => {
+  const p = new URLSearchParams();
+  if (months) p.set('months', String(months));
+  if (refresh) p.set('refresh', 'true');
+  const qs = p.toString();
+  return request(`/research/${encodeURIComponent(domain)}/prices/${encodeURIComponent(ticker)}${qs ? '?' + qs : ''}`);
+};
+// Bulk-warm the price cache for every ticker (used by the daily job).
+export const refreshResearchPrices = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/refresh-prices`, { method: 'POST' });
+
+// Quiver public-purchase signals (gov contracts, congressional/insider, lobbying).
+export const getSignalsStatus = () => request('/signals/status');
+export const getSignalsFeed = (domain) => request(`/signals/${encodeURIComponent(domain)}/feed`);
+export const getSignalsForTicker = (domain, ticker, { refresh } = {}) =>
+  request(`/signals/${encodeURIComponent(domain)}/${encodeURIComponent(ticker)}${refresh ? '?refresh=true' : ''}`);
+export const refreshSignals = (domain) =>
+  request(`/signals/${encodeURIComponent(domain)}/refresh`, { method: 'POST' });
+
+// Industry admin — switch the focused industry at runtime + scaffold new ones.
+export const getActiveIndustry = () => request('/research/active');
+export const setActiveIndustry = (domain) =>
+  request('/research/active', { method: 'POST', body: JSON.stringify({ domain }) });
+export const createIndustry = (data) =>
+  request('/research/industries', { method: 'POST', body: JSON.stringify(data) });
+
+// SEC EDGAR filing activity — free (no key): insider Form-4, 8-K events, raises.
+export const getEdgarFeed = (domain) => request(`/edgar/${encodeURIComponent(domain)}/feed`);
+export const getEdgarForTicker = (domain, ticker, { refresh } = {}) =>
+  request(`/edgar/${encodeURIComponent(domain)}/${encodeURIComponent(ticker)}${refresh ? '?refresh=true' : ''}`);
+export const refreshEdgar = (domain) =>
+  request(`/edgar/${encodeURIComponent(domain)}/refresh`, { method: 'POST' });
+
+// Integrations / API keys — bring-your-own-key status (booleans only).
+export const getIntegrationsStatus = () => request('/integrations/status');
+
+// Sector rotation watch (aggregate temperature + local-AI synthesis).
+export const getRotation = (domain) => request(`/rotation/${encodeURIComponent(domain)}`);
+export const getRotationNarrative = (domain) => request(`/rotation/${encodeURIComponent(domain)}/narrative`);
+// Validated writes (blocked on read-only devices + the public demo by the
+// backend's read_only_gate middleware).
+export const upsertResearchEntity = (domain, entity) =>
+  request(`/research/${encodeURIComponent(domain)}/entity`, {
+    method: 'POST', body: JSON.stringify(entity),
+  });
+export const updateResearchField = (domain, id, path, value) =>
+  request(`/research/${encodeURIComponent(domain)}/entity/${encodeURIComponent(id)}`, {
+    method: 'PATCH', body: JSON.stringify({ path, value }),
+  });
+
 // Subscription rules — user-defined overrides for the recurrence
 // detector. See models/subscription_rule.py for kind values.
 export const getSubscriptionRules = () =>

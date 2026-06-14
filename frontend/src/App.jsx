@@ -29,6 +29,9 @@ import {
   Waves,
   CalendarDays,
   FolderOpen,
+  Gem,
+  Landmark,
+  Gauge,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -45,6 +48,9 @@ import CashFlowCalendar from './pages/CashFlowCalendar'
 import ConnectAccounts from './pages/ConnectAccounts'
 import Investments from './pages/Investments'
 import TradingTaxPage from './pages/TradingTaxPage'
+import Research from './pages/Research'
+import Signals from './pages/Signals'
+import Rotation from './pages/Rotation'
 import Rules from './pages/Rules'
 import SpendingIncome from './pages/SpendingIncome'
 import Insights from './pages/Insights'
@@ -260,6 +266,9 @@ export default function App() {
     { to: '/bills-calendar', icon: CalendarDays, label: 'Bills Calendar' },
     { to: '/investments', icon: LineChart, label: 'Investments' },
     { to: '/trading-tax', icon: Receipt, label: 'Trading Tax' },
+    { to: '/research', icon: Gem, label: 'Research' },
+    { to: '/signals', icon: Landmark, label: 'Signals' },
+    { to: '/rotation', icon: Gauge, label: 'Rotation' },
     { to: '/insights', icon: Lightbulb, label: 'Insights' },
     { to: '/business', icon: Briefcase, label: 'Business' },
     { to: '/tax-prep', icon: FolderOpen, label: 'Tax Prep' },
@@ -570,6 +579,9 @@ export default function App() {
           <Route path="/bills-calendar" element={<CashFlowCalendar />} />
           <Route path="/investments" element={<Investments />} />
           <Route path="/trading-tax" element={<TradingTaxPage />} />
+          <Route path="/research" element={<Research />} />
+          <Route path="/signals" element={<Signals />} />
+          <Route path="/rotation" element={<Rotation />} />
           <Route path="/insights" element={<Insights />} />
           <Route path="/business" element={<BusinessPage />} />
           <Route path="/rules" element={<Rules />} />

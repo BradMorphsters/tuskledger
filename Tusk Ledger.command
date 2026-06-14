@@ -52,6 +52,37 @@ if [ -n "$env_warning" ]; then
   echo ""
 fi
 
+# Sanity check: research layer data present?
+# The Research tab reads PII-free scored-universe files from research/
+# (overridable with RESEARCH_DIR in backend/.env; a leading ~ is expanded).
+# Missing files just mean an empty Research tab, so we note it and keep
+# going — same non-blocking philosophy as the .env check above.
+RESEARCH_DIR_PATH="$PROJECT_DIR/research"
+if [ -f "$ENV_FILE" ]; then
+  _rd="$(grep -E '^RESEARCH_DIR=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '"')"
+  if [ -n "$_rd" ]; then
+    RESEARCH_DIR_PATH="${_rd/#\~/$HOME}"
+  fi
+fi
+if [ -f "$RESEARCH_DIR_PATH/research.schema.json" ] && \
+   ls "$RESEARCH_DIR_PATH"/*.research.json >/dev/null 2>&1; then
+  # Glob loop (not ls|xargs) so domain names survive a project path with
+  # spaces — the user's folder is literally "Personal finance tracking".
+  _domains=""
+  for _f in "$RESEARCH_DIR_PATH"/*.research.json; do
+    [ -e "$_f" ] || continue
+    _b="$(basename "$_f")"; _b="${_b%.research.json}"
+    _domains="${_domains:+$_domains, }$_b"
+  done
+  echo "Research layer: ${_domains:-loaded} ($RESEARCH_DIR_PATH)"
+  echo ""
+else
+  echo "NOTE: No research data found in $RESEARCH_DIR_PATH —"
+  echo "      the Research tab will be empty until a <domain>.research.json"
+  echo "      and research.schema.json are present there."
+  echo ""
+fi
+
 # --- Backend ---
 # Bind decision: localhost-only by default (the original Tusk Ledger
 # trust model — only the laptop's browser can reach the API). When the
@@ -90,6 +121,10 @@ fi
 
 # shellcheck disable=SC1091
 source venv/bin/activate
+# Upgrade pip first. Venvs created by older Pythons ship pip 21.x, which
+# can fail to resolve wheels for modern deps (e.g. jsonschema's rpds-py /
+# referencing). Quiet + idempotent — a no-op once pip is current.
+python -m pip install --upgrade pip --quiet 2>&1 || true
 pip install -r requirements.txt --quiet 2>&1
 
 uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 --reload &

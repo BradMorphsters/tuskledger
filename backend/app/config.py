@@ -97,6 +97,64 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama3.1:8b"
     LLM_URL: str = "http://127.0.0.1:11434"
 
+    # ── Long-term-hold research layer ─────────────────────────────
+    # Directory holding the PII-free research files (<domain>.research.json)
+    # and the contract (research.schema.json). The research layer joins
+    # this scored universe onto live holdings at query time — no balances
+    # ever live in these files, so the directory is safe to commit to git
+    # (which is exactly how the spec wants version history).
+    #
+    # Blank (the default) resolves to the repo-level ./research directory
+    # (see services/research_store.py:research_dir). Override with an
+    # absolute path — e.g. ~/.tuskledger/research — to keep the data
+    # outside the repo. "~" is expanded.
+    RESEARCH_DIR: str = ""
+
+    # The app focuses on ONE industry/theme at a time. When several research
+    # files exist in RESEARCH_DIR (e.g. critical-minerals + retail), this names
+    # the active one — it sorts first so the UI defaults to it. Blank → the
+    # first domain found. Set this to a file's meta.domain (e.g. "retail") to
+    # switch the whole app's focus to a different industry. See the
+    # "Adding an industry" guide in docs/.
+    ACTIVE_RESEARCH_DOMAIN: str = ""
+
+    # ── Market price data (research price chart) ──────────────────
+    # The price chart pulls real monthly closes from a market-data provider.
+    # Keyless sources (Stooq, Yahoo) are now bot-walled for server requests,
+    # so set a free Twelve Data API key here for reliable price history:
+    #   1. Sign up at https://twelvedata.com/pricing (Basic/free — no card)
+    #   2. Copy the API key from the dashboard
+    #   3. Put it in backend/.env as: MARKETDATA_API_KEY=your_key_here
+    #   4. Restart the backend.
+    # Free tier is ~800 calls/day / 8 per minute — plenty for the daily
+    # refresh + on-demand chart loads. Leave blank to fall back to
+    # best-effort keyless Yahoo (frequently blocked → "price unavailable").
+    MARKETDATA_API_KEY: str = ""
+
+    # ── Quiver Quantitative (public-purchase signals) ─────────────
+    # Powers the Signals tab + the "Public activity" overlay in Research:
+    # federal government contracts, congressional trades, insider Form-4
+    # trades, and corporate lobbying — distilled into a direction (heating
+    # up / steady / cooling) per name. Needs a paid Quiver API key:
+    #   1. Sign up at https://api.quiverquant.com/ (Hobbyist ~$30/mo Tier 1
+    #      covers congressional trades + government contracts; Trader ~$75/mo
+    #      adds insider, lobbying, etc.)
+    #   2. Put the key in backend/.env as: QUIVER_API_KEY=your_key_here
+    #   3. Restart the backend.
+    # Blank → the Signals tab shows a "connect Quiver" state and the
+    # Research overlay is hidden; nothing else is affected.
+    QUIVER_API_KEY: str = ""
+
+    # ── SEC EDGAR (free, no key) ──────────────────────────────────
+    # The EDGAR block in Signals / Research pulls each name's recent SEC
+    # filings straight from the SEC — insider Form-4 activity (count-based,
+    # which fills the gap left by Quiver's tier-gated insider feed), 8-K
+    # material events, and S-1/424B capital-raise (dilution) flags. No key
+    # is needed, but the SEC requires a descriptive User-Agent identifying
+    # the caller with a contact address. Override only if you want your own
+    # contact on the requests; the default is fine for local use.
+    SEC_USER_AGENT: str = "TuskLedger/1.0 (+https://www.tuskledger.com)"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

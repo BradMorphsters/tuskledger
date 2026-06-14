@@ -41,6 +41,11 @@ from app.routers import (
     chat,
     view,
     mobile,
+    research,
+    signals,
+    integrations,
+    rotation,
+    edgar,
 )
 
 
@@ -434,6 +439,25 @@ app.include_router(bills.router, dependencies=protected)
 app.include_router(goals.router, dependencies=protected)
 app.include_router(csv_import.router, dependencies=protected)
 app.include_router(loans.router, dependencies=protected)
+# Long-term-hold research layer: PII-free scored universe joined onto live
+# holdings at query time. Same protection as the data routers since the
+# position-join reads holdings + account tax buckets. The research *file*
+# carries no balances, but the join does. Write endpoints are additionally
+# gated by the read_only_gate middleware (blocked on the demo + read-only
+# devices) like every other mutation.
+app.include_router(research.router, dependencies=protected)
+# Quiver public-purchase signals (gov contracts, congressional/insider trades,
+# lobbying) for the Signals tab + Research overlay. Protected like the data
+# routers since the feed joins against live holdings (held marking).
+app.include_router(signals.router, dependencies=protected)
+# Bring-your-own-key status (booleans only) for the Accounts "API keys" panel.
+app.include_router(integrations.router, dependencies=protected)
+# Sector "rotation watch" — aggregates research/price/signals into a rotation
+# temperature + a local-AI (Ollama) forward read.
+app.include_router(rotation.router, dependencies=protected)
+# Free SEC EDGAR filing activity (insider Form-4, 8-K events, capital raises);
+# no key — complements the (tier-gated) Quiver insider feed.
+app.include_router(edgar.router, dependencies=protected)
 # Curated AI chat — pre-built prompts answered with pre-computed numbers
 # + local Ollama narration. Same protection as data routers since the
 # bundles read transactions, snapshots, and account balances.

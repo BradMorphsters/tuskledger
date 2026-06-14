@@ -6,6 +6,136 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Long-term-hold research layer (new "Research" tab)
+- **PII-free research store** under `research/` (`<domain>.research.json` +
+  `research.schema.json`, JSON Schema 2020-12). Seeded with the
+  60-entity critical-minerals universe (45 equities + 15 funds). No
+  balances live in the file — git-committable by design. Configurable via
+  `RESEARCH_DIR` (defaults to the repo-level `research/` dir).
+- **Backend** `app/services/research_store.py` (validated + atomic writes,
+  SemVer version guard, append-only history) and `research_join.py`
+  (tolerant ticker/alias/`plaid_security_id` join onto live holdings,
+  derived alerts, coarse-period catalyst date parsing).
+- **API** `app/routers/research.py` (`/api/research/*`): universe,
+  positions (holdings × research cockpit), alerts, per-ticker dossier,
+  meta, history, plus schema-validated `POST`/`PATCH` writes that the
+  read-only middleware blocks on the demo + read-only devices.
+- **Frontend** `pages/Research.jsx` — split view: held-positions cockpit
+  (thesis, next catalyst with overdue flag, invalidation triggers,
+  stale badge) over the sortable/filterable full universe, with an
+  entity detail drawer. New `Research` nav item + route.
+- **Research drawer visuals**: a thesis-drift chart (conviction/upside over
+  time from snapshot history), a forward catalyst timeline (overdue flagged),
+  and a **current-price-vs-analyst-target-range** bullet bar with an
+  **oversold/vs-target indicator** ("Oversold vs targets" at/below the
+  analyst low → "Above all targets", plus % to high) — sourced, dated,
+  equities-only, labeled "not investment advice" (no Claude-asserted price
+  forecast). New `price_targets` schema field populated for **all 45
+  equities** (34 cited analyst ranges, 11 honestly marked no-coverage; ETFs
+  excluded), a sortable "Vs target" universe column, a `current_price` (live
+  holding price preferred, else parsed from the research snapshot), and a
+  `POST /snapshot` heartbeat endpoint that feeds the trend chart daily. The
+  daily job refreshes targets going forward.
+- **Real price chart (market data)**: `services/market_data.py` —
+  `GET /research/{domain}/prices/{ticker}` fetches monthly closes on demand
+  (cached 12h in `research/*.prices.json`, demo-safe, degrades to
+  "unavailable"; `?debug=true` reports the exact fetch result), and
+  `POST /research/{domain}/refresh-prices` bulk-warms the cache + writes the
+  latest close into each `fundamentals.price` so the universe/cards converge
+  on real prices. The drawer's Price chart plots real monthly closes vs the
+  analyst target band and uses the live close as the authoritative current
+  price. Provider: **Twelve Data** when `MARKETDATA_API_KEY` is set (free
+  tier), else best-effort keyless **Yahoo** fallback — keyless Stooq/Yahoo are
+  now bot-walled for server requests, so the key path is the reliable one.
+  Daily job refreshes prices each run; `research/*.prices.json` gitignored.
+- **Signals tab (Quiver Quantitative public-purchase data)**: new `Signals`
+  tab + `services/quiver.py` + `/api/signals/*`. Pulls public-purchase
+  activity per ticker — federal **government contracts** (USASpending),
+  **congressional** trades, **insider** Form-4 trades, and **lobbying** —
+  and distills each into a directional **"Heating up / Steady / Cooling"**
+  signal from 90-day-vs-prior windows (is the buying *accelerating*?).
+  Universe-wide momentum table ranked by signal, expandable per name, plus a
+  **"Public activity" overlay in the Research drawer**. Keyed via
+  `QUIVER_API_KEY`. **Tier-aware by probing** what the key unlocks (200 vs
+  403) rather than hardcoding Quiver's tiers — a free key surfaces a subset
+  (basic congressional data), a paid plan unlocks the rest, and the UI shows
+  which datasets are unlocked vs "upgrade to unlock" (tab header + 🔒 chips in
+  the Research overlay). No key → connect-Quiver state. Tolerant field parsing (finalize via the
+  `?debug` endpoint against a real key); cache `research/*.signals.json`
+  gitignored; the daily job best-effort-warms it. `tests/test_quiver.py` (8).
+- **Rotation watch (new tab + local-AI synthesis)**: `services/rotation.py` +
+  `/api/rotation/*` roll every signal up to the *sector* level into one 0-100
+  **rotation temperature** (Early → Stirring → Rotating → Hot) from four
+  transparent components — public-money flow (Quiver), valuation re-rating
+  (oversold-vs-target counts), score momentum (snapshot history), and catalyst
+  cadence. A daily snapshot accrues the rotation curve; the **Dashboard's
+  Ollama integration is reused** to write a forward-looking read (numbers
+  computed in Python, model only narrates — graceful template fallback when
+  `LLM_ENABLED` is off). New Rotation tab (gauge + component cards + curve +
+  AI synthesis). The daily job records the snapshot + a "Rotation" briefing
+  line (early-inflection read). `research/*.rotation.jsonl` gitignored.
+  `tests/test_rotation.py` (3).
+- **Price & volume momentum**: `market_data.compute_momentum()` now derives a
+  0-100 momentum score per name from the monthly series — where price sits in
+  its ~52-week range, the 3-month return, and whether volume is rising. Surfaced
+  under the Research drawer price chart ("Momentum NN/100 · +X% off 52w low ·
+  3mo +Y% · volume up") and blended into the Rotation momentum component. Volume
+  is now captured from both Twelve Data and Yahoo rows.
+- **Commodity / sector-ETF relative strength**: `market_data.relative_strength()`
+  measures the critical-minerals proxy ETFs (URA/LIT/COPX/REMX) against the
+  broad market (SPY) — the cleanest "is capital actually rotating into the
+  sector" tell. The daily `refresh-prices` job now also warms SPY + the proxy
+  ETFs. Rotation's momentum component shows the sector verdict (outperforming /
+  inline / lagging) and feeds the rotation temperature; the AI synthesis can
+  cite it.
+- **Free SEC EDGAR signals (no key)**: `services/sec_edgar.py` +
+  `/api/edgar/*` pull each name's recent SEC filings directly from EDGAR —
+  insider Form-4 *filing activity* (count-based; fills the gap left by Quiver's
+  tier-gated insider feed), 8-K material events, and S-1/424B capital-raise
+  (dilution) filings. New **"SEC filings (free · no key)"** section on the
+  Signals page (shown even without a Quiver key) and an SEC block in the
+  Research drawer. Ticker→CIK map + filing cache gitignored; `SEC_USER_AGENT`
+  configurable. `tests/test_edgar.py` (7).
+- **Cross-plane tie-backs (one system, not three tabs)**: the Research alert
+  engine now reads the flow (Quiver) + filing (SEC EDGAR) caches and emits
+  single-source, self-disabling tripwire alerts for held + high-conviction
+  names — `flow_contract` / `flow_congress` / `flow_lobbying` / `flow_darkpool`
+  (Quiver) and `dilution_watch` / `insider_cluster` (EDGAR, with dilution on a
+  below-cost held name escalated to high). Each rule reads only its own cache,
+  so EDGAR and Quiver never depend on each other. The Research universe gained a
+  compact **Flow** column (signal pill + dark-pool DPI arrow, shown only when
+  Quiver is configured), and the **Rotation flow component now folds in EDGAR**
+  (insider clustering lifts it; capital raises drag it).
+- **Industry-configurable (retarget to any sector/theme)**: the whole stack is
+  driven by one research file per industry. Sector knobs moved out of code into
+  a standard, schema-validated `meta.industry` block (`label`, `benchmark`,
+  `sector_etfs`, `proxy_keywords`); `rotation.industry_config()` reads them per
+  domain (sector ETFs default to none → relative strength simply doesn't compute
+  for industries that don't declare them). `refresh-prices` warms each domain's
+  own benchmark + ETFs; the AI narrative uses the industry label. New
+  `ACTIVE_RESEARCH_DOMAIN` setting focuses the app on one industry at a time
+  (sorted first in the domains list). Added `docs/adding-an-industry.md` + a
+  copy-and-fill `docs/industry-template.research.json`. Critical-minerals reads
+  identically — its knobs now live in its own file.
+- **In-app industry admin (switch without a restart)**: a runtime active-industry
+  pointer (`research/.active-domain.json`, gitignored; env is the fallback) plus
+  `GET/POST /api/research/active` and `POST /api/research/industries` let you
+  **switch the focused industry and scaffold a new one from the UI** — an
+  IndustrySwitcher in the Research header (dropdown + "＋ New" form), not a value
+  in a code/.env file. Switching persists server-side so all tabs follow.
+- **Industry-fit rotation model**: `meta.industry.rotation_weights` (per-industry
+  component weighting, auto-normalized) and `meta.industry.flow_signals` (which
+  public-money-flow inputs apply — e.g. retail uses `["edgar"]` and drops the
+  irrelevant federal-contract/lobbying/congress credit). Defaults preserve
+  critical-minerals exactly.
+- **Rate-limit resilience**: the Quiver + EDGAR bulk refreshes now throttle and
+  **preserve good cached data on a failed pass** (flagged `stale`) instead of
+  overwriting it, so repeated runs / the nightly job *accumulate* coverage.
+- **Deps**: `jsonschema==4.25.1`; market data, Quiver, EDGAR, and the rotation
+  AI reuse the existing `httpx`/Ollama integration (no new deps). Tests:
+  `test_research.py` (19), `test_market_data.py` (15), `test_quiver.py` (11),
+  `test_rotation.py` (9), `test_edgar.py` (7), `test_signals_refresh.py` (1).
+
 ### Changed — June 2026 full-codebase review sweep
 - **Mobile UI redesign**: new design system around the tusk-gold brand
   (semantic color tokens, 34pt tabular-numeral money type, uppercase

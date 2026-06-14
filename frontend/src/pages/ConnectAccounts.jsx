@@ -5,6 +5,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import Pill from '../components/Pill'
 import BackfillPanel from '../components/BackfillPanel'
 import CSVImportPanel from '../components/CSVImportPanel'
+import IntegrationsCard from '../components/IntegrationsCard'
 import { useToast } from '../components/Toast'
 import {
   getLinkToken, exchangeToken, getPlaidItems, triggerSync,
@@ -97,6 +98,8 @@ export default function ConnectAccounts() {
       <div className="page-header">
         <h1 className="page-title">Connected Accounts</h1>
       </div>
+
+      <IntegrationsCard />
 
       {/* Connect button */}
       <div className="card" style={{ marginBottom: 24, textAlign: 'center', padding: 40 }}>

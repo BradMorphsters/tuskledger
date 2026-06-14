@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "domain": "your-industry",
+    "title": "Your Industry — Long-Term Hold Research",
+    "description": "One-line description of this industry/theme.",
+    "last_updated": "2026-01-01T00:00:00Z",
+    "updated_by": "manual",
+    "as_of": "2026-01",
+    "base_currency": "USD",
+    "disclaimer": "Research/educational only; not investment advice.",
+    "industry": {
+      "label": "your industry",
+      "benchmark": "SPY",
+      "sector_etfs": ["XRT", "RTH"],
+      "proxy_keywords": { "apparel": "XRT", "e-commerce": "RTH" },
+      "rotation_weights": { "flow": 0.2, "rerating": 0.35, "momentum": 0.3, "cadence": 0.15 },
+      "flow_signals": ["edgar"]
+    }
+  },
+  "dimensions": {
+    "factors": [
+      { "id": "moat", "label": "Competitive moat" },
+      { "id": "growth", "label": "Growth runway" }
+    ],
+    "scale": { "min": 1, "max": 5 },
+    "tiers": [
+      { "id": 1, "label": "Core compounder" },
+      { "id": 2, "label": "Emerging" },
+      { "id": 3, "label": "Speculative" }
+    ],
+    "composites": { "equity": {}, "fund": {} }
+  },
+  "entities": [
+    {
+      "id": "EXMPL",
+      "ticker": "EXMPL",
+      "name": "Example Co.",
+      "domain": "your-industry",
+      "security_type": "equity",
+      "tier": 1,
+      "category": "Apparel",
+      "scores": { "factors": { "moat": 4, "growth": 3 }, "conviction": 70, "upside": 60 },
+      "fundamentals": { "as_of": "2026-01", "source": "filings", "price": "~$50" },
+      "thesis": { "summary": "One-line thesis goes here." },
+      "review": { "next_due": "2026-06-01" }
+    },
+    {
+      "id": "XRT",
+      "ticker": "XRT",
+      "name": "SPDR S&P Retail ETF",
+      "domain": "your-industry",
+      "security_type": "fund",
+      "category": "Apparel",
+      "exposure": "Retail",
+      "scores": { "factors": { "moat": 3, "growth": 3 }, "conviction": 60, "upside": 50 },
+      "review": { "next_due": "2026-06-01" }
+    }
+  ]
+}

@@ -42,6 +42,15 @@ from .wash_sale import (
 )
 from .state import AgentState, ReconcileResult, StateStore, reconcile
 from .sizing import SizingConfig, rebalance, size_decision, size_decisions
+from .lifecycle import (
+    classify_fill,
+    client_order_id,
+    find_duplicates,
+    is_market_open,
+    market_session,
+    validate_symbol,
+)
+from .events import EventLog, make_event, plan_to_events
 from .bridge import (
     CyclePlan,
     PlannedOrder,

@@ -21,6 +21,7 @@ import {
 import { formatCurrency, formatDate } from '../lib/format'
 import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
+import AgentActivity from '../components/AgentActivity'
 
 const GREEN = 'var(--accent-green, #10b981)'
 const RED = 'var(--accent-red, #ef4444)'
@@ -125,6 +126,9 @@ export default function AgentTrading() {
           </span>
         )}
       </div>
+
+      {/* Live "watch it think" timeline — independent of the decision log */}
+      <AgentActivity />
 
       {err && (
         <div style={{ padding: 12, border: `1px solid ${RED}`, borderRadius: 10, color: RED, marginBottom: 16, fontSize: 14 }}>

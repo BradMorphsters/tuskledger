@@ -164,6 +164,9 @@ class Settings(BaseSettings):
     # Persisted policy state (equity high-water mark + halt/pause flag) the broker
     # can't track for us. Blank → backend/var/agent_trading/state.json.
     AGENT_TRADING_STATE: str = ""
+    # Live agent-activity event stream (the "watch it think" timeline), tailed by the
+    # SSE endpoint. Blank → backend/var/agent_trading/events.jsonl.
+    AGENT_TRADING_EVENTS: str = ""
 
     class Config:
         env_file = ".env"

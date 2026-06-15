@@ -41,6 +41,7 @@ from .wash_sale import (
     make_wash_sale_lookup,
 )
 from .state import AgentState, ReconcileResult, StateStore, reconcile
+from .sizing import SizingConfig, rebalance, size_decision, size_decisions
 from .bridge import (
     CyclePlan,
     PlannedOrder,
@@ -79,8 +80,12 @@ __all__ = [
     "ReconcileResult",
     "RobinhoodMCPBroker",
     "SimulatedBroker",
+    "SizingConfig",
     "StateStore",
     "StubDecisionSource",
+    "rebalance",
+    "size_decision",
+    "size_decisions",
     "assess_wash_sale",
     "check_order",
     "make_db_wash_sale_lookup",

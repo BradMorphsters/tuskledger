@@ -27,6 +27,7 @@ from typing import Optional
 
 from .brokers import parse_account_state, parse_quotes
 from .decisions import Decision
+from .sizing import SizingConfig, size_decisions
 from .executor import OrderOutcome
 from .guardrails import (
     AccountState,
@@ -260,18 +261,22 @@ def plan_from_payloads(
     executed_today: int = 0,
     wash_sale_lookup: WashSaleLookup = _no_wash_sale,
     default_notional: float = 100.0,
+    sizing: Optional[SizingConfig] = None,
+    vols: Optional[dict[str, float]] = None,
     as_of: Optional[str] = None,
 ) -> CyclePlan:
-    """One call for the read-only cycle: PARSE (step 2) + GATE (step 3).
+    """One call for the read-only cycle: PARSE (step 2) + [SIZE] + GATE (step 3).
 
     Cowork fetches the three Robinhood read payloads (``get_portfolio``,
     ``get_equity_positions``, ``get_equity_quotes``) and hands them straight here. This
-    parses them into an AccountState and runs the gate. **It places nothing** — it returns
-    a plan. Cowork stops here in read-only mode; placing approved orders (step 4) is a
-    separate, explicit, human-armed action.
+    parses them into an AccountState, optionally sizes the decisions (``sizing``), and runs
+    the gate. **It places nothing** — it returns a plan. Cowork stops here in read-only
+    mode; placing approved orders (step 4) is a separate, explicit, human-armed action.
     """
     quotes = parse_quotes(quotes_payload) if quotes_payload else {}
     snapshot = parse_account_state(portfolio, positions, quotes, account_number=account_number)
+    if sizing is not None:
+        decisions = size_decisions(decisions, snapshot, sizing, vols=vols)
     return plan_cycle(
         account_number=account_number, snapshot=snapshot, decisions=decisions, config=config,
         persisted=persisted, expected_positions=expected_positions, executed_today=executed_today,

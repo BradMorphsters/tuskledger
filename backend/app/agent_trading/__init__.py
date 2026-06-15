@@ -47,7 +47,9 @@ from .bridge import (
     build_order_args,
     cycle_log_rows,
     plan_cycle,
+    plan_from_payloads,
     record_cycle,
+    render_plan,
 )
 
 __all__ = [
@@ -62,7 +64,9 @@ __all__ = [
     "build_order_args",
     "cycle_log_rows",
     "plan_cycle",
+    "plan_from_payloads",
     "record_cycle",
+    "render_plan",
     "Fill",
     "GuardrailConfig",
     "GuardrailResult",

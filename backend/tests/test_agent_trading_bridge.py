@@ -142,6 +142,31 @@ def test_record_cycle_logs_executed_and_blocked(tmp_path):
     assert (tmp_path / "state.json").exists()
 
 
+def test_plan_from_payloads_one_call_readonly():
+    """The single read-only-cycle call: real Robinhood read payloads in, plan out, no trade."""
+    from app.agent_trading import plan_from_payloads, render_plan
+
+    portfolio = {"data": {"cash": "500", "buying_power": {"buying_power": "500.0000"}}}
+    positions = {"data": {"positions": []}}
+    quotes = {"data": {"results": [
+        {"quote": {"symbol": "F", "last_trade_price": "14.79"}},
+        {"quote": {"symbol": "NVDA", "last_trade_price": "212.45"}},
+    ]}}
+    decisions = [_dec("F", price=14.79, notional=80.0), _dec("NVDA", price=212.45, notional=600.0)]
+
+    plan = plan_from_payloads(
+        account_number=ACCT, portfolio=portfolio, positions=positions, quotes_payload=quotes,
+        decisions=decisions, config=GuardrailConfig.conservative(),
+        persisted=AgentState(), as_of="2026-06-15",
+    )
+    assert len(plan.approved) == 1 and plan.approved[0].order_args["symbol"] == "F"
+    assert len(plan.blocked) == 1 and plan.blocked[0].decision.ticker == "NVDA"
+
+    report = render_plan(plan)
+    assert "APPROVED  buy F" in report and "BLOCKED   buy NVDA" in report
+    assert "nothing placed" in report.lower()
+
+
 def test_plan_cycle_has_no_trade_capability():
     """Guard rail on the design itself: approving an order yields inert args, and there is
     no broker/place call anywhere in plan_cycle's result."""

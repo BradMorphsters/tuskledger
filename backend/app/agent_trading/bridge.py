@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .brokers import parse_account_state, parse_quotes
 from .decisions import Decision
 from .executor import OrderOutcome
 from .guardrails import (
@@ -242,3 +243,59 @@ def record_cycle(plan: CyclePlan, fills=None, *, log_path=None, state_store=None
     if state_store is not None:
         state_store.save(plan.state)
     return rows
+
+
+# --------------------------------------------------------------------------- read-only cycle
+
+def plan_from_payloads(
+    *,
+    account_number: str,
+    portfolio,
+    positions,
+    quotes_payload=None,
+    decisions: list[Decision],
+    config: GuardrailConfig,
+    persisted: AgentState,
+    expected_positions: Optional[dict[str, float]] = None,
+    executed_today: int = 0,
+    wash_sale_lookup: WashSaleLookup = _no_wash_sale,
+    default_notional: float = 100.0,
+    as_of: Optional[str] = None,
+) -> CyclePlan:
+    """One call for the read-only cycle: PARSE (step 2) + GATE (step 3).
+
+    Cowork fetches the three Robinhood read payloads (``get_portfolio``,
+    ``get_equity_positions``, ``get_equity_quotes``) and hands them straight here. This
+    parses them into an AccountState and runs the gate. **It places nothing** — it returns
+    a plan. Cowork stops here in read-only mode; placing approved orders (step 4) is a
+    separate, explicit, human-armed action.
+    """
+    quotes = parse_quotes(quotes_payload) if quotes_payload else {}
+    snapshot = parse_account_state(portfolio, positions, quotes, account_number=account_number)
+    return plan_cycle(
+        account_number=account_number, snapshot=snapshot, decisions=decisions, config=config,
+        persisted=persisted, expected_positions=expected_positions, executed_today=executed_today,
+        wash_sale_lookup=wash_sale_lookup, default_notional=default_notional, as_of=as_of,
+    )
+
+
+def render_plan(plan: CyclePlan) -> str:
+    """A human-readable read-only report of a planned cycle. No side effects."""
+    lines = [plan.summary()]
+    if plan.drift:
+        lines.append("  drift vs log: " + ", ".join(
+            f"{d['ticker']} {d['delta']:+g}" for d in plan.drift))
+    if plan.halted:
+        return "\n".join(lines)
+    for p in plan.approved:
+        a = p.order_args
+        size = f"${a['amount']:.2f}" if "amount" in a else f"{a['quantity']:g} sh"
+        lines.append(f"  ✓ APPROVED  {a['side']} {a['symbol']} {size}")
+    for o in plan.blocked:
+        lines.append(f"  ✗ BLOCKED   {o.decision.action} {o.decision.ticker}: "
+                     f"{'; '.join(o.guardrail.reasons)}")
+    for d in plan.skipped:
+        lines.append(f"  – skipped   {d.ticker} (hold)")
+    lines.append("  (read-only — nothing placed. Executing the APPROVED orders is a "
+                 "separate, human-armed step.)")
+    return "\n".join(lines)

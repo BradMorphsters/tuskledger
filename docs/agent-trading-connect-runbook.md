@@ -85,3 +85,31 @@ Two viable shapes, decided after step 3:
    headless without an agent client open.
 
 Read-only validation works in either; we'll pick based on how you want the live loop to run.
+
+## Running a cycle (read-only first)
+
+The whole cycle is now one call after Cowork fetches the three read payloads:
+
+```python
+plan = plan_from_payloads(
+    account_number=acct,
+    portfolio=get_portfolio(acct), positions=get_equity_positions(acct),
+    quotes_payload=get_equity_quotes(symbols),     # Cowork fetched these (read-only)
+    decisions=decisions, config=config, persisted=state_store.load(),
+)
+print(render_plan(plan))   # shows APPROVED / BLOCKED / drift — places nothing
+```
+
+`plan_from_payloads` does PARSE + GATE and returns a plan; it **cannot place an order**.
+In read-only mode the cycle stops here — you read the plan and confirm the gate behaves.
+
+**The arm gate (step 4).** Executing the APPROVED orders is a separate, deliberate action,
+never automatic:
+
+1. A human explicitly arms execution (e.g. a one-time confirmation / a `LIVE` flag you set).
+2. Only then does Cowork place **only** `plan.approved_order_args()` via `place_equity_order`.
+3. `record_cycle(plan, fills, ...)` logs the result and persists state.
+
+Until armed, every cycle is read-only: fetch → `plan_from_payloads` → `render_plan`. No
+order can reach Robinhood because the planning code has no trade capability and the only
+place call lives behind the human arm.

@@ -516,6 +516,16 @@ export const getEdgarForTicker = (domain, ticker, { refresh } = {}) =>
 export const refreshEdgar = (domain) =>
   request(`/edgar/${encodeURIComponent(domain)}/refresh`, { method: 'POST' });
 
+// Agent Trading — read-only oversight over the agentic-trading decision log
+// (Robinhood Agentic account experiment). The tab never places trades; the
+// live kill switch is a deep link to Robinhood. See routers/agent_trading.py.
+export const getAgentTradingStatus = () => request('/agent-trading/status');
+export const getAgentTradingSummary = () => request('/agent-trading/summary');
+export const getAgentTradingPositions = () => request('/agent-trading/positions');
+export const getAgentTradingActivity = (limit = 100) =>
+  request(`/agent-trading/activity?limit=${encodeURIComponent(limit)}`);
+export const getAgentTradingGuardrails = () => request('/agent-trading/guardrails');
+
 // Integrations / API keys — bring-your-own-key status (booleans only).
 export const getIntegrationsStatus = () => request('/integrations/status');
 

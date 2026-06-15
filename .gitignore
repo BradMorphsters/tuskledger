@@ -14,6 +14,11 @@ backend/tuskledger_demo.db*
 tuskledger.db.before-*
 backend/data/
 backend/backups/
+# Agentic-trading decision log — append-only runtime output of the executor;
+# the Agent Trading tab reads it. Not source. (See docs/agent-trading-tab.md.)
+backend/var/
+# Transient Vite config timestamp files left by vitest runs.
+frontend/vite.config.js.timestamp-*
 
 # Research layer: keep the seed universe + schema tracked (they're the
 # shareable, PII-free source of truth), but ignore the append-only

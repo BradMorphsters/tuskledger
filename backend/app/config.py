@@ -155,6 +155,16 @@ class Settings(BaseSettings):
     # contact on the requests; the default is fine for local use.
     SEC_USER_AGENT: str = "TuskLedger/1.0 (+https://www.tuskledger.com)"
 
+    # ── Agentic trading (experiment) ──────────────────────────────
+    # JSONL decision log written by the agentic-trading executor
+    # (app.agent_trading). The Agent Trading tab reads this file read-only.
+    # Blank → defaults to backend/var/agent_trading/decisions.jsonl, and the
+    # tab shows a "no runs yet" state until the experiment has run.
+    AGENT_TRADING_LOG: str = ""
+    # Persisted policy state (equity high-water mark + halt/pause flag) the broker
+    # can't track for us. Blank → backend/var/agent_trading/state.json.
+    AGENT_TRADING_STATE: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

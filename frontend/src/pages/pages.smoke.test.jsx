@@ -161,6 +161,8 @@ vi.mock('../api/client', () => ({
   getAgentTradingPositions:  vi.fn(() => Promise.resolve({ positions: [] })),
   getAgentTradingActivity:   vi.fn(() => Promise.resolve({ activity: [] })),
   getAgentTradingGuardrails: vi.fn(() => Promise.resolve({ blocked_total: 0, by_check: [], warnings: [] })),
+  getAgentTradingEvents:     vi.fn(() => Promise.resolve({ events: [] })),
+  runAgentTradingDemo:       vi.fn(() => Promise.resolve({ ok: true, emitted: 0 })),
 
   // Subscription rules
   getSubscriptionRules:      vi.fn(() => Promise.resolve([])),

@@ -525,6 +525,12 @@ export const getAgentTradingPositions = () => request('/agent-trading/positions'
 export const getAgentTradingActivity = (limit = 100) =>
   request(`/agent-trading/activity?limit=${encodeURIComponent(limit)}`);
 export const getAgentTradingGuardrails = () => request('/agent-trading/guardrails');
+// Live agent-activity timeline: recent events (poll fallback) + a safe demo emitter.
+// The real-time stream is an SSE EventSource to /api/agent-trading/stream (opened directly
+// in the AgentActivity component, since EventSource isn't a fetch call).
+export const getAgentTradingEvents = (limit = 200) =>
+  request(`/agent-trading/events?limit=${encodeURIComponent(limit)}`);
+export const runAgentTradingDemo = () => request('/agent-trading/demo-run', { method: 'POST' });
 
 // Integrations / API keys — bring-your-own-key status (booleans only).
 export const getIntegrationsStatus = () => request('/integrations/status');

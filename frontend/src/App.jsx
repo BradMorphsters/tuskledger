@@ -32,6 +32,7 @@ import {
   Gem,
   Landmark,
   Gauge,
+  Bot,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -51,6 +52,7 @@ import TradingTaxPage from './pages/TradingTaxPage'
 import Research from './pages/Research'
 import Signals from './pages/Signals'
 import Rotation from './pages/Rotation'
+import AgentTrading from './pages/AgentTrading'
 import Rules from './pages/Rules'
 import SpendingIncome from './pages/SpendingIncome'
 import Insights from './pages/Insights'
@@ -269,6 +271,7 @@ export default function App() {
     { to: '/research', icon: Gem, label: 'Research' },
     { to: '/signals', icon: Landmark, label: 'Signals' },
     { to: '/rotation', icon: Gauge, label: 'Rotation' },
+    { to: '/agent-trading', icon: Bot, label: 'Agent Trading' },
     { to: '/insights', icon: Lightbulb, label: 'Insights' },
     { to: '/business', icon: Briefcase, label: 'Business' },
     { to: '/tax-prep', icon: FolderOpen, label: 'Tax Prep' },
@@ -582,6 +585,7 @@ export default function App() {
           <Route path="/research" element={<Research />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/rotation" element={<Rotation />} />
+          <Route path="/agent-trading" element={<AgentTrading />} />
           <Route path="/insights" element={<Insights />} />
           <Route path="/business" element={<BusinessPage />} />
           <Route path="/rules" element={<Rules />} />

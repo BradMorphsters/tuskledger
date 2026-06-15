@@ -1,0 +1,244 @@
+"""The Cowork↔Tusk Ledger bridge — deterministic planning, no trade capability.
+
+See ADR-0001. Cowork is the communication layer: it reads the Agentic account from the
+Robinhood MCP and places approved orders back through it. Everything *between* those two
+I/O steps is this module — pure, deterministic Tusk Ledger logic that Cowork executes and
+obeys.
+
+The safety property that makes this design sound: **`plan_cycle()` cannot place an order.**
+It runs reconcile + the guardrail gate over a snapshot Cowork already fetched, and returns
+*approved order arguments* (ready to hand to `place_equity_order`) plus vetoes. The only
+code path that can actually trade lives in Cowork, and it only ever places what the gate
+approved. The model never free-hands the rules.
+
+Flow (ADR-0001 §"The thin loop"):
+    snapshot = parse_account_state(...)        # Cowork fetched, Tusk Ledger parsed
+    plan = plan_cycle(snapshot, decisions, ...)  # THIS module — gate, no trading
+    for p in plan.approved: fill = place_equity_order(**p.order_args)  # Cowork only
+    record_cycle(plan, fills, log_path, store)   # THIS module — log + persist
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from .decisions import Decision
+from .executor import OrderOutcome
+from .guardrails import (
+    AccountState,
+    GuardrailConfig,
+    GuardrailResult,
+    Position,
+    ProposedOrder,
+    WashSaleLookup,
+    _no_wash_sale,
+    check_order,
+)
+from .state import AgentState, reconcile
+
+
+# --------------------------------------------------------------------------- types
+
+@dataclass
+class PlannedOrder:
+    """An order the gate APPROVED. ``order_args`` is ready for the Robinhood
+    ``place_equity_order`` MCP tool — but this module never calls it."""
+
+    decision: Decision
+    order_args: dict
+    guardrail: GuardrailResult
+
+
+@dataclass
+class CyclePlan:
+    as_of: str
+    halted: bool = False
+    halt_reason: str = ""
+    approved: list[PlannedOrder] = field(default_factory=list)
+    blocked: list[OrderOutcome] = field(default_factory=list)
+    skipped: list[Decision] = field(default_factory=list)
+    drift: list[dict] = field(default_factory=list)
+    state: AgentState = field(default_factory=AgentState)
+
+    def approved_order_args(self) -> list[dict]:
+        """Exactly what Cowork should place — nothing more."""
+        return [p.order_args for p in self.approved]
+
+    def summary(self) -> str:
+        if self.halted:
+            return f"[{self.as_of}] HALTED — {self.halt_reason}; approving nothing"
+        drift = f" · ⚠ {len(self.drift)} drift" if self.drift else ""
+        return (f"[{self.as_of}] approved {len(self.approved)}, blocked {len(self.blocked)}, "
+                f"skipped {len(self.skipped)}{drift}")
+
+
+# --------------------------------------------------------------------------- order args
+
+def build_order_args(account_number: str, order: ProposedOrder) -> dict:
+    """Map an approved order onto Robinhood ``place_equity_order`` arguments."""
+    args = {
+        "account_number": account_number,
+        "symbol": order.ticker.upper().strip(),
+        "side": order.side.lower().strip(),
+        "type": "market",
+    }
+    if order.notional is not None:
+        args["amount"] = round(order.resolved_notional(), 2)
+    else:
+        args["quantity"] = order.resolved_qty()
+    return args
+
+
+def _apply(state: AccountState, order: ProposedOrder) -> AccountState:
+    """Project the effect of an approved order so the NEXT order in the same cycle sees it
+    (a buy reduces cash + buying headroom for subsequent cash-floor / concentration checks).
+    This mirrors the executor's per-order re-snapshot, without a broker."""
+    cash = state.cash
+    positions = dict(state.positions)
+    prices = dict(state.prices)
+    t = order.ticker.upper().strip()
+    qty = order.resolved_qty()
+    notional = order.resolved_notional()
+    prices.setdefault(t, order.ref_price)
+    if order.side.lower().strip() == "buy":
+        cash -= notional
+        held = positions.get(t)
+        if held:
+            nq = held.qty + qty
+            positions[t] = Position(nq, (held.qty * held.avg_price + notional) / nq)
+        else:
+            positions[t] = Position(qty, order.ref_price)
+    else:  # sell
+        held = positions.get(t)
+        if held:
+            remaining = held.qty - qty
+            if remaining <= 1e-9:
+                positions.pop(t, None)
+            else:
+                positions[t] = Position(remaining, held.avg_price)
+        cash += notional
+    return AccountState(cash=cash, positions=positions, prices=prices,
+                        equity_peak=state.equity_peak, trades_today=state.trades_today + 1)
+
+
+# --------------------------------------------------------------------------- plan
+
+def plan_cycle(
+    *,
+    account_number: str,
+    snapshot: AccountState,
+    decisions: list[Decision],
+    config: GuardrailConfig,
+    persisted: AgentState,
+    expected_positions: Optional[dict[str, float]] = None,
+    executed_today: int = 0,
+    wash_sale_lookup: WashSaleLookup = _no_wash_sale,
+    default_notional: float = 100.0,
+    as_of: Optional[str] = None,
+) -> CyclePlan:
+    """Run reconcile + the guardrail gate over a Cowork-fetched snapshot.
+
+    Returns approved order args + vetoes. **Places nothing.** ``snapshot`` is the live
+    account state (Cowork fetched it, ``parse_account_state`` parsed it); ``persisted`` is
+    Tusk Ledger's policy state (equity peak, halt flag).
+    """
+    as_of = as_of or datetime.now(timezone.utc).date().isoformat()
+    plan = CyclePlan(as_of=as_of, state=persisted)
+
+    # Persisted halt/pause survives restarts — approve nothing until a human re-arms.
+    if persisted.halted or persisted.paused:
+        plan.halted = True
+        plan.halt_reason = "paused" if persisted.paused else "halted (awaiting re-arm)"
+        return plan
+
+    rec = reconcile(snapshot, persisted,
+                    expected_positions=expected_positions or {},
+                    executed_today=executed_today)
+    plan.state = rec.state
+    plan.drift = rec.drift_dicts()
+    working = rec.account_state
+
+    # Account-level drawdown breaker.
+    if working.equity_peak > 0:
+        drawdown = (working.equity_peak - working.total_value()) / working.equity_peak
+        if drawdown > config.max_drawdown_pct:
+            plan.halted = True
+            plan.halt_reason = "drawdown limit hit"
+            plan.state = replace(rec.state, halted=True)  # persist the trip
+            return plan
+
+    running = working
+    for d in decisions:
+        if d.action.lower().strip() == "hold":
+            plan.skipped.append(d)
+            continue
+        order = ProposedOrder(
+            ticker=d.ticker,
+            side=d.action,
+            ref_price=d.ref_price,
+            notional=d.target_notional if d.target_notional is not None else default_notional,
+            rationale=d.rationale,
+        )
+        result = check_order(order, running, config, wash_sale_lookup)
+        if result.ok:
+            plan.approved.append(
+                PlannedOrder(decision=d, order_args=build_order_args(account_number, order),
+                             guardrail=result)
+            )
+            running = _apply(running, order)  # sequential effect for the next check
+        else:
+            plan.blocked.append(OrderOutcome(decision=d, status="blocked", guardrail=result))
+
+    return plan
+
+
+# --------------------------------------------------------------------------- record
+
+def cycle_log_rows(plan: CyclePlan, fills: Optional[list] = None) -> list[dict]:
+    """Serialize a planned cycle (+ the fills Cowork got back) to decision-log rows,
+    matching the schema the /agent-trading tab reads. ``fills[i]`` aligns to
+    ``plan.approved[i]`` — a fill dict, or None if Cowork didn't place it."""
+    fills = fills or []
+    ts = datetime.now(timezone.utc).isoformat()
+
+    def base(decision, status, guardrail=None, fill=None, error=""):
+        return {
+            "as_of": plan.as_of, "ts": ts, "halted": plan.halted,
+            "decision": asdict(decision), "status": status,
+            "guardrail": guardrail.as_dict() if guardrail else None,
+            "fill": fill, "error": error,
+        }
+
+    rows: list[dict] = []
+    if plan.halted:
+        # nothing approved; record the proposals we declined to act on
+        for d in plan.skipped:
+            rows.append(base(d, "halted"))
+        return rows
+
+    for i, p in enumerate(plan.approved):
+        fill = fills[i] if i < len(fills) else None
+        rows.append(base(p.decision, "executed" if fill else "approved",
+                         guardrail=p.guardrail, fill=fill))
+    for o in plan.blocked:
+        rows.append(base(o.decision, "blocked", guardrail=o.guardrail))
+    for d in plan.skipped:
+        rows.append(base(d, "skipped"))
+    return rows
+
+
+def record_cycle(plan: CyclePlan, fills=None, *, log_path=None, state_store=None) -> list[dict]:
+    """Append the cycle to the decision log and persist policy state. Returns the rows."""
+    rows = cycle_log_rows(plan, fills)
+    if log_path:
+        p = Path(log_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+    if state_store is not None:
+        state_store.save(plan.state)
+    return rows

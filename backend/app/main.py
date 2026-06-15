@@ -46,6 +46,7 @@ from app.routers import (
     integrations,
     rotation,
     edgar,
+    agent_trading,
 )
 
 
@@ -458,6 +459,9 @@ app.include_router(rotation.router, dependencies=protected)
 # Free SEC EDGAR filing activity (insider Form-4, 8-K events, capital raises);
 # no key — complements the (tier-gated) Quiver insider feed.
 app.include_router(edgar.router, dependencies=protected)
+# Agent Trading tab — read-only oversight over the agentic-trading decision
+# log (positions, activity, guardrail breaches). Never executes a trade.
+app.include_router(agent_trading.router, dependencies=protected)
 # Curated AI chat — pre-built prompts answered with pre-computed numbers
 # + local Ollama narration. Same protection as data routers since the
 # bundles read transactions, snapshots, and account balances.

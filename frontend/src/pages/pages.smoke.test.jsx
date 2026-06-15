@@ -152,6 +152,16 @@ vi.mock('../api/client', () => ({
   preflightSell:             vi.fn(() => Promise.resolve({ gain: 0, tax_estimate: 0 })),
   tradingTaxForm8949Url:     vi.fn(() => '/api/investments/trading-tax/form-8949'),
 
+  // Integrations / API keys (used by IntegrationsCard on ConnectAccounts)
+  getIntegrationsStatus:     vi.fn(() => Promise.resolve({ integrations: [] })),
+
+  // Agent Trading
+  getAgentTradingStatus:     vi.fn(() => Promise.resolve({ configured: false, mode: null, halted: false, kill_switch_url: 'https://robinhood.com/us/en/agentic-trading/' })),
+  getAgentTradingSummary:    vi.fn(() => Promise.resolve({ counts: { executed: 0, blocked: 0 }, open_positions: 0, market_value: 0, unrealized: 0, net_deployed: 0, last_run: null, last_rationale: '' })),
+  getAgentTradingPositions:  vi.fn(() => Promise.resolve({ positions: [] })),
+  getAgentTradingActivity:   vi.fn(() => Promise.resolve({ activity: [] })),
+  getAgentTradingGuardrails: vi.fn(() => Promise.resolve({ blocked_total: 0, by_check: [], warnings: [] })),
+
   // Subscription rules
   getSubscriptionRules:      vi.fn(() => Promise.resolve([])),
   createSubscriptionRule:    vi.fn(() => Promise.resolve({ id: 1 })),
@@ -302,6 +312,13 @@ describe('Page smoke tests — every page mounts without crashing', () => {
   it('Investments', async () => {
     const { default: Investments } = await import('./Investments')
     const { container } = renderInRouter(<Investments />)
+    await settle()
+    expect(container.firstChild).not.toBeNull()
+  })
+
+  it('AgentTrading', async () => {
+    const { default: AgentTrading } = await import('./AgentTrading')
+    const { container } = renderInRouter(<AgentTrading />)
     await settle()
     expect(container.firstChild).not.toBeNull()
   })

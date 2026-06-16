@@ -170,6 +170,10 @@ class Settings(BaseSettings):
     # The Analyst's trading philosophy (Gate 1 decision rules). One of:
     # signal_event | momentum | mean_reversion | rotation. See agent_trading/strategy.py.
     AGENT_TRADING_STRATEGY: str = "signal_event"
+    # Human-in-the-loop approval queue: gate-approved orders awaiting the user's Approve/Reject
+    # tap in the app. Blank → backend/var/agent_trading/proposals.json. Placement of an approved
+    # proposal is bound to the user's in-app action — never an agent-callable path.
+    AGENT_TRADING_PROPOSALS: str = ""
 
     class Config:
         env_file = ".env"

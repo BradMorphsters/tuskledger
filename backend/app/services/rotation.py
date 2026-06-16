@@ -285,33 +285,139 @@ def compute(domain: str, today: Optional[date] = None) -> dict:
     }
 
 
-def snapshot(domain: str) -> dict:
-    """Compute + append a rotation history row (the daily heartbeat)."""
-    agg = compute(domain)
+def _confluence(domain: str, data: dict, signals: dict, edgar: dict,
+                today: date, limit: int = 4) -> list[dict]:
+    """The decision-relevant standouts: names where the *thesis* and the live
+    public-money / filing / valuation signals currently line up. Each name is
+    scored by how many independent planes agree, with plain-English reasons plus
+    the thesis + invalidation context so the LLM can reason about the idea, not
+    just the aggregates. Cache-only; degrades to [] when nothing's warmed."""
+    out: list[dict] = []
+    for e in (data.get("entities") or []):
+        if e.get("security_type") != "equity":
+            continue
+        tk = (e.get("ticker") or "").upper()
+        if not tk:
+            continue
+        conv = (e.get("scores") or {}).get("conviction") or 0
+        score = 0
+        reasons: list[str] = []
+        caveats: list[str] = []
+
+        if conv >= 85:
+            score += 2
+            reasons.append(f"high conviction ({conv})")
+        elif conv >= 75:
+            score += 1
+
+        pt = e.get("price_targets") or {}
+        cur = rj.parse_price((e.get("fundamentals") or {}).get("price"))
+        if pt.get("low") is not None and cur is not None and cur < pt["low"]:
+            score += 2
+            up = f", ~{round((pt['high'] - cur) / cur * 100)}% to high" if pt.get("high") else ""
+            reasons.append(f"oversold vs analyst low{up}")
+
+        sig = signals.get(tk)
+        if sig and sig.get("available"):
+            gov = sig.get("gov_contracts") or {}
+            con = sig.get("congress") or {}
+            lob = sig.get("lobbying") or {}
+            oe = sig.get("offexchange") or {}
+            if gov.get("recent_usd_90d") and gov.get("trend") == "up" and not (gov.get("latest") or {}).get("stale"):
+                score += 1
+                reasons.append("federal contracts accelerating")
+            if (con.get("net_usd_90d") or 0) > 0:
+                score += 1
+                reasons.append("net congressional buying")
+            if (lob.get("recent_usd") or 0) > 0 and lob.get("trend") == "up":
+                score += 1
+                reasons.append("lobbying rising")
+            if oe.get("dpi_trend") == "up":
+                score += 1
+                reasons.append("dark-pool activity rising")
+
+        ed = edgar.get(tk)
+        if ed and ed.get("available"):
+            if (ed.get("insider_filings_90d") or 0) >= EDGAR_INSIDER_CLUSTER and ed.get("insider_trend") == "up":
+                score += 1
+                reasons.append("insider Form-4 cluster")
+            if (ed.get("capital_raises_90d") or 0) > 0:
+                score -= 1
+                caveats.append("recent capital-raise filing (dilution risk)")
+
+        for c in e.get("catalysts") or []:
+            st = (c.get("status") or "").lower()
+            if st in ("hit", "missed"):
+                continue
+            d = rj.period_end(c.get("due"))
+            if d and today <= d <= today + timedelta(days=WINDOW_180):
+                score += 1
+                reasons.append("near-term catalyst")
+                break
+
+        if score >= 3 and len(reasons) >= 2:
+            out.append({
+                "ticker": tk, "name": e.get("name"), "conviction": conv,
+                "confluence_score": score, "reasons": reasons, "caveats": caveats,
+                "thesis": (e.get("thesis") or {}).get("summary"),
+                "invalidation_triggers": (e.get("invalidation_triggers") or [])[:2],
+            })
+    out.sort(key=lambda x: (-x["confluence_score"], -(x["conviction"] or 0)))
+    return out[:limit]
+
+
+def _record_daily(domain: str, agg: dict) -> bool:
+    """Append one rotation history row per day (deduped on as_of) so the trend
+    curve accrues. Returns True if a row was written."""
+    hist = store.read_rotation(domain)
+    if hist and hist[-1].get("as_of") == agg["as_of"]:
+        return False
     store.append_rotation(domain, {
         "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "as_of": agg["as_of"], "temperature": agg["temperature"], "label": agg["label"],
         "flow": agg["components"]["flow"]["score"], "rerating": agg["components"]["rerating"]["score"],
         "momentum": agg["components"]["momentum"]["score"], "cadence": agg["components"]["cadence"]["score"],
     })
+    return True
+
+
+def snapshot(domain: str) -> dict:
+    """Compute + append a rotation history row (the daily heartbeat, deduped)."""
+    agg = compute(domain)
+    try:
+        _record_daily(domain, agg)
+    except OSError:
+        pass
     return agg
 
 
 # ── Local-AI synthesis ────────────────────────────────────────────────────
-_SYSTEM = """You are a concise sector analyst writing a short, forward-looking
-read on whether capital is beginning to ROTATE into a thematic equity universe.
-You are given a JSON object of pre-computed sector metrics.
+_SYSTEM = """You are a concise sector analyst helping a long-term holder decide
+whether capital is beginning to ROTATE into a thematic equity universe they
+already research. You are given a JSON object of PRE-COMPUTED metrics: a sector
+rotation temperature with its components, a `trend` (what changed since the last
+reading), and `names_to_watch` — specific tickers where this holder's own thesis
+and the live public-money / filing / valuation signals currently line up, each
+with the reasons, any caveats, and the thesis + invalidation notes.
 
 Hard rules — not suggestions:
-  - ONLY use numbers that appear in the JSON. Never invent figures, prices, or targets.
-  - This is sector/flow interpretation, NOT a stock recommendation. No price
-    targets, no "buy/sell", no individual-name advice.
-  - 2–3 short paragraphs. Plain English. No bullet lists, no headers.
-  - Say plainly whether the sector looks EARLY, STIRRING, ROTATING, or HOT and
-    why, then name the 1–2 things that would signal the rotation is starting
-    (e.g. lobbying/contracts rising, the oversold count shrinking, conviction
-    drifting up, or the sector ETFs starting to outperform the market — see
-    score_momentum.relative_strength).
+  - ONLY use numbers, tickers, and reasons that appear in the JSON. Never invent
+    figures, prices, targets, or names that aren't present.
+  - Do NOT give buy/sell directives or price predictions. You MAY name the
+    tickers in names_to_watch and explain WHY their signals align (and flag any
+    caveat, e.g. a dilution filing cutting against a named invalidation trigger)
+    — that is surfacing what's true, not advice.
+  - Lead with what's actionable for THIS holder. Three short paragraphs, plain
+    English, no headers or bullet lists:
+    (1) the stance in one line — EARLY / STIRRING / ROTATING / HOT — and what
+        changed since the last read (use `trend`; if no prior snapshot, say so);
+    (2) the 1–2 names that matter most right now and the specific confluence of
+        signals behind each (cite their reasons; note any caveat against the
+        name's invalidation trigger);
+    (3) the single most important thing to watch next that would confirm the
+        rotation is starting.
+  - If names_to_watch is empty, say plainly that no single name shows strong
+    signal confluence yet, and keep the read at the sector level.
   - End with: "Informational only, not investment advice."
 """
 
@@ -329,6 +435,15 @@ def _trend_note(domain: str, agg: dict) -> dict:
 def build_bundle(domain: str, agg: Optional[dict] = None) -> dict:
     agg = agg or compute(domain)
     c = agg["components"]
+    try:
+        data = store.load_domain(domain)
+    except Exception:  # noqa: BLE001
+        data = {}
+    try:
+        today = date.fromisoformat(agg["as_of"])
+    except (KeyError, ValueError):
+        today = date.today()
+    names = _confluence(domain, data, store.load_signals(domain), store.load_edgar(domain), today)
     return {
         "sector": agg.get("industry") or domain,
         "rotation_temperature_0_100": agg["temperature"],
@@ -338,10 +453,11 @@ def build_bundle(domain: str, agg: Optional[dict] = None) -> dict:
         "score_momentum": c["momentum"],
         "catalyst_cadence": c["cadence"],
         "trend": _trend_note(domain, agg),
+        "names_to_watch": names,
     }
 
 
-def _template_narrative(agg: dict) -> str:
+def _template_narrative(agg: dict, names: Optional[list] = None) -> str:
     """Deterministic fallback when Ollama is off/unreachable."""
     c = agg["components"]
     rr, fl, mo = c["rerating"], c["flow"], c["momentum"]
@@ -356,6 +472,15 @@ def _template_narrative(agg: dict) -> str:
         else "Public-activity data isn't warmed yet.",
         (f"Versus the broad market, the sector ETFs are {rs['verdict']} (relative-strength {rs['score']}/100)."
          if rs.get("available") else "Sector relative strength isn't warmed yet."),
+    ]
+    if names:
+        n0 = names[0]
+        cav = f" (caveat: {n0['caveats'][0]})" if n0.get("caveats") else ""
+        bits.append(f"Where the thesis and signals line up most: {n0['ticker']} — "
+                    f"{', '.join(n0['reasons'][:3])}{cav}.")
+    else:
+        bits.append("No single name shows strong signal confluence yet.")
+    bits += [
         f"{c['cadence']['near_term_catalysts']} catalysts are due in the next two quarters.",
         "Watch for lobbying/contracts rising, the oversold count shrinking, and the sector ETFs starting to "
         "outperform the market — the first signs the rotation is starting.",
@@ -368,15 +493,23 @@ def narrative(domain: str) -> dict:
     """Local-AI synthesis of the rotation picture (graceful fallback)."""
     agg = compute(domain)
     bundle = build_bundle(domain, agg)
+    names = bundle.get("names_to_watch")
+    # Keep the trend curve fresh (once per day), so "what changed" populates
+    # even without the scheduled job. Never write on the locked public demo.
+    if not settings.DEMO_LOCKED:
+        try:
+            _record_daily(domain, agg)
+        except OSError:
+            pass
     if not settings.LLM_ENABLED:
-        return {"source": "template", "narrative": _template_narrative(agg), "bundle": bundle}
+        return {"source": "template", "narrative": _template_narrative(agg, names), "bundle": bundle}
     client = OllamaClient(base_url=settings.LLM_URL, model=settings.LLM_MODEL)
     if not client.health():
-        return {"source": "template", "narrative": _template_narrative(agg),
+        return {"source": "template", "narrative": _template_narrative(agg, names),
                 "bundle": bundle, "note": "Ollama not reachable — showing a computed summary."}
     try:
         text = client.complete(_SYSTEM, json.dumps(bundle, indent=2))
     except LLMUnavailable:
-        return {"source": "template", "narrative": _template_narrative(agg),
+        return {"source": "template", "narrative": _template_narrative(agg, names),
                 "bundle": bundle, "note": "Ollama error — showing a computed summary."}
     return {"source": "ollama", "model": settings.LLM_MODEL, "narrative": text, "bundle": bundle}

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+  ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 import {
   getResearchDomains, getResearchPositions, getResearchUniverse,
@@ -35,6 +36,7 @@ const POS = 'var(--accent-green, #10b981)'
 const NEG = 'var(--accent-red, #ef4444)'
 const BLUE = 'var(--accent-blue, #3b82f6)'
 const ORANGE = 'var(--accent-orange, #fb923c)'
+const GOLD = 'var(--accent-gold, #c79a1e)'  // Tier 2 — distinct from green/red on dark + light
 
 const sevTone = (s) => ({ high: 'danger', med: 'warning', low: 'info' }[s] || 'neutral')
 const riskTone = (r) => {
@@ -443,6 +445,197 @@ function PositionCard({ p, onOpen }) {
   )
 }
 
+// ── Conviction × Upside scatter (the watchlist map) ──────────────────────
+const TIER_COLOR = { 1: POS, 2: GOLD, 3: NEG }
+const TIER_DOT_LABEL = { 1: 'Tier 1 · producing', 2: 'Tier 2 · near-term', 3: 'Tier 3 · speculative' }
+
+// Collapse the granular research category into one coarse primary mineral so
+// the chart can offer a short, useful filter (there are ~40 raw categories).
+function primaryMineral(category) {
+  const c = (category || '').toLowerCase()
+  const groups = [
+    ['Lithium', ['lithium', 'li ', 'dle', 'boron', 'clay']],
+    ['Uranium / Nuclear', ['uranium', 'u3o8', 'u miners', 'enrichment', 'westinghouse', 'nuclear', 'smr', 'fuel']],
+    ['Rare earths', ['rare earth', 'ree', 're /', 're miners', 'magnet', 'niobium', 'scandium', 'separation', 'reelement']],
+    ['Copper', ['copper']],
+    ['Graphite', ['graphite', 'anode']],
+    ['Tungsten', ['tungsten']],
+    ['Antimony', ['antimony']],
+    ['Nickel / Cobalt', ['nickel', 'cobalt']],
+    ['Manganese', ['manganese']],
+    ['Diversified / Broad', ['broad', 'diversified', 'transition-metal', 'metals & mining', 'strategic-metal', 'battery-metal', 'battery makers', 'full li', 'supply chain', 'equal-weight', 'miners +', 'miners explicitly']],
+  ]
+  for (const [label, keys] of groups) if (keys.some(k => c.includes(k))) return label
+  return 'Other'
+}
+
+function ScatterTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 12, boxShadow: '0 6px 20px rgba(0,0,0,0.3)', maxWidth: 240 }}>
+      <div style={{ fontWeight: 700, marginBottom: 1 }}>
+        {d.held ? '● ' : ''}{d.ticker}
+      </div>
+      <div style={{ color: 'var(--text-secondary)' }}>{d.name}</div>
+      {d.category && <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 1 }}>{d.category}</div>}
+      <div style={{ marginTop: 5 }}>Conviction <strong>{d.conviction}</strong> · Upside <strong>{d.upside}</strong></div>
+      {d.tier != null && <div style={{ color: TIER_COLOR[d.tier], marginTop: 2, fontWeight: 600 }}>{TIER_DOT_LABEL[d.tier]}</div>}
+      <div style={{ color: 'var(--text-muted)', marginTop: 5, fontSize: 11 }}>Click for the full thesis →</div>
+    </div>
+  )
+}
+
+function ConvictionUpsideScatter({ rows, onOpen, asOf }) {
+  const [tab, setTab] = useState('equity')   // 'equity' | 'fund'
+  const [tierSel, setTierSel] = useState('') // '', '1', '2', '3'
+  const [mineral, setMineral] = useState('')
+  const [q, setQ] = useState('')
+
+  const counts = useMemo(() => ({
+    equity: rows.filter(r => r.security_type === 'equity').length,
+    fund: rows.filter(r => r.security_type !== 'equity').length,
+  }), [rows])
+
+  const base = useMemo(
+    () => rows.filter(r => (tab === 'equity' ? r.security_type === 'equity' : r.security_type !== 'equity')),
+    [rows, tab],
+  )
+
+  const minerals = useMemo(() => [...new Set(base.map(r => primaryMineral(r.category)))].sort(), [base])
+
+  const filtered = useMemo(() => base
+    .filter(r => {
+      if (r.conviction == null || r.upside == null) return false
+      if (tab === 'equity' && tierSel && String(r.tier) !== tierSel) return false
+      if (mineral && primaryMineral(r.category) !== mineral) return false
+      if (q) {
+        const hay = `${r.ticker} ${r.name} ${r.category || ''}`.toLowerCase()
+        if (!hay.includes(q.toLowerCase())) return false
+      }
+      return true
+    })
+    .map(r => ({ ...r, x: r.conviction, y: r.upside })), [base, tab, tierSel, mineral, q])
+
+  // Equities split into one Scatter series per tier (gives the coloured legend);
+  // funds carry no tier, so they're a single blue series.
+  const series = useMemo(() => {
+    if (tab !== 'equity') return [{ key: 'fund', name: 'ETF / Fund', color: BLUE, data: filtered }]
+    return [1, 2, 3]
+      .map(t => ({ key: `t${t}`, name: TIER_DOT_LABEL[t], color: TIER_COLOR[t], data: filtered.filter(r => r.tier === t) }))
+      .filter(s => s.data.length)
+  }, [filtered, tab])
+
+  const handleClick = (pt) => {
+    const d = pt && (pt.payload || pt)
+    if (d?.id) onOpen(d.id, d.current_price)
+  }
+
+  const tabStyle = (active) => ({
+    padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    border: 'none', borderBottom: `2px solid ${active ? BLUE : 'transparent'}`,
+    background: 'transparent', color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+  })
+  const chipStyle = (active) => ({
+    padding: '5px 12px', fontSize: 12.5, cursor: 'pointer', borderRadius: 999,
+    border: `1px solid ${active ? BLUE : 'var(--border)'}`,
+    background: active ? 'var(--accent-blue-bg, rgba(59,130,246,0.12))' : 'transparent',
+    color: active ? BLUE : 'var(--text-secondary)', fontWeight: active ? 600 : 400,
+  })
+  const inputStyle = { background: 'var(--bg-input, var(--bg-card))', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: 13 }
+
+  return (
+    <div className="card" style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 8px' }}>
+        <button onClick={() => { setTab('equity'); setTierSel('') }} style={tabStyle(tab === 'equity')}>Equities ({counts.equity})</button>
+        <button onClick={() => { setTab('fund'); setTierSel('') }} style={tabStyle(tab === 'fund')}>ETFs &amp; Funds ({counts.fund})</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', padding: 16 }}>
+        {/* Chart */}
+        <div style={{ flex: '1 1 460px', minWidth: 300 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>Conviction vs. Upside</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Each name plotted by its two scores. Top-right = strong on both.{tab === 'equity' ? ' Color = tier.' : ''}
+          </div>
+          <ResponsiveContainer width="100%" height={360}>
+            <ScatterChart margin={{ top: 10, right: 18, bottom: 28, left: 6 }}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+              <XAxis
+                type="number" dataKey="x" name="Conviction" domain={[40, 100]}
+                ticks={[40, 50, 60, 70, 80, 90, 100]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                label={{ value: 'Conviction (quality)', position: 'insideBottom', offset: -14, fontSize: 12, fill: 'var(--text-muted)' }}
+              />
+              <YAxis
+                type="number" dataKey="y" name="Upside" domain={[40, 100]} width={44}
+                ticks={[40, 50, 60, 70, 80, 90, 100]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                label={{ value: 'Upside (torque)', angle: -90, position: 'insideLeft', offset: 16, fontSize: 12, fill: 'var(--text-muted)' }}
+              />
+              <ZAxis range={[70, 70]} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ScatterTooltip />} />
+              {series.map(s => (
+                <Scatter key={s.key} name={s.name} data={s.data} fill={s.color} fillOpacity={0.85} onClick={handleClick} style={{ cursor: 'pointer' }} />
+              ))}
+            </ScatterChart>
+          </ResponsiveContainer>
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {(tab === 'equity'
+              ? [1, 2, 3].map(t => ({ color: TIER_COLOR[t], label: TIER_DOT_LABEL[t] }))
+              : [{ color: BLUE, label: 'ETF / Fund' }]
+            ).map((l, i) => (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 5, background: l.color, display: 'inline-block' }} />
+                {l.label}
+              </span>
+            ))}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>{filtered.length} shown</span>
+          </div>
+        </div>
+
+        {/* How to use this */}
+        <aside style={{ flex: '0 1 260px', minWidth: 220, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--text-primary)' }}>How to use this</div>
+          <p style={{ margin: '4px 0 0', color: 'var(--text-muted)' }}>A working watchlist, not advice.</p>
+          <p style={{ margin: '10px 0 0' }}>
+            <strong>Conviction</strong> ranks quality / risk-adjusted strength. <strong>Upside</strong> leans toward
+            torque — smaller caps with big catalysts and re-rating room.
+          </p>
+          <p style={{ margin: '10px 0 0' }}>
+            Filter by <strong>tier</strong> for a balanced basket: Tier 1 as ballast, Tier 2 for funded upside,
+            Tier 3 sized small. Click any dot for the thesis and factor breakdown.
+          </p>
+          <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--text-muted)' }}>
+            Scores are approximate{asOf ? ` as of ${asOf}` : ''} — verify live before acting. China's suspension of
+            antimony / gallium / germanium / tungsten export curbs (through Nov 2026) is a key swing factor.
+          </p>
+        </aside>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+        {tab === 'equity' && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[['', 'All'], ['1', 'Tier 1'], ['2', 'Tier 2'], ['3', 'Tier 3']].map(([v, l]) => (
+              <button key={v} onClick={() => setTierSel(v)} style={chipStyle(tierSel === v)}>{l}</button>
+            ))}
+          </div>
+        )}
+        <select value={mineral} onChange={e => setMineral(e.target.value)} style={inputStyle}>
+          <option value="">All minerals</option>
+          {minerals.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <input
+          value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Search ticker, company, mineral…"
+          style={{ ...inputStyle, flex: '1 1 200px', minWidth: 160 }}
+        />
+      </div>
+    </div>
+  )
+}
+
 // ── Universe table ──────────────────────────────────────────────────────
 function UniverseTable({ rows, onOpen, signals = {} }) {
   const [sort, setSort] = useState({ key: 'conviction', dir: 'desc' })
@@ -787,6 +980,7 @@ export default function Research() {
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null)
   const [sigByTk, setSigByTk] = useState({})  // ticker -> compact flow summary
+  const [allUniverse, setAllUniverse] = useState([])  // unfiltered, for the scatter map
   // Universe filters
   const [tier, setTier] = useState('')
   const [minConviction, setMinConviction] = useState(0)
@@ -825,6 +1019,15 @@ export default function Research() {
         setSigByTk(m)
       })
       .catch(() => setSigByTk({}))
+  }, [domain])
+
+  // Full universe (unfiltered) once per domain — feeds the conviction/upside
+  // scatter, which carries its own tabs + filters independent of the table.
+  useEffect(() => {
+    if (!domain) { setAllUniverse([]); return }
+    getResearchUniverse(domain, {})
+      .then(rows => setAllUniverse(rows))
+      .catch(() => setAllUniverse([]))
   }, [domain])
 
   // Universe re-fetches when filters change.
@@ -926,6 +1129,14 @@ export default function Research() {
           <h2 style={{ fontSize: 16, margin: '8px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <TrendingUp size={16} style={{ color: BLUE }} /> Universe
           </h2>
+
+          {allUniverse.length > 0 && (
+            <ConvictionUpsideScatter
+              rows={allUniverse}
+              asOf={meta?.as_of}
+              onOpen={(eid, lp) => setSelected({ id: eid, livePrice: lp })}
+            />
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
             <select value={tier} onChange={e => setTier(e.target.value)}
               style={{ background: 'var(--bg-input, var(--bg-card))', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: 13 }}>

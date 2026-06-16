@@ -28,6 +28,7 @@ from typing import Optional
 from .brokers import parse_account_state, parse_quotes
 from .candidates import holdings_from_state, make_candidate_provider
 from .decisions import Decision
+from .order_policy import OrderPolicy, build_order_args
 from .sizing import SizingConfig, size_decisions
 from .strategy import StrategyConfig, StrategyDecisionSource
 from .executor import OrderOutcome
@@ -61,6 +62,7 @@ class CyclePlan:
     as_of: str
     halted: bool = False
     halt_reason: str = ""
+    drawdown: float = 0.0          # account drawdown this cycle (fraction); what the breaker saw
     approved: list[PlannedOrder] = field(default_factory=list)
     blocked: list[OrderOutcome] = field(default_factory=list)
     skipped: list[Decision] = field(default_factory=list)
@@ -80,20 +82,8 @@ class CyclePlan:
 
 
 # --------------------------------------------------------------------------- order args
-
-def build_order_args(account_number: str, order: ProposedOrder) -> dict:
-    """Map an approved order onto Robinhood ``place_equity_order`` arguments."""
-    args = {
-        "account_number": account_number,
-        "symbol": order.ticker.upper().strip(),
-        "side": order.side.lower().strip(),
-        "type": "market",
-    }
-    if order.notional is not None:
-        args["amount"] = round(order.resolved_notional(), 2)
-    else:
-        args["quantity"] = order.resolved_qty()
-    return args
+# build_order_args + OrderPolicy now live in order_policy.py (shared with the live broker so
+# the planner and the executor can never disagree on how an order is constructed).
 
 
 def _apply(state: AccountState, order: ProposedOrder) -> AccountState:
@@ -141,13 +131,15 @@ def plan_cycle(
     executed_today: int = 0,
     wash_sale_lookup: WashSaleLookup = _no_wash_sale,
     default_notional: float = 100.0,
+    order_policy: Optional[OrderPolicy] = None,
     as_of: Optional[str] = None,
 ) -> CyclePlan:
     """Run reconcile + the guardrail gate over a Cowork-fetched snapshot.
 
     Returns approved order args + vetoes. **Places nothing.** ``snapshot`` is the live
     account state (Cowork fetched it, ``parse_account_state`` parsed it); ``persisted`` is
-    Tusk Ledger's policy state (equity peak, halt flag).
+    Tusk Ledger's policy state (equity peak, halt flag). ``order_policy`` controls how the
+    approved order args are built (market vs marketable-limit); default market.
     """
     as_of = as_of or datetime.now(timezone.utc).date().isoformat()
     plan = CyclePlan(as_of=as_of, state=persisted)
@@ -166,13 +158,15 @@ def plan_cycle(
     working = rec.account_state
 
     # Account-level drawdown breaker.
+    drawdown = 0.0
     if working.equity_peak > 0:
         drawdown = (working.equity_peak - working.total_value()) / working.equity_peak
-        if drawdown > config.max_drawdown_pct:
-            plan.halted = True
-            plan.halt_reason = "drawdown limit hit"
-            plan.state = replace(rec.state, halted=True)  # persist the trip
-            return plan
+    plan.drawdown = round(drawdown, 4)
+    if drawdown > config.max_drawdown_pct:
+        plan.halted = True
+        plan.halt_reason = "drawdown limit hit"
+        plan.state = replace(rec.state, halted=True)  # persist the trip
+        return plan
 
     running = working
     for d in decisions:
@@ -189,7 +183,7 @@ def plan_cycle(
         result = check_order(order, running, config, wash_sale_lookup)
         if result.ok:
             plan.approved.append(
-                PlannedOrder(decision=d, order_args=build_order_args(account_number, order),
+                PlannedOrder(decision=d, order_args=build_order_args(account_number, order, policy=order_policy),
                              guardrail=result)
             )
             running = _apply(running, order)  # sequential effect for the next check

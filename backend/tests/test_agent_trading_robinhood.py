@@ -19,6 +19,75 @@ from app.agent_trading import (
 )
 
 WRITE_TOOLS = {"place_equity_order", "cancel_equity_order"}
+
+
+def test_place_raw_binds_account_and_stringifies_quantity(monkeypatch):
+    """place_equity_order rejects a placeholder account and a numeric quantity — place_raw must
+    force the bound account and send quantity as a STRING."""
+    monkeypatch.setattr("app.agent_trading.brokers._log_place", lambda *a, **k: None)  # no runtime-file write
+    seen = {}
+
+    def fake_client(tool, args):
+        seen["tool"], seen["args"] = tool, dict(args)
+        return {"data": {"id": "ord-1", "filled_quantity": "4.3176", "average_price": "23.2"}}
+
+    broker = RobinhoodMCPBroker(account_number="test-agentic-001", mcp_client=fake_client, mode=MODE_LIVE)
+    fill = broker.place_raw({"account_number": "live-sleeve", "symbol": "USAR", "side": "buy",
+                             "type": "market", "quantity": 4.317603})
+    assert seen["tool"] == "place_equity_order"
+    assert seen["args"]["account_number"] == "test-agentic-001"  # bound account, not the placeholder
+    assert seen["args"]["quantity"] == "4.317603" and isinstance(seen["args"]["quantity"], str)
+    assert fill.venue == "robinhood" and fill.ticker == "USAR"
+
+
+def test_place_raw_reads_nested_order_and_queued_state(monkeypatch):
+    """The REAL place_equity_order success shape nests the order under data.order with a
+    ``state`` (e.g. 'unconfirmed') and empty fills — a placed-but-not-yet-filled (queued) order.
+    place_raw must read the nested id (not flag a false 'no order id') and report it as NOT
+    filled, with the order id captured."""
+    monkeypatch.setattr("app.agent_trading.brokers._log_place", lambda *a, **k: None)
+    # Captured verbatim from a live placement on 2026-06-16.
+    raw = {"data": {"order": {
+        "id": "00000000-0000-4000-8000-0000000000aa", "symbol": "", "side": "buy", "type": "market",
+        "state": "unconfirmed", "quantity": "4.552697", "cumulative_quantity": "0.000000",
+        "price": "21.970000", "average_price": None, "executions": [],
+        "created_at": "2026-06-16T19:09:40.985836Z"}},
+        "guide": "The order has been submitted — not necessarily filled."}
+    broker = RobinhoodMCPBroker(account_number="test-agentic-001", mcp_client=lambda *a: raw, mode=MODE_LIVE)
+    fill = broker.place_raw({"account_number": "live-sleeve", "symbol": "USAR", "side": "buy",
+                             "type": "market", "quantity": 4.552697})
+    assert fill.order_id == "00000000-0000-4000-8000-0000000000aa"
+    assert fill.state == "unconfirmed"
+    assert fill.is_filled is False                     # submitted, not yet executed → "queued"
+    assert fill.ticker == "USAR" and fill.qty == 4.552697   # symbol="" in response → use order_args
+
+
+def test_place_raw_reports_filled_when_executed(monkeypatch):
+    """A response whose order has filled (state='filled', cumulative_quantity>0) is is_filled."""
+    monkeypatch.setattr("app.agent_trading.brokers._log_place", lambda *a, **k: None)
+    raw = {"data": {"order": {"id": "abc", "state": "filled", "quantity": "5",
+                              "cumulative_quantity": "5.000000", "average_price": "18.74"}}}
+    broker = RobinhoodMCPBroker(account_number="test-agentic-001", mcp_client=lambda *a: raw, mode=MODE_LIVE)
+    fill = broker.place_raw({"symbol": "ALM", "side": "buy", "type": "market", "quantity": 5})
+    assert fill.is_filled is True and fill.state == "filled"
+    assert fill.qty == 5.0 and fill.price == 18.74
+
+
+def test_order_status_reads_back_executed_vs_queued(monkeypatch):
+    """order_status finds the order in get_equity_orders and reports executed (filled) vs queued."""
+    monkeypatch.setattr("app.agent_trading.brokers._log_place", lambda *a, **k: None)
+    orders = {"data": {"orders": [
+        {"id": "queued-1", "state": "unconfirmed", "cumulative_quantity": "0"},
+        {"id": "done-1", "state": "filled", "cumulative_quantity": "5.0", "average_price": "18.74"}]}}
+    broker = RobinhoodMCPBroker(account_number="test-agentic-001", mcp_client=lambda *a: orders, mode=MODE_LIVE)
+    assert broker.order_status("done-1") == {
+        "order_id": "done-1", "state": "filled", "executed": True,
+        "filled_qty": 5.0, "avg_price": 18.74, "found": True}
+    q = broker.order_status("queued-1")
+    assert q["state"] == "unconfirmed" and q["executed"] is False and q["found"] is True
+    assert broker.order_status("missing")["found"] is False   # not in the feed
+
+
 ACCT = "test-agentic-001"  # placeholder — never a real account number
 
 

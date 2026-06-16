@@ -160,6 +160,34 @@ def test_edgar_flow_absent_when_cache_cold(env):
     assert fl["edgar_checked"] == 0 and fl["insider_clusters"] == 0 and fl["capital_raises"] == 0
 
 
+def test_confluence_surfaces_aligned_names(env):
+    # Warm a flow + filing signal on A (already oversold + high conviction + catalyst).
+    store.save_signals("rot-test", {
+        "A": {"available": True, "lobbying": {"recent_usd": 200000, "trend": "up"},
+              "offexchange": {"dpi_trend": "up", "dpi_recent": 0.6}},
+    })
+    store.save_edgar("rot-test", {
+        "A": {"available": True, "insider_filings_90d": 12, "insider_trend": "up",
+              "capital_raises_90d": 1, "recent_raises": [{"form": "S-3", "date": "2026-06-01"}]},
+    })
+    bundle = rot.build_bundle("rot-test")
+    names = bundle["names_to_watch"]
+    assert names and names[0]["ticker"] == "A"
+    top = names[0]
+    assert top["confluence_score"] >= 3 and len(top["reasons"]) >= 2
+    assert any("oversold" in r for r in top["reasons"])
+    assert any("dilution" in c for c in top["caveats"])   # capital raise surfaced as caveat
+    # B is in-range, low conviction, no signals → not a standout.
+    assert all(n["ticker"] != "B" for n in names)
+
+
+def test_daily_snapshot_dedupes(env):
+    assert rot._record_daily("rot-test", rot.compute("rot-test", today=TODAY)) is True
+    # Second call same day → no new row.
+    assert rot._record_daily("rot-test", rot.compute("rot-test", today=TODAY)) is False
+    assert len(store.read_rotation("rot-test")) == 1
+
+
 def test_template_narrative_when_llm_off(env, monkeypatch):
     monkeypatch.setattr(settings, "LLM_ENABLED", False)
     n = rot.narrative("rot-test")

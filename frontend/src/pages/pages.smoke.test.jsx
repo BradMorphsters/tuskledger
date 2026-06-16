@@ -174,6 +174,10 @@ vi.mock('../api/client', () => ({
   generateAgentTradingProposals: vi.fn(() => Promise.resolve({ configured: true, queued: 0, proposals: [] })),
   approveAgentTradingProposal: vi.fn(() => Promise.resolve({ ok: true })),
   rejectAgentTradingProposal:  vi.fn(() => Promise.resolve({ ok: true })),
+  getRobinhoodAgentStatus:   vi.fn(() => Promise.resolve({ connected: false, mode: 'disconnected', armed: false })),
+  connectRobinhoodAgent:     vi.fn(() => Promise.resolve({ ok: true, connected: true })),
+  pingRobinhoodAgent:        vi.fn(() => Promise.resolve({ ok: true, accounts: 5, agentic_account_found: true })),
+  disconnectRobinhoodAgent:  vi.fn(() => Promise.resolve({ ok: true, connected: false })),
 
   // Subscription rules
   getSubscriptionRules:      vi.fn(() => Promise.resolve([])),

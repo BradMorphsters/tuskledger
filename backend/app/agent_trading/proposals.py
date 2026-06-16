@@ -68,6 +68,7 @@ class Proposal:
     decided_at: Optional[str] = None
     decided_by: Optional[str] = None
     placed_ref: Optional[str] = None   # broker order id once placed (set later by the backend)
+    placed_state: Optional[str] = None  # broker order state at placement: filled | queued | unconfirmed | …
 
 
 # --------------------------------------------------------------------------- pure model
@@ -215,18 +216,32 @@ class ProposalStore:
                 return updated
         raise KeyError(f"no proposal {pid!r}")
 
-    def mark_placed(self, pid: str, placed_ref: str, *, now: Optional[str] = None) -> Proposal:
+    def mark_placed(self, pid: str, placed_ref: str, *, now: Optional[str] = None,
+                    state: Optional[str] = None) -> Proposal:
         """Record that an APPROVED proposal was placed by the backend (the bound agent). This is
-        called by the placement path after the user approved — never to skip approval."""
+        called by the placement path after the user approved — never to skip approval. ``state`` is
+        the broker order state (filled/queued/unconfirmed) so the queue shows executed vs queued."""
         items = self._read()
         for i, p in enumerate(items):
             if p.id == pid:
                 if p.status != APPROVED:
                     raise ValueError(f"proposal {pid} is {p.status}, not approved — cannot mark placed")
-                items[i] = replace(p, status=PLACED, placed_ref=placed_ref, decided_at=now or _now())
+                items[i] = replace(p, status=PLACED, placed_ref=placed_ref,
+                                   placed_state=state, decided_at=now or _now())
                 self._write(items)
                 return items[i]
         raise KeyError(f"no proposal {pid!r}")
+
+    def update_placed_state(self, pid: str, state: str) -> Optional[Proposal]:
+        """Refresh the recorded broker state of an already-PLACED proposal (e.g. queued→filled
+        once a market order completes). No-op if the proposal isn't placed."""
+        items = self._read()
+        for i, p in enumerate(items):
+            if p.id == pid and p.status == PLACED:
+                items[i] = replace(p, placed_state=state)
+                self._write(items)
+                return items[i]
+        return None
 
     def counts(self, *, now: Optional[str] = None) -> dict[str, int]:
         out: dict[str, int] = {}

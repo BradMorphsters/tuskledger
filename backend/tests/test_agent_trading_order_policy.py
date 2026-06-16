@@ -1,0 +1,39 @@
+"""Tests for order construction — market vs marketable-limit. Pure."""
+from __future__ import annotations
+
+import pytest
+
+from app.agent_trading.guardrails import ProposedOrder
+from app.agent_trading.order_policy import OrderPolicy, build_order_args, limit_price
+
+
+def test_market_notional_converts_to_quantity():
+    # agentic place_equity_order rejects a dollar `amount` → notional becomes a share quantity
+    a = build_order_args("acct", ProposedOrder("nb", "buy", 5.0, notional=100.0))
+    assert a["type"] == "market" and a["quantity"] == 20.0 and a["symbol"] == "NB" and "amount" not in a
+
+
+def test_market_qty_uses_quantity():
+    a = build_order_args("acct", ProposedOrder("nb", "sell", 5.0, qty=10))
+    assert a["type"] == "market" and a["quantity"] == 10 and "amount" not in a
+
+
+def test_limit_buy_above_sell_below_and_uses_quantity():
+    pol = OrderPolicy(order_type="limit", limit_offset_bps=100)  # 1%
+    buy = build_order_args("a", ProposedOrder("nb", "buy", 10.0, notional=100.0), policy=pol)
+    sell = build_order_args("a", ProposedOrder("nb", "sell", 10.0, qty=5), policy=pol)
+    assert buy["type"] == "limit" and buy["limit_price"] == 10.10 and "quantity" in buy and "amount" not in buy
+    assert sell["limit_price"] == 9.90
+
+
+def test_limit_price_helper():
+    pol = OrderPolicy(order_type="limit", limit_offset_bps=25)
+    assert limit_price("buy", 100.0, pol) == 100.25
+    assert limit_price("sell", 100.0, pol) == 99.75
+
+
+def test_bad_policy_rejected():
+    with pytest.raises(ValueError):
+        OrderPolicy(order_type="stop")
+    with pytest.raises(ValueError):
+        OrderPolicy(limit_offset_bps=-1)

@@ -174,6 +174,19 @@ class Settings(BaseSettings):
     # tap in the app. Blank → backend/var/agent_trading/proposals.json. Placement of an approved
     # proposal is bound to the user's in-app action — never an agent-callable path.
     AGENT_TRADING_PROPOSALS: str = ""
+    # Failure-alert log (cycle errors, guardrail vetoes, drawdown halt, placement failures) the
+    # tab + digest surface. Blank → backend/var/agent_trading/alerts.jsonl.
+    AGENT_TRADING_ALERTS: str = ""
+    # Encrypted store for the backend's own Robinhood agentic-MCP OAuth token (when Tusk Ledger is
+    # the bound agent). Blank → backend/var/agent_trading/rh_agent.json.enc.
+    AGENT_TRADING_AGENT_STORE: str = ""
+    # LIVE arming. False (default) → even after Connect, Approve only marks approved; the backend
+    # never places. Set true ONLY as the deliberate go-live step (Phase 4 of the runbook).
+    AGENT_TRADING_ARMED: bool = False
+    # Hard ceiling (USD) on TOTAL capital the sleeve may deploy. 0 = unlimited. Start small
+    # (e.g. 300) to go live with a restriction, then raise it to scale up. Enforced by the gate
+    # at generation, so an over-cap order never reaches the approval queue.
+    AGENT_TRADING_MAX_DEPLOYED: float = 0.0
 
     class Config:
         env_file = ".env"

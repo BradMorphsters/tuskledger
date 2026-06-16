@@ -128,6 +128,16 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
   public-money-flow inputs apply — e.g. retail uses `["edgar"]` and drops the
   irrelevant federal-contract/lobbying/congress credit). Defaults preserve
   critical-minerals exactly.
+- **Sharper rotation insight (local LLM)**: the rotation AI bundle now includes
+  `names_to_watch` — the specific tickers where the holder's thesis and the live
+  flow/filing/valuation signals line up (`rotation._confluence()`: conviction +
+  oversold-vs-target + public-money flow + insider/dilution filings + near-term
+  catalyst), each with plain reasons, dilution caveats, and the thesis +
+  invalidation notes. The prompt is rewritten to lead with what changed, name
+  the 1–2 names that matter and why, and end on one tripwire — still
+  Python-computed numbers, no forecasts/buy-sell. Trend now accrues: a rotation
+  history row is recorded once per day (deduped, demo-guarded) from
+  snapshot()/narrative(), so "what changed" populates without the 4am job.
 - **Rate-limit resilience**: the Quiver + EDGAR bulk refreshes now throttle and
   **preserve good cached data on a failed pass** (flagged `stale`) instead of
   overwriting it, so repeated runs / the nightly job *accumulate* coverage.

@@ -57,6 +57,7 @@ from .strategy import (
     StrategyDecisionSource,
     propose as propose_strategy,
 )
+from .candidates import build_candidates, holdings_from_state, make_candidate_provider
 from .bridge import (
     CyclePlan,
     PlannedOrder,

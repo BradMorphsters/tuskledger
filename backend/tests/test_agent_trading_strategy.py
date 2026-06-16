@@ -92,8 +92,35 @@ def test_stop_and_target_exits_apply_to_all_profiles():
 
 # --------------------------------------------------------------------------- rotation
 
+def _ranked(n, held=()):
+    """n candidates ranked by descending rotation_score; `held` = set of indices held."""
+    out = []
+    for i in range(n):
+        out.append(Candidate(f"T{i}", price=10.0, research_score=0.9, rotation_score=1.0 - i * 0.05,
+                             held_qty=(1.0 if i in held else 0.0), avg_cost=10.0))
+    return out
+
+
+def test_rotation_hysteresis_holds_through_small_slip():
+    # held names at rank 6 (T5) and rank 9 (T8); buy top 5, sell only below rank 8
+    cands = _ranked(9, held={5, 8})
+    cfg = StrategyConfig(profile="rotation", rotation_top_n=5, rotation_exit_n=8, max_new_positions=5)
+    acts = {x.ticker: x.action for x in propose(cands, cfg)}
+    assert "T5" not in acts            # rank 6 → inside the keep buffer (top 8) → HELD, no sell
+    assert acts.get("T8") == "sell"    # rank 9 → below exit rank 8 → rotated out
+
+
+def test_rotation_without_hysteresis_sells_on_slip():
+    cands = _ranked(9, held={5})
+    cfg = StrategyConfig(profile="rotation", rotation_top_n=5, rotation_exit_n=5)  # no buffer
+    acts = {x.ticker: x.action for x in propose(cands, cfg)}
+    assert acts.get("T5") == "sell"    # rank 6 with no buffer → sold the moment it slips
+
+
 def test_rotation_holds_top_n_and_rotates_out():
-    cfg = StrategyConfig(profile="rotation", rotation_top_n=2, research_floor=0.5, max_new_positions=5)
+    # exit_n == top_n disables the hysteresis buffer for this rotate-out test
+    cfg = StrategyConfig(profile="rotation", rotation_top_n=2, rotation_exit_n=2,
+                         research_floor=0.5, max_new_positions=5)
     cands = [
         C("A", research_score=0.9, rotation_score=0.9),                 # top -> buy (not held)
         C("B", research_score=0.8, rotation_score=0.8),                 # top -> buy (not held)
@@ -104,6 +131,35 @@ def test_rotation_holds_top_n_and_rotates_out():
     assert d.get("A") == "buy" and d.get("B") == "buy"
     assert d.get("OLD") == "sell"
     assert "C" not in d
+
+
+# --------------------------------------------------------------------------- full-universe ranking
+
+def test_rank_universe_covers_every_name_with_status():
+    from app.agent_trading.strategy import rank_universe
+    cands = _ranked(10, held={6})  # T6 held, ranks 7th
+    cfg = StrategyConfig(profile="rotation", rotation_top_n=5, rotation_exit_n=8)
+    rows = rank_universe(cands, cfg)
+    assert [r.ticker for r in rows] == [c.ticker for c in cands]   # WHOLE list, ranked
+    by = {r.ticker: r for r in rows}
+    assert by["T0"].status == "in_basket"        # top 5
+    assert by["T6"].status == "buffer"           # rank 7 → inside the 8-wide keep buffer, held
+    assert by["T9"].status == "below_cutoff"     # rank 10 → must climb to be bought
+    assert "climb" in by["T9"].note              # tells you what it needs
+
+
+def test_rank_universe_small_name_makes_the_cut_on_trigger():
+    from app.agent_trading.strategy import rank_universe
+    # a low research_score name still qualifies in momentum purely on its own trend+strength
+    cands = [
+        C("BIG", research_score=0.95, trend_up=False, momentum=0.01),   # top quality, no trigger
+        C("SMALL", research_score=0.55, trend_up=True, momentum=0.18),  # small, but strong trigger
+    ]
+    cfg = StrategyConfig(profile="momentum", research_floor=0.5)
+    by = {r.ticker: r for r in rank_universe(cands, cfg)}
+    assert by["SMALL"].action == "buy" and by["SMALL"].status == "qualifies"
+    assert by["BIG"].action is None and by["BIG"].status == "blocked"
+    assert "uptrend" in by["BIG"].note            # names the missing trigger
 
 
 # --------------------------------------------------------------------------- cap + source

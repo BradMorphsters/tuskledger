@@ -117,6 +117,7 @@ def backtest(
     research_scores: Optional[dict[str, float]] = None,
     warmup: int = 4,
     momentum_fn=None,
+    cost_bps: float = 10.0,
 ) -> BacktestResult:
     """Replay ``config.profile`` over the price history. ``research_scores`` defaults to a
     neutral 1.0 per name (the quality gate can't be replayed historically; see module doc).
@@ -178,13 +179,13 @@ def backtest(
                 new_q = qty.get(t, 0.0) + sh
                 avg[t] = (qty.get(t, 0.0) * avg.get(t, 0.0) + spend) / new_q
                 qty[t] = new_q
-                cash -= spend
+                cash -= spend + spend * cost_bps / 10000.0   # buy + transaction cost
                 trades += 1
                 tlog.append({"as_of": month, "ticker": t, "action": "buy",
                              "price": round(price, 4), "shares": round(sh, 4), "notional": round(spend, 2)})
             elif d.action == "sell" and qty.get(t, 0.0) > 0:
                 sh = min(qty[t], d.target_notional / price)
-                cash += sh * price
+                cash += sh * price - (sh * price) * cost_bps / 10000.0   # proceeds − transaction cost
                 qty[t] -= sh
                 if qty[t] <= 1e-9:
                     qty.pop(t, None); avg.pop(t, None)
@@ -224,7 +225,7 @@ def backtest_report(results: dict[str, BacktestResult]) -> str:
         flag = "  ✓ beats hold" if r.beat_benchmark() else ""
         lines.append(f"  {p:14} return {r.total_return:+.1%}  CAGR {r.cagr:+.1%}  "
                      f"maxDD {r.max_drawdown:.1%}  trades {r.trades}{flag}")
-    lines.append("Directional only — monthly bars, no costs, quality/signal gates neutralized.")
+    lines.append("Directional only — monthly bars, modeled transaction costs, quality/signal gates neutralized.")
     return "\n".join(lines)
 
 

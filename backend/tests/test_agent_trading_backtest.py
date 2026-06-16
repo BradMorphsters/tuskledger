@@ -86,6 +86,13 @@ def test_trade_log_records_entries_grouped_by_ticker():
     assert "UP" in grouped and len(grouped["UP"]) == r.trades
 
 
+def test_transaction_costs_reduce_return():
+    prices = {"UP": _series([10, 11, 12, 13, 14, 16, 18, 20])}
+    free = backtest(prices, StrategyConfig(profile="momentum"), warmup=4, momentum_fn=_momentum_fn, cost_bps=0)
+    costed = backtest(prices, StrategyConfig(profile="momentum"), warmup=4, momentum_fn=_momentum_fn, cost_bps=50)
+    assert costed.total_return < free.total_return   # turnover is no longer free
+
+
 def test_too_short_history_returns_flat():
     r = backtest({"X": _series([10, 11])}, StrategyConfig(profile="momentum"),
                  warmup=4, momentum_fn=_momentum_fn)

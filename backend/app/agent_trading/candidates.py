@@ -191,6 +191,34 @@ def freshness_skips(
     return out
 
 
+def chase_skips(
+    candidates: Sequence[Candidate],
+    *,
+    max_chase_momentum: float,
+    profile: str = "momentum",
+    apply_profiles: Sequence[str] = ("momentum", "rotation"),
+) -> dict[str, str]:
+    """"Don't chase" entry discipline: which NON-held candidates shouldn't be *bought this cycle*
+    because they've run too far, too fast (trailing return above ``max_chase_momentum``). Same
+    contract as :func:`freshness_skips` — a per-cycle skip (re-checked next cycle), not a block;
+    held names are exempt so exits still fire. Disabled when the ceiling is 0/None or the active
+    profile isn't momentum-driven. Pure.
+
+    Returns ``{ticker: reason}``."""
+    if not max_chase_momentum or max_chase_momentum <= 0 or profile not in apply_profiles:
+        return {}
+    out: dict[str, str] = {}
+    for c in candidates:
+        if c.held:
+            continue
+        if c.momentum is not None and c.momentum > max_chase_momentum:
+            out[(c.ticker or "").upper()] = (
+                f"extended: +{c.momentum:.0%} trailing is above the {max_chase_momentum:.0%} "
+                f"don't-chase ceiling — deferring, re-check next cycle"
+            )
+    return out
+
+
 def overlay_live_prices(prices: dict, quotes: dict, *, now_epoch: float) -> dict:
     """Return a copy of the price store with each ticker's ``current`` replaced by its LIVE quote
     and ``fetched_at`` bumped to now. This is how the whole consideration runs on current prices

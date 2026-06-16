@@ -2,11 +2,31 @@
 held name must still be allowed to exit even if its feed is stale."""
 from __future__ import annotations
 
-from app.agent_trading.candidates import freshness_skips, overlay_live_prices
+from app.agent_trading.candidates import chase_skips, freshness_skips, overlay_live_prices
 from app.agent_trading.strategy import Candidate
 
 NOW = 1_781_000_000.0
 HOUR = 3600.0
+
+
+def _cm(ticker, momentum, held=False):
+    return Candidate(ticker=ticker, price=10.0, research_score=0.9, momentum=momentum,
+                     held_qty=(1.0 if held else 0.0), avg_cost=10.0)
+
+
+def test_chase_skips_defers_overextended_buys():
+    cands = [_cm("CALM", 0.20), _cm("HOT", 0.55), _cm("HELD", 0.80, held=True)]
+    skips = chase_skips(cands, max_chase_momentum=0.40, profile="momentum")
+    assert "HOT" in skips and "extended" in skips["HOT"]   # +55% > 40% ceiling → deferred
+    assert "CALM" not in skips                              # +20% is fine
+    assert "HELD" not in skips                              # held names exempt (exits still fire)
+
+
+def test_chase_skips_disabled_and_profile_gated():
+    cands = [_cm("HOT", 0.99)]
+    assert chase_skips(cands, max_chase_momentum=0.0, profile="momentum") == {}      # 0 = off
+    assert chase_skips(cands, max_chase_momentum=0.40, profile="signal_event") == {}  # not momentum-driven
+    assert "HOT" in chase_skips(cands, max_chase_momentum=0.40, profile="rotation")   # rotation applies
 
 
 def test_overlay_live_prices_refreshes_current_and_feed_age():

@@ -37,6 +37,11 @@ class StrategyConfig:
     signal_threshold: float = 0.60    # signal_event: signal strength to enter
     signal_exit: float = 0.30         # signal_event: signal decay that triggers an exit
     momentum_threshold: float = 0.0   # momentum: min trailing return to enter (fraction)
+    # "Don't chase": defer a NEW buy whose trailing (~3-mo) return is ABOVE this ceiling — it has
+    # run too far, too fast, so wait for it to cool rather than pay the spike. Still a momentum
+    # buy (uptrend required); this only caps the top end. 0 = disabled. Held names are exempt so
+    # exits always fire. Applies to the momentum/rotation profiles (where momentum drives entries).
+    max_chase_momentum: float = 0.40
     pullback_pct: float = 0.05        # mean_reversion: min pullback from recent high to enter
     target_pct: float = 0.15          # take-profit (all profiles)
     stop_pct: float = 0.08            # stop-loss (all profiles)

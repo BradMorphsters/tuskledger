@@ -522,6 +522,7 @@ export const refreshEdgar = (domain) =>
 export const getAgentTradingStatus = () => request('/agent-trading/status');
 export const getAgentTradingSummary = () => request('/agent-trading/summary');
 export const getAgentTradingPositions = () => request('/agent-trading/positions');
+export const getAgentTradingSleeve = () => request('/agent-trading/sleeve');
 export const getAgentTradingActivity = (limit = 100) =>
   request(`/agent-trading/activity?limit=${encodeURIComponent(limit)}`);
 export const getAgentTradingGuardrails = () => request('/agent-trading/guardrails');

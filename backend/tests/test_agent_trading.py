@@ -220,3 +220,25 @@ def test_backfill_fill_corrects_zero_price_into_real_avg_cost():
     assert log.backfill_fill(rows, "other", price=99.0, qty=1.0)[1] is False
     # a zero/None price never overwrites a real one
     assert log.backfill_fill(out, "ord-A", price=0.0, qty=5.0)[1] is False
+
+
+def test_cancel_fill_removes_phantom_position():
+    """A queued limit order is logged 'executed' at placement; if it cancels unfilled, cancel_fill
+    zeroes it so the position view doesn't show a holding that never filled."""
+    from app.services import agent_trading_log as log
+
+    rows = [{"status": "executed",
+             "fill": {"ticker": "MP", "side": "buy", "qty": 4.0, "price": 30.0, "notional": 120.0,
+                      "venue": "robinhood", "state": "unconfirmed", "order_id": "ord-Q"}}]
+    # before: positions show the queued order as a 4-share holding
+    assert {p["ticker"] for p in log.positions(rows)} == {"MP"}
+
+    out, changed = log.cancel_fill(rows, "ord-Q", state="cancelled")
+    assert changed is True
+    assert out[0]["status"] == "cancelled" and out[0]["fill"]["state"] == "cancelled"
+    assert out[0]["fill"]["qty"] == 0.0 and out[0]["fill"]["notional"] == 0.0
+    # after: no phantom MP position
+    assert all(p["ticker"] != "MP" for p in log.positions(out))
+    # idempotent + unknown id is a no-op
+    assert log.cancel_fill(out, "ord-Q")[1] is False
+    assert log.cancel_fill(rows, "nope")[1] is False

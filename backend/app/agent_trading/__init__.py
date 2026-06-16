@@ -58,6 +58,8 @@ from .strategy import (
     propose as propose_strategy,
 )
 from .candidates import build_candidates, holdings_from_state, make_candidate_provider
+from .runner import build_digest, run_readonly_cycle
+from .backtest import BacktestResult, backtest, backtest_report, compare_profiles, scoreboard_line
 from .bridge import (
     CyclePlan,
     PlannedOrder,
@@ -65,6 +67,7 @@ from .bridge import (
     cycle_log_rows,
     plan_cycle,
     plan_from_payloads,
+    plan_strategy_cycle,
     record_cycle,
     render_plan,
 )
@@ -82,6 +85,7 @@ __all__ = [
     "cycle_log_rows",
     "plan_cycle",
     "plan_from_payloads",
+    "plan_strategy_cycle",
     "record_cycle",
     "render_plan",
     "Fill",

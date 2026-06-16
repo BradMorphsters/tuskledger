@@ -10,13 +10,14 @@
  * degrades to a clean "no runs yet" state.
  */
 import { useEffect, useState } from 'react'
-import { Bot, ShieldCheck, ShieldAlert, Activity, Power, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Bot, ShieldCheck, ShieldAlert, Activity, Power, AlertTriangle, RefreshCw, Wallet } from 'lucide-react'
 import {
   getAgentTradingStatus,
   getAgentTradingSummary,
   getAgentTradingPositions,
   getAgentTradingActivity,
   getAgentTradingGuardrails,
+  getAgentTradingSleeve,
 } from '../api/client'
 import { formatCurrency, formatDate } from '../lib/format'
 import Pill from '../components/Pill'
@@ -60,6 +61,7 @@ export default function AgentTrading() {
   const [positions, setPositions] = useState([])
   const [activity, setActivity] = useState([])
   const [guardrails, setGuardrails] = useState(null)
+  const [sleeve, setSleeve] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
   const [activityView, setActivityView] = useState('timeline')  // timeline | floor
@@ -80,6 +82,8 @@ export default function AgentTrading() {
       setGuardrails(gr)
     }).catch((e) => setErr(e.message || 'Failed to load agent trading data'))
       .finally(() => setLoading(false))
+    // Live cash to trade — separate (it needs a broker read), never blocks the page.
+    getAgentTradingSleeve().then(setSleeve).catch(() => setSleeve(null))
   }
 
   useEffect(load, [])
@@ -133,17 +137,14 @@ export default function AgentTrading() {
         )}
       </div>
 
+      {/* Cash on hand to trade — the first thing you need before acting */}
+      <SleeveBar sleeve={sleeve} />
+
       {/* Loop control — pause / resume / re-arm + strategy selector */}
       <AgentControl />
 
       {/* Human-in-the-loop approval queue — gate-approved orders awaiting your Approve/Reject */}
       <AgentProposals />
-
-      {/* Strategy backtest scoreboard + per-name drill-down — informs the strategy choice */}
-      <AgentBacktest />
-
-      {/* Cross-portfolio exposure — overlap of the agent's universe with your main holdings */}
-      <AgentExposure />
 
       {/* Live activity — timeline (default) or the playful trading-floor replay */}
       <div style={{ display: 'inline-flex', gap: 4, marginBottom: 10, padding: 3, borderRadius: 9, border: '1px solid var(--border)' }}>
@@ -293,6 +294,53 @@ export default function AgentTrading() {
           </Section>
         </>
       )}
+
+      {/* Reference / analysis — kept low on the page below the live, execution-focused sections */}
+      <div style={{ marginTop: 28, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+        {/* Cross-portfolio exposure — overlap of the agent's universe with your main holdings */}
+        <AgentExposure />
+        {/* Strategy backtest scoreboard + per-name drill-down */}
+        <AgentBacktest />
+      </div>
+    </div>
+  )
+}
+
+function SleeveBar({ sleeve }) {
+  if (!sleeve) return null
+  if (!sleeve.connected) {
+    return (
+      <div style={sleeveWrap}>
+        <Wallet size={18} style={{ color: 'var(--text-secondary)' }} />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          Connect your Robinhood agent in the Accounts tab to see cash available to trade.
+        </span>
+      </div>
+    )
+  }
+  const cap = sleeve.cap
+  return (
+    <div style={sleeveWrap}>
+      <Wallet size={20} style={{ color: BLUE, flexShrink: 0 }} />
+      <div style={sleeveStat}>
+        <div style={sleeveLabel}>Cash to trade</div>
+        <div style={{ ...sleeveValue, color: GREEN }}>{usd(sleeve.cash)}</div>
+      </div>
+      <div style={sleeveStat}>
+        <div style={sleeveLabel}>Deployable now</div>
+        <div style={sleeveValue}>
+          {usd(sleeve.deployable)}
+          {cap != null && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-secondary)' }}> / {usd(cap)} cap</span>}
+        </div>
+      </div>
+      <div style={sleeveStat}>
+        <div style={sleeveLabel}>Invested</div>
+        <div style={sleeveValue}>{usd(sleeve.invested)} <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-secondary)' }}>· {sleeve.positions} pos</span></div>
+      </div>
+      <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+        {sleeve.order_type && <Pill tone="info" soft>{sleeve.order_type} orders</Pill>}
+        {sleeve.armed ? <Pill tone="danger" soft>armed</Pill> : <Pill soft>read-only</Pill>}
+      </span>
     </div>
   )
 }
@@ -312,6 +360,15 @@ function Section({ icon, title, children }) {
 const Muted = ({ children }) => (
   <p style={{ margin: 0, fontSize: 14, color: 'var(--text-secondary)' }}>{children}</p>
 )
+
+const sleeveWrap = {
+  display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap', marginBottom: 18,
+  padding: '14px 18px', border: '1px solid var(--border)', borderRadius: 12,
+  background: 'var(--bg-elevated, var(--bg-secondary))',
+}
+const sleeveStat = { display: 'flex', flexDirection: 'column', gap: 2 }
+const sleeveLabel = { fontSize: 11.5, color: 'var(--text-secondary)' }
+const sleeveValue = { fontSize: 20, fontWeight: 680, fontVariantNumeric: 'tabular-nums' }
 
 const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 14 }
 const thStyle = { padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }

@@ -26,6 +26,20 @@ def test_limit_buy_above_sell_below_and_uses_quantity():
     assert sell["limit_price"] == 9.90
 
 
+def test_limit_floors_to_whole_shares():
+    """Robinhood limit orders aren't fractional — a limit order floors qty to whole shares at
+    generation (so the proposal matches the placed order), while market stays fractional."""
+    pol = OrderPolicy(order_type="limit", limit_offset_bps=25)
+    # $100 / $21.97 ≈ 4.55 sh → floored to 4 for a limit order
+    lim = build_order_args("a", ProposedOrder("usar", "buy", 21.97, notional=100.0), policy=pol)
+    assert lim["type"] == "limit" and lim["quantity"] == 4.0
+    # same sizing as a MARKET order stays fractional
+    mkt = build_order_args("a", ProposedOrder("usar", "buy", 21.97, notional=100.0))
+    assert mkt["type"] == "market" and round(mkt["quantity"], 6) == round(100.0 / 21.97, 6)
+    # never floors below 1 share
+    assert build_order_args("a", ProposedOrder("x", "buy", 50.0, notional=10.0), policy=pol)["quantity"] == 1.0
+
+
 def test_limit_price_helper():
     pol = OrderPolicy(order_type="limit", limit_offset_bps=25)
     assert limit_price("buy", 100.0, pol) == 100.25

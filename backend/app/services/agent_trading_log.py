@@ -98,6 +98,31 @@ def backfill_fill(rows: list[dict], order_id: str, *, price: Optional[float] = N
     return out, changed
 
 
+def cancel_fill(rows: list[dict], order_id: str, *, state: str = "cancelled") -> tuple[list[dict], bool]:
+    """Pure: mark the row for ``order_id`` as cancelled-unfilled and zero its fill, so the position
+    view (which sums fill qty/notional) stops showing a phantom holding.
+
+    A queued limit order is written to the log as 'executed' at placement (the place response
+    is the accepted order, not a fill). If Robinhood later cancels it unfilled — e.g. a GFD order
+    at the close — this corrects that row to status='cancelled' with qty/notional 0. Only fully
+    unfilled orders reach this (a partial fill is a real position and goes the executed path).
+    Idempotent. No IO."""
+    oid = str(order_id or "")
+    if not oid:
+        return rows, False
+    changed = False
+    out: list[dict] = []
+    for r in rows:
+        f = r.get("fill") or {}
+        if str(f.get("order_id") or "") == oid and r.get("status") != "cancelled":
+            f = {**f, "state": state, "qty": 0.0, "notional": 0.0}
+            out.append({**r, "fill": f, "status": "cancelled"})
+            changed = True
+            continue
+        out.append(r)
+    return out, changed
+
+
 # --------------------------------------------------------------------------- helpers
 
 def _fills(rows: list[dict]) -> list[dict]:

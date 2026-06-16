@@ -86,6 +86,38 @@ def agent_trading_positions():
     return {"positions": log.positions(rows)}
 
 
+@router.get("/sleeve")
+def agent_trading_sleeve():
+    """Live cash on hand + how much is deployable right now (read-only). Powers the 'cash to
+    trade' display. ``cash`` is the sleeve's available balance; ``deployable`` is the lesser of
+    that and the remaining room under your self-imposed cap. Degrades to disconnected when Tusk
+    Ledger isn't the bound agent yet (no network call in that case)."""
+    from app.agent_trading.brokers import MODE_READ_ONLY
+    from app.agent_trading.robinhood_agent import connection_status, make_broker
+    store = _agent_store()
+    if not connection_status(store)["connected"]:
+        return {"connected": False, "armed": bool(settings.AGENT_TRADING_ARMED),
+                "cash": None, "deployable": None}
+    try:
+        snap = make_broker(store, mode=MODE_READ_ONLY).snapshot()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Couldn't read your sleeve: {e}")
+    invested = round(snap.total_value() - snap.cash, 2)
+    cap = settings.AGENT_TRADING_MAX_DEPLOYED or 0.0
+    headroom = round(cap - invested, 2) if cap > 0 else None
+    deployable = min(snap.cash, headroom) if headroom is not None else snap.cash
+    return {
+        "connected": True, "armed": bool(settings.AGENT_TRADING_ARMED),
+        "cash": round(snap.cash, 2),          # sleeve cash available to trade
+        "invested": invested,                 # current market value of held positions
+        "cap": cap or None,                   # self-imposed deployment ceiling (0/None = unlimited)
+        "cap_headroom": headroom,             # room left under the cap
+        "deployable": round(max(0.0, deployable), 2),  # what a new buy can actually use
+        "positions": len(snap.positions),
+        "order_type": str(settings.AGENT_TRADING_ORDER_TYPE).lower(),
+    }
+
+
 @router.get("/activity")
 def agent_trading_activity(limit: int = Query(100, ge=1, le=1000)):
     rows = log.load_rows(_path())
@@ -214,6 +246,31 @@ def _read_broker():
 
 
 _EXECUTED = {"filled", "partially_filled"}
+# Terminal states that mean the order ended WITHOUT filling — a GFD limit cancelled at the close
+# is the common one. Logged on the timeline (no alert — Robinhood already notifies the user).
+_TERMINAL_UNFILLED = {"cancelled", "canceled", "rejected", "expired", "failed", "voided"}
+
+
+def _emit_cancelled_event(p, oid: str, state: str) -> bool:
+    """Log (not alert) that an order ended unfilled, so the timeline reflects reality instead of
+    leaving it on QUEUED. Idempotent on the order marker. No alert — the user gets those from
+    Robinhood directly."""
+    try:
+        import datetime as _dt
+        from app.agent_trading.events import EventLog
+        log = EventLog(_events_path())
+        marker = f"order {oid[:8]} unfilled"
+        if any(marker in (e.get("detail") or "") for e in log.read_all()):
+            return False
+        log.append({
+            "seq": 9200, "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "cycle_id": getattr(p, "cycle_id", ""), "type": "cancelled", "status": "warn",
+            "label": f"UNFILLED {p.side} {p.ticker}",
+            "detail": f"{marker} — {state}; good-for-day order ended without filling",
+            "ticker": p.ticker})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _emit_executed_event(p, oid: str, *, qty=None, px=None) -> bool:
@@ -263,6 +320,28 @@ def _backfill_decision_fill(order_id: str, *, price=None, qty=None, state=None) 
         return False
 
 
+def _cancel_decision_fill(order_id: str, *, state: str = "cancelled") -> bool:
+    """Correct an order's decision-log row to cancelled-unfilled (qty/notional 0) so it stops
+    showing a phantom position. Atomic rewrite; idempotent; never breaks the reconcile."""
+    from app.services import agent_trading_log as log
+    path = _path()
+    rows, changed = log.cancel_fill(log.load_rows(path), order_id, state=state)
+    if not changed:
+        return False
+    try:
+        import os
+        import tempfile
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        with os.fdopen(fd, "w") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+        os.replace(tmp, path)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _reconcile_placed(store, broker=None) -> list[dict]:
     """Read back every PLACED proposal whose order isn't yet known-filled and update its recorded
     state (queued/unconfirmed → filled). Emits a FILLED event the first time a fill is confirmed,
@@ -291,13 +370,21 @@ def _reconcile_placed(store, broker=None) -> list[dict]:
             _emit_executed_event(p, oid, qty=st.get("filled_qty") or p.qty, px=st.get("avg_price"))
             _backfill_decision_fill(oid, price=st.get("avg_price"),
                                     qty=st.get("filled_qty") or p.qty, state=st.get("state"))
+        elif st.get("state") in _TERMINAL_UNFILLED:     # ended unfilled (e.g. GFD cancel) → log, fix position
+            _emit_cancelled_event(p, oid, st["state"])
+            _cancel_decision_fill(oid, state=st["state"])
     return updates
 
 
 def _proposal_dict(p) -> dict:
     from dataclasses import asdict
     d = asdict(p)
-    d.pop("order_args", None)  # internal placement args — not surfaced to the UI
+    oa = d.pop("order_args", None) or {}   # internal placement args — not surfaced to the UI…
+    # …except the two fields the approval card needs: the order type and (for a limit) the price
+    # cap, so the user can see the most they'll pay (buy) / least they'll accept (sell).
+    d["order_type"] = oa.get("type")
+    if oa.get("limit_price") is not None:
+        d["limit_price"] = oa.get("limit_price")
     return d
 
 
@@ -456,9 +543,22 @@ def agent_trading_generate_proposals(
     else:
         sizing = SizingConfig(method="fixed_fractional", fraction=0.10)
         grc = GuardrailConfig()
-    # First live orders go in as MARKET (exact $ sizing, fractional OK, instant fill, simplest
-    # schema) to prove the path; re-enable marketable-limit once a clean fill is confirmed.
-    order_policy = None
+    # Order type is env-driven (AGENT_TRADING_ORDER_TYPE): "market" = fractional/instant, "limit" =
+    # a marketable limit a few bps through last (whole-share, slippage-capped) for the thin juniors.
+    from app.agent_trading.order_policy import OrderPolicy
+    order_policy = (
+        OrderPolicy(order_type="limit", limit_offset_bps=settings.AGENT_TRADING_LIMIT_BPS)
+        if str(settings.AGENT_TRADING_ORDER_TYPE).strip().lower() == "limit"
+        else None
+    )
+
+    # "Don't chase" discipline: defer a new buy that's run too far, too fast (re-check next cycle).
+    # Held names exempt so exits still fire. Surfaces in "Not proposed this cycle" with its reason.
+    from app.agent_trading.candidates import chase_skips
+    chase = chase_skips(fresh, max_chase_momentum=strat_cfg.max_chase_momentum, profile=sel)
+    if chase:
+        skips = {**skips, **chase}
+        fresh = [c for c in fresh if c.held or c.ticker.upper() not in chase]
 
     # Candidates already carry live prices (universe was re-quoted above), so the Analyst ranked
     # and the sizer sizes off current prices — no stale-cache gap into a market order.
@@ -476,7 +576,7 @@ def agent_trading_generate_proposals(
         for t, r in sorted(skips.items()):
             evs.append({"seq": len(evs), "ts": __import__("datetime").datetime.now(
                 __import__("datetime").timezone.utc).isoformat(), "cycle_id": cycle_id,
-                "type": "skipped", "label": f"Skipped {t} (stale data)", "status": "warn",
+                "type": "skipped", "label": f"Skipped {t}", "status": "warn",
                 "detail": r, "ticker": t})
         EventLog(_events_path()).append_all(evs)
     except Exception:  # noqa: BLE001 — activity logging must never break a cycle
@@ -604,6 +704,9 @@ def agent_trading_order_status(pid: str):
             _emit_executed_event(p, oid, qty=st.get("filled_qty") or p.qty, px=st.get("avg_price"))
             _backfill_decision_fill(oid, price=st.get("avg_price"),
                                     qty=st.get("filled_qty") or p.qty, state=st.get("state"))
+        elif st.get("state") in _TERMINAL_UNFILLED:
+            _emit_cancelled_event(p, oid, st["state"])
+            _cancel_decision_fill(oid, state=st["state"])
     return {"ok": True, **st}
 
 

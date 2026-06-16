@@ -187,6 +187,14 @@ class Settings(BaseSettings):
     # (e.g. 300) to go live with a restriction, then raise it to scale up. Enforced by the gate
     # at generation, so an over-cap order never reaches the approval queue.
     AGENT_TRADING_MAX_DEPLOYED: float = 0.0
+    # Order type for live placement. "market" = fractional shares, instant fill, but exposed to
+    # slippage on thin names. "limit" = a marketable limit a few bps through the last price —
+    # whole-share only (Robinhood limit orders aren't fractional), with a hard cap on the fill
+    # price. Recommended for the illiquid critical-minerals juniors.
+    AGENT_TRADING_ORDER_TYPE: str = "market"
+    # How far through the last price a marketable limit sits, in basis points (25 = 0.25%). Only
+    # used when AGENT_TRADING_ORDER_TYPE="limit". Buy sits ABOVE last, sell BELOW.
+    AGENT_TRADING_LIMIT_BPS: float = 25.0
 
     class Config:
         env_file = ".env"

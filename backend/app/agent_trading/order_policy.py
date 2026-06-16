@@ -57,10 +57,13 @@ def build_order_args(account_number: str, order: ProposedOrder, *, policy: Order
         "side": side,
         "type": policy.order_type,
     }
-    # Robinhood's agentic place_equity_order takes a share QUANTITY (it rejects a dollar `amount`),
-    # as a fractional value (the first successful live fill, ALM, was 5.567929 sh). Limit orders
-    # get coerced to whole shares at placement (place_raw); market orders stay fractional.
-    args["quantity"] = round(order.resolved_qty(), 6)
+    # Robinhood's agentic place_equity_order takes a share QUANTITY (it rejects a dollar `amount`).
+    # Market orders are fractional (the first live fill, ALM, was 5.567929 sh). Limit orders are
+    # whole-share only at Robinhood, so floor here at generation — the proposal then shows exactly
+    # what will place (no fractional→whole surprise between Approve and the fill).
     if policy.order_type == "limit":
+        args["quantity"] = float(max(1, int(order.resolved_qty())))
         args["limit_price"] = limit_price(side, order.ref_price, policy)
+    else:
+        args["quantity"] = round(order.resolved_qty(), 6)
     return args

@@ -141,6 +141,7 @@ export default function AgentProposals() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {pending.map((p) => {
             const buy = p.side === 'buy'
+            const isLimit = p.order_type === 'limit' && p.limit_price != null
             return (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
                                        border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-card, transparent)' }}>
@@ -149,7 +150,10 @@ export default function AgentProposals() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 650 }}>
                     {p.ticker} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
-                      · ~{usd(p.est_notional)} @ {usd(p.est_price)}{p.qty ? ` · ${(+p.qty).toFixed(2)} sh` : ''}
+                      · ~{usd(p.est_notional)}{p.qty ? ` · ${(+p.qty).toFixed(isLimit ? 0 : 2)} sh` : ''}
+                      {isLimit ? <> · <span style={{ color: AMBER, fontWeight: 600 }}>
+                        limit {usd(p.limit_price)} {buy ? 'max' : 'min'}</span></>
+                        : ` @ ${usd(p.est_price)}`}
                     </span>
                   </div>
                   <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

@@ -51,6 +51,12 @@ from .lifecycle import (
     validate_symbol,
 )
 from .events import EventLog, make_event, plan_to_events
+from .strategy import (
+    Candidate,
+    StrategyConfig,
+    StrategyDecisionSource,
+    propose as propose_strategy,
+)
 from .bridge import (
     CyclePlan,
     PlannedOrder,

@@ -167,6 +167,9 @@ class Settings(BaseSettings):
     # Live agent-activity event stream (the "watch it think" timeline), tailed by the
     # SSE endpoint. Blank → backend/var/agent_trading/events.jsonl.
     AGENT_TRADING_EVENTS: str = ""
+    # The Analyst's trading philosophy (Gate 1 decision rules). One of:
+    # signal_event | momentum | mean_reversion | rotation. See agent_trading/strategy.py.
+    AGENT_TRADING_STRATEGY: str = "signal_event"
 
     class Config:
         env_file = ".env"

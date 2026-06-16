@@ -23,6 +23,8 @@ import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import AgentActivity from '../components/AgentActivity'
 import AgentControl from '../components/AgentControl'
+import AgentBacktest from '../components/AgentBacktest'
+import AgentExposure from '../components/AgentExposure'
 import TradingFloor from '../components/TradingFloor'
 
 const GREEN = 'var(--accent-green, #10b981)'
@@ -130,8 +132,14 @@ export default function AgentTrading() {
         )}
       </div>
 
-      {/* Loop control — pause / resume / re-arm the policy state */}
+      {/* Loop control — pause / resume / re-arm + strategy selector */}
       <AgentControl />
+
+      {/* Strategy backtest scoreboard + per-name drill-down — informs the strategy choice */}
+      <AgentBacktest />
+
+      {/* Cross-portfolio exposure — overlap of the agent's universe with your main holdings */}
+      <AgentExposure />
 
       {/* Live activity — timeline (default) or the playful trading-floor replay */}
       <div style={{ display: 'inline-flex', gap: 4, marginBottom: 10, padding: 3, borderRadius: 9, border: '1px solid var(--border)' }}>

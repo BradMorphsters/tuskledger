@@ -42,9 +42,19 @@ class BacktestResult:
     trades: int
     benchmark_return: float      # equal-weight buy-and-hold of the universe
     equity_curve: list[float] = field(default_factory=list)
+    benchmark_curve: list[float] = field(default_factory=list)  # equal-weight hold, same months
+    trades_log: list[dict] = field(default_factory=list)  # {as_of, ticker, action, price, shares, notional}
 
     def beat_benchmark(self) -> bool:
         return self.total_return > self.benchmark_return
+
+
+def trades_by_ticker(result: "BacktestResult") -> dict[str, list[dict]]:
+    """Group a backtest's simulated trades by ticker (for the per-name drill-down)."""
+    out: dict[str, list[dict]] = {}
+    for tr in result.trades_log:
+        out.setdefault(tr["ticker"], []).append(tr)
+    return out
 
 
 def _series(prices: dict) -> tuple[list[str], dict[str, dict[str, float]]]:
@@ -73,15 +83,29 @@ def _max_drawdown(curve: list[float]) -> float:
     return mdd
 
 
-def _benchmark(months: list[str], series: dict, start_i: int, cash: float) -> float:
-    """Equal-weight buy-and-hold across names with a price at the start month."""
-    start, end = months[start_i], months[-1]
-    names = [t for t, m in series.items() if start in m and end in m and m[start] > 0]
+def _benchmark_curve(months: list[str], series: dict, start_i: int, cash: float) -> list[float]:
+    """Equal-weight buy-and-hold equity valued each month (start_i..end). Carries the last
+    known price forward for any month a name didn't trade."""
+    start = months[start_i]
+    names = [t for t, m in series.items() if start in m and m[start] > 0]
     if not names:
-        return 0.0
+        return [cash] * (len(months) - start_i)
     alloc = cash / len(names)
-    end_val = sum(alloc / m[start] * m[end] for t, m in series.items() if t in names)
-    return end_val / cash - 1.0
+    shares = {t: alloc / series[t][start] for t in names}
+    last = {t: series[t][start] for t in names}
+    curve: list[float] = []
+    for i in range(start_i, len(months)):
+        mo = months[i]
+        for t in names:
+            if mo in series[t]:
+                last[t] = series[t][mo]
+        curve.append(sum(shares[t] * last[t] for t in names))
+    return curve
+
+
+def _benchmark(months: list[str], series: dict, start_i: int, cash: float) -> float:
+    curve = _benchmark_curve(months, series, start_i, cash)
+    return curve[-1] / cash - 1.0 if curve and cash else 0.0
 
 
 def backtest(
@@ -115,6 +139,7 @@ def backtest(
     avg: dict[str, float] = {}
     trades = 0
     curve: list[float] = []
+    tlog: list[dict] = []
 
     for i in range(warmup, len(months)):
         month = months[i]
@@ -155,6 +180,8 @@ def backtest(
                 qty[t] = new_q
                 cash -= spend
                 trades += 1
+                tlog.append({"as_of": month, "ticker": t, "action": "buy",
+                             "price": round(price, 4), "shares": round(sh, 4), "notional": round(spend, 2)})
             elif d.action == "sell" and qty.get(t, 0.0) > 0:
                 sh = min(qty[t], d.target_notional / price)
                 cash += sh * price
@@ -162,6 +189,8 @@ def backtest(
                 if qty[t] <= 1e-9:
                     qty.pop(t, None); avg.pop(t, None)
                 trades += 1
+                tlog.append({"as_of": month, "ticker": t, "action": "sell",
+                             "price": round(price, 4), "shares": round(sh, 4), "notional": round(sh * price, 2)})
 
         equity = cash + sum(qty[t] * marks.get(t, avg.get(t, 0.0)) for t in qty)
         curve.append(equity)
@@ -175,6 +204,8 @@ def backtest(
         total_return=round(total, 4), cagr=round(cagr, 4), max_drawdown=round(_max_drawdown(curve), 4),
         trades=trades, benchmark_return=round(_benchmark(months, series, warmup, starting_cash), 4),
         equity_curve=[round(x, 2) for x in curve],
+        benchmark_curve=[round(x, 2) for x in _benchmark_curve(months, series, warmup, starting_cash)],
+        trades_log=tlog,
     )
 
 

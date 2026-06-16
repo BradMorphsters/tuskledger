@@ -39,6 +39,50 @@ def test_signal_score_maps_heating_up_above_threshold():
 
 # --------------------------------------------------------------------------- assembly
 
+def test_blend_research_expected_value_momentum_staleness():
+    from app.agent_trading.candidates import blend_research
+    # base: conviction 80, upside 60, flat, fresh
+    rs0, rot0 = blend_research(80, 60, 0.0, False)
+    assert rs0 == 0.8                                  # research_score = conviction (not stale)
+    # rising conviction lifts the rotation rank
+    _, rot_up = blend_research(80, 60, 0.12, False)
+    assert rot_up > rot0
+    # falling conviction cuts it
+    _, rot_dn = blend_research(80, 60, -0.12, False)
+    assert rot_dn < rot0
+    # higher upside raises rotation (expected value)
+    _, rot_hi_ups = blend_research(80, 90, 0.0, False)
+    assert rot_hi_ups > rot0
+    # stale name is down-weighted on BOTH scores
+    rs_stale, rot_stale = blend_research(80, 60, 0.0, True)
+    assert rs_stale < rs0 and rot_stale < rot0
+
+
+def test_build_uses_blend_for_research_and_rotation():
+    entities = {"A": {"ticker": "A", "scores": {"conviction": 80, "upside": 90}},
+                "B": {"ticker": "B", "scores": {"conviction": 80, "upside": 30}}}
+    prices = {"A": {"current": 10.0, "history": [{"tag": "x"}]},
+              "B": {"current": 10.0, "history": [{"tag": "x"}]}}
+    cands = {c.ticker: c for c in build_candidates(["A", "B"], entities, {}, prices, {}, FakeMD(),
+                                                   momentum_by_ticker={"A": 0.10})}
+    # same conviction, but A has higher upside + rising conviction -> higher rotation rank
+    assert cands["A"].rotation_score > cands["B"].rotation_score
+    assert cands["A"].research_score == cands["B"].research_score == 0.8  # gate = conviction
+
+
+def test_stale_name_drops_below_quality_gate():
+    # a stale high-conviction name gets decayed; with the right threshold it fails the gate
+    from app.agent_trading import StrategyConfig
+    from app.agent_trading.strategy import propose
+    entities = {"OLD": {"ticker": "OLD", "scores": {"conviction": 60},
+                        "review": {"next_due": "2025-01-01"}}}        # long overdue
+    prices = {"OLD": {"current": 10.0, "history": [{"tag": "x"}]}}
+    cands = build_candidates(["OLD"], entities, {}, prices, {}, FakeMD(), today="2026-06-16")
+    # conviction 60 -> 0.60, but stale *0.7 = 0.42, below the default 0.50 floor
+    assert cands[0].research_score < 0.5
+    assert propose(cands, StrategyConfig(profile="rotation", research_floor=0.5)) == []
+
+
 def test_build_candidates_joins_all_sources():
     entities = {"ROAR": {"ticker": "ROAR", "scores": {"conviction": 82}}}
     signals = {"ROAR": {"signal": {"score": 3, "label": "Heating up"}}}

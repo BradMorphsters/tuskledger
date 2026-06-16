@@ -19,19 +19,36 @@ one when the prior Definition of Done is green.
 
 ---
 
-## Shipped (baseline)
+## Shipped — as of 2026-06-16
 
-- **Sim harness** — guardrail gate, executor loop with drawdown halt, simulated + disarmed
-  Robinhood brokers, stub/TradingAgents decision sources, CLI runner.
+The full **read-only** loop is built, connected to the live account, and scheduled.
+Nothing can trade; going live remains a deliberate, un-taken step.
+
+- **Sim harness** — deterministic guardrail gate (max position, cash floor, daily-trade cap,
+  drawdown breaker, §1091 cross-account wash-sale), executor + drawdown halt, CLI runner.
 - **Read-only oversight tab** — `/agent-trading` page + API over the decision log.
-- **Real §1091 wash-sale check** wired into the gate (reuses `trading_tax.py`).
+- **Live Robinhood connection** — `RobinhoodMCPBroker` with disarmed / read-only / live
+  tiers; read tools pinned to the real API schema; account connected + read-only validated.
 - **Persistent state + reconciliation** — equity high-water mark + halt survive restarts;
-  drift detection vs the broker.
-- **Docs + flow diagram.** 39 backend tests + page smoke test green.
+  drift detection vs the broker (Robinhood = source of truth).
+- **Cowork↔Tusk Ledger bridge** (ADR-0001) — `plan_cycle` / `plan_strategy_cycle` can
+  approve but cannot place; the one-call read-only cycle + the human arm gate.
+- **Position sizing** — fixed-fractional / vol-target / rebalance.
+- **Order lifecycle** — market-hours gate, symbol validation, idempotent client order IDs,
+  partial-fill classification.
+- **Configurable Analyst (Gate 1)** — signal-event / momentum / mean-reversion / rotation as
+  a **setting**, rules-based + explainable, joined from your live research + Quiver signals +
+  market data; switchable from the tab; proven on the real `critical-minerals` universe.
+- **Live activity** — SSE "watch it think" timeline + the interactive/alive Trading Floor replay.
+- **Controls** — pause / resume / re-arm, persisted.
+- **Scheduled read-only digest** — weekday pre-market run that fetches the account, runs the
+  Analyst, records the cycle, and reports a digest. Never trades.
+- **107 backend + 26 frontend tests green.** Docs: tab, logic, ADR-0001, connect runbook,
+  this roadmap.
 
 ---
 
-## Sprint 1 — Connectivity & dry-run (read-only live)
+## Sprint 1 — Connectivity & dry-run (read-only live) · ✓ SHIPPED
 
 **Goal:** point at the *real* Robinhood account, read everything, trade nothing.
 
@@ -44,9 +61,10 @@ one when the prior Definition of Done is green.
 **Done when:** the agent reads your live Agentic account, drift shows correctly, and there
 is provably no code path that can place an order.
 
-## Sprint 2 — Execution realism & controls
+## Sprint 2 — Execution realism & controls · ✓ SHIPPED
 
 **Goal:** orders are sized deliberately and the lifecycle is handled; a human can stop it.
+*(Also shipped beyond plan: SSE activity timeline + the interactive Trading Floor.)*
 
 - **Position sizing** module between decision and order (fixed-fractional / vol-target /
   rebalance-to-weight) — today it's a flat default notional.
@@ -58,32 +76,35 @@ is provably no code path that can place an order.
 **Done when:** sized orders flow through a realistic lifecycle in sim/read-only, and the
 tab can pause and re-arm the loop.
 
-## Sprint 3 — Go live, minimal capital  ★ milestone
+## Sprint 3 — Scheduling + go-live  ★ milestone · ◑ PARTIAL
 
-**Goal:** the first real trade, fully monitored.
+**Safe half — ✓ shipped:** the **scheduled read-only runner + daily digest**. A weekday
+pre-market task fetches the account read-only, runs the Analyst, records the cycle to the
+log + event stream, and reports a digest. It cannot trade.
 
+**Live half — deliberately deferred (owner's call):**
 - Arm `place_order` against a **tiny funded account** (~$20–50).
 - End-to-end live cycle: notification reconciliation, kill-switch test, log + reconcile
   verified against reality.
-- **Scheduler** (APScheduler) + **daily oversight digest** (scheduled task: overnight
-  activity, P&L, guardrail breaches, drift, wash-sale flags).
 
-**Done when:** one small real trade executes, is monitored, reconciles, and is killable;
-the daily digest runs unattended.
+This is the one remaining gate to real trading, and it is intentionally not taken. Going
+live is a separate, explicit human arm — the app never sets it.
 
-## Sprint 4 — The decision brain (Gate 1)
+## Sprint 4 — The decision brain (Gate 1) · ◑ RULES ANALYST SHIPPED
 
-**Goal:** real proposals instead of the stub.
+**Shipped — a real, explainable rules-based Analyst** replaced the stub: signal-event /
+momentum / mean-reversion / rotation profiles (a setting), joined from live research +
+Quiver signals + market data, wired end-to-end (`plan_strategy_cycle`) and proven on the
+real universe. This is a strong, auditable Gate 1 with no LLM and no black box.
 
-- Feed **live quotes** into `ref_price` (`market_data.py`) and the account's own
-  positions/cash so the source can reason about rebalancing.
-- Integrate **TradingAgents** as the decision source — `deep_think_llm` = Opus 4.8,
-  `quick_think_llm` = a cheaper model; validate the output→`Decision` mapping.
+**Optional future — the LLM version:**
+- Integrate **TradingAgents** as an alternate decision source — `deep_think_llm` = Opus 4.8,
+  `quick_think_llm` = cheaper; validate the output→`Decision` mapping.
 - **Structured-output contract + schema validation** — malformed model JSON → no trade.
 - **Model/version pinning** + full capture of prompt, model, version, rationale per decision.
 
-**Done when:** real proposals flow through both gates in sim → read-only → live-small,
-with every decision auditable.
+The rules Analyst is the default; an LLM source would layer in as another profile, gated
+identically. (Reminder: model ≠ alpha — the LLM buys reliability, not edge.)
 
 ## Sprint 5 — LLM safety hardening
 

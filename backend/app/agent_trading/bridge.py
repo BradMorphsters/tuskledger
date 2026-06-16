@@ -26,8 +26,10 @@ from pathlib import Path
 from typing import Optional
 
 from .brokers import parse_account_state, parse_quotes
+from .candidates import holdings_from_state, make_candidate_provider
 from .decisions import Decision
 from .sizing import SizingConfig, size_decisions
+from .strategy import StrategyConfig, StrategyDecisionSource
 from .executor import OrderOutcome
 from .guardrails import (
     AccountState,
@@ -281,6 +283,52 @@ def plan_from_payloads(
         account_number=account_number, snapshot=snapshot, decisions=decisions, config=config,
         persisted=persisted, expected_positions=expected_positions, executed_today=executed_today,
         wash_sale_lookup=wash_sale_lookup, default_notional=default_notional, as_of=as_of,
+    )
+
+
+def plan_strategy_cycle(
+    *,
+    account_number: str,
+    portfolio,
+    positions,
+    quotes_payload=None,
+    domain: Optional[str],
+    watchlist: Optional[list[str]] = None,
+    strategy: Optional[StrategyConfig] = None,
+    sizing: Optional[SizingConfig] = None,
+    config: GuardrailConfig,
+    persisted: AgentState,
+    expected_positions: Optional[dict[str, float]] = None,
+    executed_today: int = 0,
+    wash_sale_lookup: WashSaleLookup = _no_wash_sale,
+    as_of: Optional[str] = None,
+    candidate_provider_factory=make_candidate_provider,
+) -> CyclePlan:
+    """The full read-only cycle, Analyst-driven: READ payloads → PARSE → ANALYST → SIZE → GATE.
+
+    Cowork fetches the Robinhood read payloads; this parses them, builds the Analyst's
+    candidate rows from the research/signals/price caches (overlaying the live holdings so
+    exits can fire), runs the configured strategy profile to decide *what + why*, sizes the
+    survivors, and gates them. **It places nothing** — it returns a plan. The provider
+    factory is injectable for tests.
+    """
+    quotes = parse_quotes(quotes_payload) if quotes_payload else {}
+    snapshot = parse_account_state(portfolio, positions, quotes, account_number=account_number)
+    holdings = holdings_from_state(snapshot)
+
+    provider = candidate_provider_factory(domain, holdings)
+    strat = strategy or StrategyConfig()
+    source = StrategyDecisionSource(strat, provider)
+    as_of = as_of or datetime.now(timezone.utc).date().isoformat()
+    decisions = source.get_decisions(watchlist or [], as_of)
+
+    # the Analyst leaves size to the sizer — apply it (default fixed-fractional)
+    decisions = size_decisions(decisions, snapshot, sizing or SizingConfig())
+
+    return plan_cycle(
+        account_number=account_number, snapshot=snapshot, decisions=decisions, config=config,
+        persisted=persisted, expected_positions=expected_positions, executed_today=executed_today,
+        wash_sale_lookup=wash_sale_lookup, as_of=as_of,
     )
 
 

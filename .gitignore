@@ -33,6 +33,8 @@ research/*.signals.json
 research/*.rotation.jsonl
 # SEC EDGAR filing-activity cache + ticker→CIK map — derived runtime data.
 research/*.edgar.json
+# Sector-tailwind (commodity-proxy ETF) cache — derived runtime data.
+research/*.theme.json
 research/sec_ciks.json
 # Runtime "active industry" pointer (set via the in-app admin switcher).
 research/.active-domain.json

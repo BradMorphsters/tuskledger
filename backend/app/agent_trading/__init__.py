@@ -58,8 +58,17 @@ from .strategy import (
     propose as propose_strategy,
 )
 from .candidates import build_candidates, holdings_from_state, make_candidate_provider
+from .themes import load_theme, proxies_for, refresh_theme, theme_features
 from .runner import build_digest, run_readonly_cycle
-from .backtest import BacktestResult, backtest, backtest_report, compare_profiles, scoreboard_line
+from .exposure import cross_exposure
+from .backtest import (
+    BacktestResult,
+    backtest,
+    backtest_report,
+    compare_profiles,
+    scoreboard_line,
+    trades_by_ticker,
+)
 from .bridge import (
     CyclePlan,
     PlannedOrder,

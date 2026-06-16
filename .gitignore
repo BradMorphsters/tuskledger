@@ -130,3 +130,4 @@ statements/
 tmp/
 temp/
 *.bak
+*.err

@@ -178,11 +178,179 @@ def _proposal_store():
     return ProposalStore(resolve_proposals_path(settings.AGENT_TRADING_PROPOSALS))
 
 
+def _alert_log():
+    from app.agent_trading.alerts import AlertLog, resolve_alerts_path
+    return AlertLog(resolve_alerts_path(settings.AGENT_TRADING_ALERTS))
+
+
+def _agent_store():
+    from app.agent_trading.robinhood_agent import EncryptedJsonStore, store_path
+    return EncryptedJsonStore(store_path(settings.AGENT_TRADING_AGENT_STORE))
+
+
+def _live_broker():
+    """The armed live broker, or None. Returns a broker ONLY when (a) Tusk Ledger is connected to
+    the Robinhood agentic MCP AND (b) AGENT_TRADING_ARMED is explicitly true. Until then Approve
+    only *marks* approved — the backend never places. Arming is a deliberate human step."""
+    if not settings.AGENT_TRADING_ARMED:
+        return None
+    from app.agent_trading.robinhood_agent import connection_status, make_broker
+    from app.agent_trading.brokers import MODE_LIVE
+    store = _agent_store()
+    if not connection_status(store)["connected"]:
+        return None
+    return make_broker(store, mode=MODE_LIVE)
+
+
+def _read_broker():
+    """A READ-ONLY live broker (connected, not necessarily armed). Used to read back order status
+    and reconcile fills — reading never needs the arm, so this works even before AGENT_TRADING_ARMED."""
+    from app.agent_trading.robinhood_agent import connection_status, make_broker
+    from app.agent_trading.brokers import MODE_READ_ONLY
+    store = _agent_store()
+    if not connection_status(store)["connected"]:
+        return None
+    return make_broker(store, mode=MODE_READ_ONLY)
+
+
+_EXECUTED = {"filled", "partially_filled"}
+
+
+def _emit_executed_event(p, oid: str, *, qty=None, px=None) -> bool:
+    """Append a single EXECUTED event for a confirmed fill so the timeline shows the real status.
+    Idempotent: a second call for the same order (e.g. the on-approve poll AND the cycle reconcile)
+    is a no-op. Returns True only if it actually wrote the event."""
+    try:
+        import datetime as _dt
+        from app.agent_trading.events import EventLog
+        log = EventLog(_events_path())
+        marker = f"order {oid[:8]} filled"
+        if any(marker in (e.get("detail") or "") for e in log.read_all()):
+            return False
+        log.append({
+            "seq": 9100, "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "cycle_id": getattr(p, "cycle_id", ""), "type": "placed", "status": "ok",
+            "label": f"EXECUTED {p.side} {p.ticker}",
+            "detail": (marker + (f" · {float(qty):.4f} sh" if qty else "")
+                       + (f" @ ${float(px):.2f}" if px else "")),
+            "ticker": p.ticker})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _backfill_decision_fill(order_id: str, *, price=None, qty=None, state=None) -> bool:
+    """Once an order confirms filled, rewrite its decision-log row with the broker's real fill
+    price/notional (the place response returned the accepted order at price 0). Atomic rewrite via
+    a temp file + os.replace. Idempotent — no write when nothing changed. Returns True if written."""
+    from app.services import agent_trading_log as log
+    path = _path()
+    rows = log.load_rows(path)
+    rows, changed = log.backfill_fill(rows, order_id, price=price, qty=qty, state=state)
+    if not changed:
+        return False
+    try:
+        import os
+        import tempfile
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        with os.fdopen(fd, "w") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+        os.replace(tmp, path)
+        return True
+    except Exception:  # noqa: BLE001 — a failed backfill must never break the reconcile
+        return False
+
+
+def _reconcile_placed(store, broker=None) -> list[dict]:
+    """Read back every PLACED proposal whose order isn't yet known-filled and update its recorded
+    state (queued/unconfirmed → filled). Emits a FILLED event the first time a fill is confirmed,
+    so the activity timeline stops showing a filled order as merely 'placed'. Read-only; safe to
+    call on every cycle. Returns the list of orders whose state advanced."""
+    broker = broker if broker is not None else _read_broker()
+    if broker is None or not hasattr(broker, "order_status"):
+        return []
+    updates: list[dict] = []
+    for p in store.list("placed"):
+        oid = p.placed_ref or ""
+        if not oid or ":" in oid:                       # sim placement (venue:ts) — nothing to read back
+            continue
+        if (p.placed_state or "") in _EXECUTED:         # already known filled
+            continue
+        try:
+            st = broker.order_status(oid)
+        except Exception:  # noqa: BLE001 — one bad read must not break the cycle
+            continue
+        if not (st.get("found") and st.get("state")) or st["state"] == p.placed_state:
+            continue
+        store.update_placed_state(p.id, st["state"])
+        advanced = {"ticker": p.ticker, "order_id": oid, "state": st["state"], "executed": st.get("executed")}
+        updates.append(advanced)
+        if st.get("executed"):                          # confirmed fill → timeline + true-cost backfill
+            _emit_executed_event(p, oid, qty=st.get("filled_qty") or p.qty, px=st.get("avg_price"))
+            _backfill_decision_fill(oid, price=st.get("avg_price"),
+                                    qty=st.get("filled_qty") or p.qty, state=st.get("state"))
+    return updates
+
+
 def _proposal_dict(p) -> dict:
     from dataclasses import asdict
     d = asdict(p)
     d.pop("order_args", None)  # internal placement args — not surfaced to the UI
     return d
+
+
+@router.get("/connect/status")
+def agent_trading_connect_status():
+    """Is Tusk Ledger connected to the Robinhood agentic MCP, and in what mode? No network call."""
+    from app.agent_trading.robinhood_agent import connection_status
+    out = connection_status(_agent_store(), armed=settings.AGENT_TRADING_ARMED)
+    out["armed"] = settings.AGENT_TRADING_ARMED
+    return out
+
+
+@router.post("/connect/start")
+def agent_trading_connect_start():
+    """Run the one-time OAuth consent: opens Robinhood's authorization in YOUR browser, then
+    stores the encrypted token and resolves the agentic account. Desktop only. This authorizes
+    Tusk Ledger as the agent — it does not arm live trading (that's a separate step)."""
+    from app.agent_trading.robinhood_agent import connect_once
+    try:
+        status = connect_once(_agent_store())
+    except ImportError:
+        raise HTTPException(status_code=501, detail="The 'mcp' package isn't installed on the backend. Run: pip install mcp")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Robinhood connect failed: {e}")
+    return {"ok": status.get("connected", False), **status}
+
+
+@router.post("/connect/ping")
+def agent_trading_connect_ping():
+    """Live read-only self-check: confirm the stored token works and the agentic account is
+    visible. Reads only — places nothing."""
+    from app.agent_trading.robinhood_agent import connection_status, make_broker
+    from app.agent_trading.brokers import MODE_READ_ONLY, BrokerError
+    store = _agent_store()
+    if not connection_status(store)["connected"]:
+        raise HTTPException(status_code=409, detail="Not connected — click Connect first.")
+    try:
+        broker = make_broker(store, mode=MODE_READ_ONLY)
+        out = broker.ping()
+        snap = broker.snapshot()   # real sleeve balance — proves it reads the live account
+        out["sleeve_cash"] = round(snap.cash, 2)
+        out["sleeve_positions"] = len(snap.positions)
+        return out
+    except (BrokerError, Exception) as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Ping failed: {e}")
+
+
+@router.post("/connect/disconnect")
+def agent_trading_connect_disconnect():
+    """Forget the stored Robinhood token (reverse of Connect). The backend can no longer read or
+    place. You should also revoke Tusk Ledger in Robinhood's agent settings."""
+    _agent_store().clear()
+    return {"ok": True, "connected": False}
 
 
 @router.get("/proposals")
@@ -201,18 +369,26 @@ def agent_trading_proposals(status: str = Query(None, description="filter: pendi
 def agent_trading_generate_proposals(
     cash: float = Query(2000.0, gt=0, description="sim sleeve cash for sizing until the backend is the bound agent"),
     profile: str = Query(None, description="strategy profile (defaults to the active one)"),
+    max_price_age_hours: float = Query(48.0, gt=0, description="stale-data gate: skip new buys whose price feed is older than this"),
 ):
     """Run the Analyst → guardrail gate over the active research universe and queue the
-    gate-APPROVED orders for your approval. Until the backend is the bound Robinhood agent,
-    this sizes against a simulated cash sleeve so you can review the flow. It PLACES NOTHING —
-    it only writes the approval queue."""
+    gate-APPROVED orders for your approval. A stale-data gate runs first: a name is skipped for
+    NEW buys if its method inputs are stale (price feed older than ``max_price_age_hours`` or
+    research past its review date) — so the agent only acts on fresh data. Held names are exempt
+    (exits still fire). Until the backend is the bound agent, sizing uses a simulated cash sleeve.
+    It PLACES NOTHING — it only writes the approval queue."""
+    import time as _time
+
     from app.agent_trading.bridge import plan_cycle
-    from app.agent_trading.candidates import make_candidate_provider
+    from app.agent_trading.brokers import MODE_READ_ONLY, BrokerError
+    from app.agent_trading.candidates import freshness_skips, holdings_from_state, make_candidate_provider
     from app.agent_trading.guardrails import AccountState, GuardrailConfig
     from app.agent_trading.proposals import generate_proposals
+    from app.agent_trading.robinhood_agent import connection_status, make_broker
     from app.agent_trading.sizing import SizingConfig, size_decisions
     from app.agent_trading.state import AgentState
-    from app.agent_trading.strategy import PROFILES, StrategyConfig, StrategyDecisionSource
+    from app.agent_trading.strategy import PROFILES, StrategyConfig
+    from app.agent_trading.strategy import propose as propose_strategy
     from app.services import research_store as rs
 
     dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
@@ -223,34 +399,232 @@ def agent_trading_generate_proposals(
     sel = profile if profile in PROFILES else active
     today = __import__("datetime").date.today().isoformat()
 
-    snapshot = AccountState(cash=cash, positions={}, prices={}, equity_peak=cash, trades_today=0)
-    provider = make_candidate_provider(dom, {}, today=today)
-    decisions = StrategyDecisionSource(StrategyConfig(profile=sel), provider).get_decisions([], today)
-    decisions = size_decisions(decisions, snapshot, SizingConfig(method="fixed_fractional", fraction=0.10))
-    plan = plan_cycle(account_number="approval-queue", snapshot=snapshot, decisions=decisions,
-                      config=GuardrailConfig(), persisted=AgentState(), as_of=today)
+    prices = rs.load_prices(dom) or {}
+    entities = (rs.load_domain(dom).get("entities") or [])
+    by_ticker = {(e.get("ticker") or "").upper(): e for e in entities if e.get("ticker")}
+
+    # Size against the LIVE sleeve when Tusk Ledger is the connected agent (real cash + positions);
+    # only fall back to the sim `cash` when not connected. This is what makes the queue reflect
+    # your actual account instead of a placeholder.
+    live = connection_status(_agent_store())["connected"]
+    holdings: dict = {}
+    live_account = "approval-queue"
+    reconciled: list = []
+    if live:
+        broker_ro = make_broker(_agent_store(), mode=MODE_READ_ONLY)
+        try:
+            snapshot = broker_ro.snapshot()
+        except Exception as e:  # noqa: BLE001 — surface a clear error rather than silently simming
+            raise HTTPException(status_code=502, detail=f"Couldn't read your live sleeve: {e}")
+        holdings = holdings_from_state(snapshot)
+        live_account = broker_ro.account_number or "agentic"   # real account in the order args
+        # Reconcile any already-placed orders against their live state, so a queued order that has
+        # since filled flips to FILLED on the timeline (instead of being stuck on 'placed').
+        try:
+            reconciled = _reconcile_placed(_proposal_store(), broker_ro)
+        except Exception:  # noqa: BLE001
+            reconciled = []
+        # Refresh the WHOLE universe to LIVE quotes before the Analyst ranks anything, so the
+        # consideration (signals, freshness, sizing) runs on current prices — not a daily cache.
+        try:
+            from app.agent_trading.candidates import overlay_live_prices
+            uq = broker_ro.quotes(list(by_ticker.keys()))
+            if uq:
+                prices = overlay_live_prices(prices, uq, now_epoch=_time.time())
+        except Exception:  # noqa: BLE001 — fall back to the cache; never crash the cycle
+            pass
+    else:
+        snapshot = AccountState(cash=cash, positions={}, prices={}, equity_peak=cash, trades_today=0)
+
+    candidates = make_candidate_provider(dom, holdings, today=today, prices_override=prices)([], today)
+    skips = freshness_skips(candidates, prices, by_ticker, now_epoch=_time.time(),
+                            today=today, max_price_age_hours=max_price_age_hours)
+    fresh = [c for c in candidates if c.held or c.ticker not in skips]
+
+    # Deployment ceiling: when set, cap total invested AND size positions off that budget so it
+    # spreads across the strategy's picks (auto-scales when you raise the cap). 0 = unlimited.
+    from app.agent_trading.order_policy import OrderPolicy
+    cap = settings.AGENT_TRADING_MAX_DEPLOYED or 0.0
+    total_val = snapshot.total_value() or 1.0
+    strat_cfg = StrategyConfig(profile=sel)
+    if cap > 0:
+        per_pos = cap / max(1, strat_cfg.max_new_positions)
+        frac = min(0.10, per_pos / total_val)
+        sizing = SizingConfig(method="fixed_fractional", fraction=frac,
+                              max_fraction=min(0.20, max(frac * 1.5, 0.05)))
+        grc = GuardrailConfig(max_deployed_notional=cap)
+    else:
+        sizing = SizingConfig(method="fixed_fractional", fraction=0.10)
+        grc = GuardrailConfig()
+    # First live orders go in as MARKET (exact $ sizing, fractional OK, instant fill, simplest
+    # schema) to prove the path; re-enable marketable-limit once a clean fill is confirmed.
+    order_policy = None
+
+    # Candidates already carry live prices (universe was re-quoted above), so the Analyst ranked
+    # and the sizer sizes off current prices — no stale-cache gap into a market order.
+    decisions = propose_strategy(fresh, strat_cfg)
+    decisions = size_decisions(decisions, snapshot, sizing)
+    plan = plan_cycle(account_number=(live_account if live else "approval-queue"), snapshot=snapshot,
+                      decisions=decisions, config=grc, persisted=AgentState(),
+                      order_policy=order_policy, as_of=today)
 
     cycle_id, queued = generate_proposals(_proposal_store(), plan)
+    # Stream the cycle to the live activity timeline (cycle_started → read → per-order gate → done).
+    try:
+        from app.agent_trading.events import EventLog, plan_to_events
+        evs = plan_to_events(plan, cycle_id=cycle_id, cash=snapshot.cash, positions=len(snapshot.positions))
+        for t, r in sorted(skips.items()):
+            evs.append({"seq": len(evs), "ts": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc).isoformat(), "cycle_id": cycle_id,
+                "type": "skipped", "label": f"Skipped {t} (stale data)", "status": "warn",
+                "detail": r, "ticker": t})
+        EventLog(_events_path()).append_all(evs)
+    except Exception:  # noqa: BLE001 — activity logging must never break a cycle
+        pass
+    armed = bool(settings.AGENT_TRADING_ARMED)
+    cap_txt = f" · cap ${cap:,.0f}" if cap > 0 else ""
+    if not live:
+        note = "Not connected — sized against a simulated sleeve. Connect in Accounts to use your real balance."
+    elif armed:
+        note = f"LIVE & ARMED{cap_txt}. Approving an order PLACES it on your real sleeve (${snapshot.cash:,.0f} cash)."
+    else:
+        note = f"Live sleeve (${snapshot.cash:,.0f} cash){cap_txt}. Read-only — Approve only marks until you set AGENT_TRADING_ARMED=true."
     return {
         "configured": True, "domain": dom, "profile": sel, "cycle_id": cycle_id,
+        "source": "live" if live else "sim", "armed": armed,
+        "max_deployed": cap or None,
+        "sleeve_cash": round(snapshot.cash, 2),
+        "sleeve_positions": len(snapshot.positions),
         "queued": len(queued), "blocked": len(plan.blocked),
+        "blocked_detail": [{"ticker": o.decision.ticker,
+                            "reason": (o.guardrail.reasons[0] if o.guardrail.reasons else "blocked by gate")}
+                           for o in plan.blocked],
+        "stale_skipped": [{"ticker": t, "reason": r} for t, r in sorted(skips.items())],
         "proposals": [_proposal_dict(p) for p in queued],
-        "note": "Sized against a simulated sleeve. Approve/Reject in-app; placement is wired when the backend becomes the bound agent.",
+        "reconciled": reconciled,
+        "note": note,
     }
 
 
 @router.post("/proposals/{pid}/approve")
 def agent_trading_approve_proposal(pid: str):
-    """Mark a pending proposal APPROVED (ready to place). This does NOT place the order — the
-    bound backend agent does that on this approval; placement is never an agent-callable path."""
-    try:
-        p = _proposal_store().decide(pid, "approve", by="user")
-    except KeyError:
+    """The user's in-app approval. Marks the proposal APPROVED and, IF a live broker is armed,
+    the backend (the bound agent) places it on this approval. With no armed broker (the default),
+    it only marks approved — placement is never reachable without this human action."""
+    store = _proposal_store()
+    p = store.get(pid)
+    if p is None:
         raise HTTPException(status_code=404, detail=f"no proposal {pid}")
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return {"ok": True, "proposal": _proposal_dict(p),
-            "note": "Approved and queued for placement by the bound agent. Nothing has been placed yet."}
+    # pending → mark approved; already-approved (e.g. a prior placement errored) → retry placement.
+    if p.status == "pending":
+        try:
+            p = store.decide(pid, "approve", by="user")
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+    elif p.status != "approved":
+        raise HTTPException(status_code=409, detail=f"proposal is {p.status}, not actionable")
+
+    broker = _live_broker()
+    if broker is None:
+        return {"ok": True, "placed": False, "proposal": _proposal_dict(p),
+                "note": "Approved. No live broker armed, so nothing was placed."}
+
+    # Armed: place exactly what was approved, honoring pause/halt, alerting on failure. Any error
+    # is surfaced as a clean 502 with the cause — never a bare 500.
+    from app.agent_trading.execution import place_approved_proposal
+    try:
+        res = place_approved_proposal(p, broker=broker, proposal_store=store,
+                                      state_store=_store(), log_path=_path(), alert_log=_alert_log())
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Placement error: {type(e).__name__}: {e}")
+    # Reflect the placement on the live activity timeline. Three outcomes, three colours:
+    #   • executed (filled/partially_filled) → "placed"/ok (green): shares are in hand.
+    #   • accepted-but-queued (unconfirmed/queued/new) → "queued"/warn (amber): the order is live
+    #     at the broker and will fill shortly — NOT a failure (this is the case the user hit).
+    #   • genuinely not placed (broker reject/error) → "blocked"/error (red).
+    fill = res.fill or {}
+    fstate = str(fill.get("state", "")).lower()
+    executed = fstate in ("filled", "partially_filled")
+    if res.ok:
+        ev_type = "placed" if executed else "queued"
+        ev_status = "ok" if executed else "warn"
+        verb = "EXECUTED" if executed else "QUEUED"
+        ev_label = f"{verb} {p.side} {p.ticker}"
+        qty = fill.get("qty")
+        ev_detail = (f"order {(fill.get('order_id') or '')[:8]} · {qty} sh"
+                     + (f" · {fstate}" if fstate else "")).strip(" ·")
+    else:
+        ev_type, ev_status = "blocked", "error"
+        ev_label = f"{res.status.upper()} {p.ticker}"
+        ev_detail = res.reason
+    try:
+        import datetime as _dt
+        from app.agent_trading.events import EventLog
+        EventLog(_events_path()).append({
+            "seq": 9000, "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(), "cycle_id": p.cycle_id,
+            "type": ev_type, "label": ev_label, "status": ev_status,
+            "detail": ev_detail, "ticker": p.ticker})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": res.ok, "placed": res.ok, "executed": executed, "state": fstate,
+            "status": res.status, "reason": res.reason, "fill": res.fill,
+            "proposal": _proposal_dict(store.get(pid) or p)}
+
+
+@router.get("/proposals/{pid}/order-status")
+def agent_trading_order_status(pid: str):
+    """Read back the live broker status of a PLACED proposal's order (executed vs still queued).
+    A market order is 'unconfirmed' the instant it's placed and flips to 'filled' seconds later;
+    the UI polls this to update the badge. Read-only — touches no write tools."""
+    store = _proposal_store()
+    p = store.get(pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"no proposal {pid}")
+    oid = p.placed_ref or ""
+    if not oid or ":" in oid:  # not placed yet, or a sim placement (venue:ts) — nothing to read back
+        return {"ok": True, "order_id": oid, "state": p.placed_state or "", "executed": False,
+                "found": False, "note": "no live order id to reconcile"}
+    broker = _read_broker()    # read-only — reading order status never needs the arm
+    if broker is None or not hasattr(broker, "order_status"):
+        return {"ok": True, "order_id": oid, "state": p.placed_state or "", "executed": False,
+                "found": False, "note": "not connected to Robinhood"}
+    try:
+        st = broker.order_status(oid)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Order-status error: {type(e).__name__}: {e}")
+    # If it has progressed (e.g. unconfirmed → filled), persist the new state on the proposal AND
+    # — when it's now executed — put an EXECUTED event on the timeline (idempotent), so polling a
+    # single order keeps the activity feed in sync, not just a full cycle reconcile.
+    if st.get("found") and st.get("state") and st["state"] != p.placed_state:
+        try:
+            store.update_placed_state(pid, st["state"])
+        except Exception:  # noqa: BLE001
+            pass
+        if st.get("executed"):
+            _emit_executed_event(p, oid, qty=st.get("filled_qty") or p.qty, px=st.get("avg_price"))
+            _backfill_decision_fill(oid, price=st.get("avg_price"),
+                                    qty=st.get("filled_qty") or p.qty, state=st.get("state"))
+    return {"ok": True, **st}
+
+
+@router.post("/proposals/reconcile")
+def agent_trading_reconcile():
+    """Read back ALL placed-but-not-yet-filled orders and advance their state (queued → filled),
+    emitting a FILLED event for each confirmed fill. Read-only; the UI calls this on load so the
+    timeline self-heals without a full cycle. Returns the orders whose state advanced."""
+    updates = _reconcile_placed(_proposal_store())
+    return {"ok": True, "reconciled": updates,
+            "note": ("Robinhood not connected — nothing to reconcile." if not updates and _read_broker() is None
+                     else f"{len(updates)} order(s) advanced.")}
+
+
+@router.get("/alerts")
+def agent_trading_alerts(limit: int = Query(50, ge=1, le=500), unacknowledged_only: bool = Query(False)):
+    """Failure alerts (cycle errors, guardrail vetoes, drawdown halt, placement failures) so a
+    silent break surfaces. Read-only."""
+    log = _alert_log()
+    return {"alerts": log.recent(limit=limit, unacknowledged_only=unacknowledged_only),
+            "summary": log.summary()}
 
 
 @router.post("/proposals/{pid}/reject")

@@ -33,6 +33,12 @@ class Fill:
     notional: float
     ts: str
     venue: str  # "sim" | "robinhood"
+    state: str = "filled"   # broker order state: filled | partially_filled | unconfirmed | queued | …
+    order_id: str = ""
+
+    @property
+    def is_filled(self) -> bool:
+        return self.state in ("filled", "partially_filled") or self.venue == "sim"
 
 
 # --------------------------------------------------------------------------- sim
@@ -156,6 +162,10 @@ MODE_LIVE = "live"            # everything incl. place/cancel — a deliberate h
 _REVIEW_TOOL = "review_equity_order"   # simulate + pre-trade warnings; does NOT execute
 _PLACE_TOOL = "place_equity_order"
 _CANCEL_TOOL = "cancel_equity_order"
+_ORDERS_TOOL = "get_equity_orders"     # read back order status (executed vs queued)
+
+# Broker order states that mean shares are actually in hand (vs merely accepted/queued).
+_EXECUTED_STATES = {"filled", "partially_filled"}
 
 
 def _num(d: dict, *keys: str, default: float = 0.0) -> float:
@@ -184,6 +194,21 @@ def _unwrap(payload):
     if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
         return payload["data"]
     return payload
+
+
+def _log_place(args: dict, raw) -> None:
+    """Best-effort capture of every place_equity_order request + response, so a placement can be
+    verified against what Robinhood actually returned (var/agent_trading/place_log.jsonl)."""
+    try:
+        import json as _json
+        import time as _time
+        from pathlib import Path as _Path
+        p = _Path("var/agent_trading/place_log.jsonl")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a") as fh:
+            fh.write(_json.dumps({"ts": _time.time(), "args": args, "raw": raw}, default=str) + "\n")
+    except Exception:
+        pass
 
 
 def _as_list(payload) -> list:
@@ -277,12 +302,14 @@ class RobinhoodMCPBroker:
         mcp_client: Optional[MCPClient] = None,
         *,
         mode: str = MODE_DISARMED,
+        order_policy=None,
     ):
         if mode not in (MODE_DISARMED, MODE_READ_ONLY, MODE_LIVE):
             raise ValueError(f"unknown mode {mode!r}")
         self.account_number = account_number
         self._mcp_client = mcp_client
         self._mode = mode
+        self._order_policy = order_policy  # OrderPolicy | None (None → market)
 
     @property
     def mode(self) -> str:
@@ -336,10 +363,45 @@ class RobinhoodMCPBroker:
         quotes = parse_quotes(self._read("get_equity_quotes", {"symbols": syms})) if syms else {}
         return parse_account_state(portfolio, positions, quotes, account_number=acct)
 
+    def quotes(self, symbols: list[str]) -> dict[str, float]:
+        """Real-time quotes for ``symbols`` (read tool). Used to size a proposal off the LIVE
+        price right before placing, so a market order doesn't fill far from the logged price."""
+        syms = [s.upper().strip() for s in symbols if s]
+        if not syms:
+            return {}
+        out: dict[str, float] = {}
+        for i in range(0, len(syms), 20):  # the tool accepts up to 20 symbols per call
+            chunk = syms[i:i + 20]
+            out.update(parse_quotes(self._read("get_equity_quotes", {"symbols": chunk})))
+        return out
+
     def review_order(self, order: ProposedOrder) -> dict:
         """Simulate an order via review_equity_order — returns Robinhood's pre-trade
         warnings WITHOUT placing. Allowed in read_only; this is the live dry-run."""
         return _unwrap(self._read(_REVIEW_TOOL, self._order_args(order))) or {}
+
+    def order_status(self, order_id: str) -> dict:
+        """Read back ONE order's live status (read tool) so we can tell executed from queued
+        after placing. A market order is "unconfirmed" the instant it's placed and flips to
+        "filled" moments later — this is how the loop reconciles that. Returns a compact dict;
+        ``state == ""`` means the order wasn't found in the recent-orders feed."""
+        oid = str(order_id or "").strip()
+        if not oid:
+            return {"order_id": "", "state": "", "executed": False, "found": False}
+        rows = _as_list(self._read(_ORDERS_TOOL, {"account_number": self.account_number}))
+        match = next((o for o in rows if str(o.get("id") or o.get("order_id")) == oid), None)
+        if not match:
+            return {"order_id": oid, "state": "", "executed": False, "found": False}
+        state = str(match.get("state", "")).lower().strip()
+        filled = _num(match, "cumulative_quantity", "filled_quantity")
+        return {
+            "order_id": oid,
+            "state": state,
+            "executed": state in _EXECUTED_STATES or filled > 0,
+            "filled_qty": filled,
+            "avg_price": _num(match, "average_price"),
+            "found": True,
+        }
 
     # -- writes (live only) --------------------------------------------------
     def place_order(self, order: ProposedOrder) -> Fill:
@@ -355,19 +417,60 @@ class RobinhoodMCPBroker:
             venue="robinhood",
         )
 
+    def place_raw(self, order_args: dict) -> Fill:
+        """Place the approved ``order_args``, but ALWAYS on this broker's bound account (the
+        generation-time account_number is a placeholder) and with a limit quantity coerced to
+        whole shares (Robinhood limit orders aren't fractional). Live only."""
+        self._require_live()
+        args = dict(order_args)
+        args["account_number"] = self.account_number        # the real agentic account, not a placeholder
+        if args.get("type") == "limit" and args.get("quantity") is not None:
+            args["quantity"] = max(1, int(float(args["quantity"])))  # limit orders are whole-share
+        # Robinhood's schema wants decimal fields as STRINGS, not JSON numbers.
+        for k in ("quantity", "limit_price"):
+            if args.get(k) is not None:
+                args[k] = str(args[k])
+        raw = self._mcp_client(_PLACE_TOOL, args)
+        _log_place(args, raw)                          # capture the exact response for verification
+        result = _unwrap(raw) or {}
+        # Surface a rejection reason if the tool returned an error message (not a real order).
+        if isinstance(result, dict) and result.get("_error"):
+            raise BrokerError(f"place_equity_order rejected: {result['_error']}")
+        # The order object is nested one level deeper (place_equity_order returns
+        # {"data": {"order": {...}}}; _unwrap stripped "data", leaving {"order": {...}}). Older/
+        # test shapes put the fields at top level, so fall back to ``result`` itself.
+        order = result.get("order") if isinstance(result, dict) and isinstance(result.get("order"), dict) else result
+        oid = (order.get("id") or order.get("order_id")) if isinstance(order, dict) else None
+        # A genuine placement returns an order id; if it didn't, this was NOT a real order — fail
+        # loudly (with the raw response) instead of falsely reporting "placed".
+        if not oid:
+            raise BrokerError(f"place_equity_order returned no order id — not placed: {raw}")
+        # State tells us executed vs queued: "filled"/"partially_filled" = executed (some shares
+        # in hand); "unconfirmed"/"confirmed"/"queued"/"new" = accepted but not yet filled. A
+        # market order is "unconfirmed" the instant it's placed and fills moments later.
+        state = str(order.get("state", "")).lower().strip() or "submitted"
+        filled_qty = _num(order, "cumulative_quantity", "filled_quantity")
+        order_qty = _num(order, "quantity", default=_num(order_args, "quantity"))
+        fill_px = _num(order, "average_price") or _num(order, "price", default=_num(order_args, "limit_price"))
+        shown_qty = filled_qty or order_qty
+        return Fill(
+            ticker=_sym(order_args, "symbol") or _sym(order, "symbol"),
+            side=str(order_args.get("side", "")).lower().strip(),
+            qty=shown_qty,
+            price=fill_px,
+            notional=_num(order, "filled_notional", "notional", default=shown_qty * fill_px),
+            ts=str(order.get("created_at") or datetime.now(timezone.utc).isoformat()),
+            venue="robinhood",
+            state=state,
+            order_id=str(oid),
+        )
+
     # -- helpers -------------------------------------------------------------
     def _order_args(self, order: ProposedOrder) -> dict:
-        args = {
-            "account_number": self.account_number,
-            "symbol": order.ticker.upper().strip(),
-            "side": order.side.lower().strip(),
-            "type": "market",
-        }
-        if order.notional is not None:
-            args["amount"] = round(order.resolved_notional(), 2)
-        else:
-            args["quantity"] = order.resolved_qty()
-        return args
+        # Shared builder (order_policy.py) so the live broker and the planner construct orders
+        # identically — market by default, marketable-limit when an OrderPolicy is set.
+        from .order_policy import build_order_args
+        return build_order_args(self.account_number, order, policy=self._order_policy)
 
     def _account_matches(self, a: dict) -> bool:
         ours = str(self.account_number)

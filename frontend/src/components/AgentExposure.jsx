@@ -7,7 +7,7 @@
  * the agent is currently proposing that you're already concentrated in. Read-only.
  */
 import { useEffect, useState } from 'react'
-import { Layers, AlertTriangle } from 'lucide-react'
+import { Layers } from 'lucide-react'
 import { getAgentTradingExposure } from '../api/client'
 import { formatCurrency } from '../lib/format'
 import Pill from './Pill'
@@ -27,7 +27,6 @@ export default function AgentExposure() {
   }, [])
 
   const overlap = data?.overlap || []
-  const warnings = data?.concentrated_proposals || []
 
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 22,
@@ -47,23 +46,12 @@ export default function AgentExposure() {
 
       {!loading && !err && (
         <>
-          {warnings.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', marginBottom: 10,
-                          border: `1px solid ${RED}`, borderRadius: 8, fontSize: 12.5,
-                          background: 'color-mix(in srgb, var(--accent-red,#ef4444) 7%, transparent)' }}>
-              <AlertTriangle size={16} style={{ color: RED, flexShrink: 0, marginTop: 1 }} />
-              <span>
-                The agent is proposing{' '}
-                {warnings.map((w, i) => (
-                  <strong key={w.ticker}>{i > 0 ? ', ' : ''}{w.ticker} ({pct(w.main_pct)} of main)</strong>
-                ))}
-                {' '}— you're already concentrated there. Combined exposure would be larger.
-              </span>
-            </div>
-          )}
-
-          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 2px 8px' }}>
+          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 2px 6px' }}>
             {data?.n_overlap || 0} of {data?.n_universe || 0} agent-universe names overlap your main portfolio.
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted, var(--text-secondary))', margin: '0 2px 10px', fontStyle: 'italic' }}>
+            Informational only — your other holdings don't limit what the agent buys. It trades its method in the
+            isolated sleeve; this is just awareness of where the two books overlap.
           </p>
 
           {overlap.length === 0 ? (

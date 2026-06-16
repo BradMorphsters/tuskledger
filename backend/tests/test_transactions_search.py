@@ -232,7 +232,7 @@ def test_totals_excludes_transfers_by_default(client, db, factory):
     Without this, a $1,000 CC autopay (Family Checking → Apple Card)
     appears as $1,000 spending on Family Checking AND $1,000 income on
     Apple Card, inflating both totals symmetrically. Real-world result
-    on Eduardo's data: ~$222K on each side, almost equal — clearly wrong.
+    on production data: ~$222K on each side, almost equal — clearly wrong.
     """
     checking = factory.account(name="Checking")
     credit = factory.account(name="Credit Card")

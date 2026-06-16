@@ -49,6 +49,55 @@ def load_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+# --------------------------------------------------------------------------- backfill (pure)
+
+def backfill_fill(rows: list[dict], order_id: str, *, price: Optional[float] = None,
+                  qty: Optional[float] = None, state: Optional[str] = None) -> tuple[list[dict], bool]:
+    """Pure: return ``(rows, changed)`` with the fill whose ``order_id`` matches updated to the
+    real executed price/notional/state.
+
+    The place response returns the *accepted order* (price 0 / unconfirmed), not the executed
+    fill, so a freshly-placed row understates cost basis until the order settles. Once the
+    reconcile reads back the broker's ``average_price``, this rewrites that one row so the
+    positions view (notional ÷ qty) shows the true average cost. Idempotent — re-applying the
+    same values reports ``changed=False`` so the caller can skip the disk write. No IO.
+    """
+    oid = str(order_id or "")
+    if not oid:
+        return rows, False
+    changed = False
+    out: list[dict] = []
+    for r in rows:
+        f = r.get("fill") or {}
+        if str(f.get("order_id") or "") != oid:
+            out.append(r)
+            continue
+        f = dict(f)
+        row = dict(r)
+        row_changed = False
+        if price is not None:
+            try:
+                p = float(price)
+            except (TypeError, ValueError):
+                p = 0.0
+            if p > 0 and f.get("price") != round(p, 4):
+                f["price"] = round(p, 4)
+                if qty:
+                    f["notional"] = round(p * float(qty), 4)
+                row_changed = True
+        if state and f.get("state") != state:
+            f["state"] = state
+            row_changed = True
+        if row.get("status") == "placed":
+            row["status"] = "executed"
+            row_changed = True
+        if row_changed:
+            row["fill"] = f
+            changed = True
+        out.append(row)
+    return out, changed
+
+
 # --------------------------------------------------------------------------- helpers
 
 def _fills(rows: list[dict]) -> list[dict]:

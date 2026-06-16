@@ -41,6 +41,7 @@ class AccountState:
     prices: dict[str, float]
     equity_peak: float
     trades_today: int = 0
+    settled_cash: Optional[float] = None   # cash account: settled (T+1) buying power; None = unknown
 
     def position_value(self, ticker: str) -> float:
         pos = self.positions.get(ticker)
@@ -106,6 +107,8 @@ class GuardrailConfig:
     max_trades_per_day: int = 10
     max_drawdown_pct: float = 0.15
     block_on_wash_sale: bool = False  # False = warn only, True = hard veto
+    require_settled_cash: bool = False  # cash account: block buys exceeding settled cash (T+1)
+    max_deployed_notional: Optional[float] = None  # hard $ ceiling on TOTAL invested (None = no cap)
 
     @staticmethod
     def conservative() -> "GuardrailConfig":
@@ -242,6 +245,15 @@ def check_order(
             post_cash >= 0,
             f"insufficient cash: need ${notional:,.2f}, have ${state.cash:,.2f}",
         )
+        # 5b. Settled-cash (cash account, T+1) — avoid good-faith violations from buying with
+        # unsettled proceeds. Only enforced when required AND the broker reported settled cash.
+        if config.require_settled_cash and state.settled_cash is not None:
+            record(
+                "settled_cash",
+                notional <= state.settled_cash + 1e-9,
+                f"buy ${notional:,.2f} exceeds settled cash ${state.settled_cash:,.2f} "
+                f"(cash account T+1 — would risk a good-faith violation)",
+            )
 
         # 6. Max position concentration (post-trade) ------------------------------
         post_position_value = state.position_value(ticker) + notional
@@ -253,6 +265,16 @@ def check_order(
             f"({(post_position_value / total) if total else 0:.1%}), over the "
             f"{config.max_position_pct:.0%} cap (${cap:,.2f})",
         )
+        # 6b. Total-deployment ceiling — the absolute $ cap on how much the sleeve may invest.
+        # This is the "go live with $300, expand later" knob: raise the cap to scale up.
+        if config.max_deployed_notional is not None:
+            invested_after = (total - state.cash) + notional
+            record(
+                "max_deployed",
+                invested_after <= config.max_deployed_notional + 1e-9,
+                f"buy would bring total deployed to ${invested_after:,.2f}, over the "
+                f"${config.max_deployed_notional:,.2f} ceiling",
+            )
     elif side == "sell":
         # 7. No shorting — can't sell more than held ------------------------------
         held = state.positions.get(ticker)

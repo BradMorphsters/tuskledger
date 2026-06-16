@@ -47,7 +47,7 @@ def test_approves_clean_order_with_ready_args():
     args = plan.approved[0].order_args
     # args are exactly what place_equity_order expects — and that's ALL plan_cycle produces
     assert args == {"account_number": ACCT, "symbol": "ROAR", "side": "buy",
-                    "type": "market", "amount": 80.0}
+                    "type": "market", "quantity": 8.0}   # $80 / $10 ref = 8 shares
 
 
 def test_blocks_oversized_order():

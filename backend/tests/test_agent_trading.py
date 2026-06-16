@@ -193,3 +193,30 @@ def test_robinhood_broker_refuses_when_disarmed():
     b = RobinhoodMCPBroker("agentic-123")  # disarmed by default
     with pytest.raises(BrokerError):
         b.place_order(ProposedOrder("ROAR", "buy", ref_price=10.0, notional=50.0))
+
+
+# --------------------------------------------------------------------------- decision-log backfill
+
+def test_backfill_fill_corrects_zero_price_into_real_avg_cost():
+    """A placement records price 0 (the accepted order, not the fill); once the reconcile reads
+    the broker's average_price, backfill_fill rewrites that row so positions show the real avg
+    cost. Idempotent, and only the matching order_id is touched."""
+    from app.services import agent_trading_log as log
+
+    rows = [{"status": "placed",
+             "fill": {"ticker": "ALM", "side": "buy", "qty": 5.0, "price": 0.0, "notional": 0.0,
+                      "venue": "robinhood", "state": "unconfirmed", "order_id": "ord-A"}}]
+
+    out, changed = log.backfill_fill(rows, "ord-A", price=18.74, qty=5.0, state="filled")
+    assert changed is True
+    f = out[0]["fill"]
+    assert f["price"] == 18.74 and f["notional"] == round(18.74 * 5.0, 4) and f["state"] == "filled"
+    assert out[0]["status"] == "executed"                      # placed → executed
+    # positions now reconstruct the true average cost instead of zero
+    assert {p["ticker"]: p["avg_cost"] for p in log.positions(out)}["ALM"] == 18.74
+    # idempotent — re-applying the same values writes nothing
+    assert log.backfill_fill(out, "ord-A", price=18.74, qty=5.0, state="filled")[1] is False
+    # a non-matching order id is a no-op
+    assert log.backfill_fill(rows, "other", price=99.0, qty=1.0)[1] is False
+    # a zero/None price never overwrites a real one
+    assert log.backfill_fill(out, "ord-A", price=0.0, qty=5.0)[1] is False

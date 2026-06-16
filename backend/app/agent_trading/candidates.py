@@ -155,6 +155,63 @@ def build_candidates(
     return out
 
 
+def freshness_skips(
+    candidates: Sequence[Candidate],
+    prices: dict[str, dict],
+    entities_by_ticker: dict[str, dict],
+    *,
+    now_epoch: float,
+    today: Optional[str] = None,
+    max_price_age_hours: float = 48.0,
+    require_fresh_research: bool = True,
+) -> dict[str, str]:
+    """Stale-data gate: which NON-held candidates shouldn't be *bought* because the method's
+    inputs are stale. Bars are monthly, so price freshness keys off the cache's ``fetched_at``
+    (when we last pulled a live price), not bar age. Held names are exempt — exits must still
+    fire on a stale name (a stop-loss shouldn't be muted by a stale feed).
+
+    Returns ``{ticker: reason}`` for names to skip. Pure: ``now_epoch`` is injected."""
+    max_age = max_price_age_hours * 3600.0
+    out: dict[str, str] = {}
+    for c in candidates:
+        if c.held:
+            continue  # exits aren't gated on freshness
+        t = (c.ticker or "").upper()
+        pe = prices.get(t) or {}
+        fa = pe.get("fetched_at")
+        if fa is None:
+            out[t] = "no live price (using a snapshot fallback)"
+            continue
+        age_h = (now_epoch - float(fa)) / 3600.0
+        if age_h > max_price_age_hours:
+            out[t] = f"price {age_h:.0f}h stale (> {max_price_age_hours:.0f}h)"
+            continue
+        if require_fresh_research and _is_stale(entities_by_ticker.get(t, {}), today):
+            out[t] = "research past its review date"
+    return out
+
+
+def overlay_live_prices(prices: dict, quotes: dict, *, now_epoch: float) -> dict:
+    """Return a copy of the price store with each ticker's ``current`` replaced by its LIVE quote
+    and ``fetched_at`` bumped to now. This is how the whole consideration runs on current prices
+    instead of a cache: the Analyst's momentum/pullback recompute off the live ``current`` (against
+    the monthly bars), the freshness gate sees a fresh feed, and sizing uses the live price."""
+    out = dict(prices)
+    for t, q in (quotes or {}).items():
+        tu = (t or "").upper()
+        try:
+            qv = float(q)
+        except (TypeError, ValueError):
+            continue
+        if qv <= 0:
+            continue
+        base = dict(out.get(tu) or {})
+        base["current"] = qv
+        base["fetched_at"] = now_epoch
+        out[tu] = base
+    return out
+
+
 def holdings_from_state(account_state) -> dict[str, dict]:
     """Adapt an AccountState (from the broker snapshot) to the holdings dict the provider
     overlays, so exits can value open positions."""
@@ -171,10 +228,13 @@ def make_candidate_provider(
     store=None,
     market_data=None,
     today: Optional[str] = None,
+    prices_override: Optional[dict[str, dict]] = None,
 ) -> CandidateProvider:
     """Live provider over the cached research / signals / price stores for ``domain`` (the
     active research domain). ``holdings`` overlays current Agentic positions so the Analyst
-    can exit. Stores/market_data are injectable for tests."""
+    can exit. ``prices_override`` lets the caller supply a price dict already refreshed with
+    LIVE quotes (so the whole consideration runs on current prices, not a cache). Stores/
+    market_data are injectable for tests."""
     if store is None:
         from app.services import research_store as store  # lazy: avoid import at module load
     if market_data is None:
@@ -184,7 +244,7 @@ def make_candidate_provider(
     entities = (store.load_domain(domain).get("entities") if domain else []) or []
     by_ticker = {(e.get("ticker") or "").upper(): e for e in entities if e.get("ticker")}
     signals = store.load_signals(domain) if domain else {}
-    prices = store.load_prices(domain) if domain else {}
+    prices = prices_override if prices_override is not None else (store.load_prices(domain) if domain else {})
     from .themes import load_theme
     theme = load_theme(domain)
 

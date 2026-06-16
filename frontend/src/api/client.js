@@ -553,6 +553,17 @@ export const approveAgentTradingProposal = (id) =>
   request(`/agent-trading/proposals/${encodeURIComponent(id)}/approve`, { method: 'POST' });
 export const rejectAgentTradingProposal = (id) =>
   request(`/agent-trading/proposals/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+export const getAgentTradingOrderStatus = (id) =>
+  request(`/agent-trading/proposals/${encodeURIComponent(id)}/order-status`);
+export const reconcileAgentTradingOrders = () =>
+  request('/agent-trading/proposals/reconcile', { method: 'POST' });
+
+// Robinhood agentic-MCP connection (Tusk Ledger as the bound agent). connect runs the OAuth
+// consent in the user's browser; ping is a read-only self-check. None of these arm live trading.
+export const getRobinhoodAgentStatus = () => request('/agent-trading/connect/status');
+export const connectRobinhoodAgent = () => request('/agent-trading/connect/start', { method: 'POST' });
+export const pingRobinhoodAgent = () => request('/agent-trading/connect/ping', { method: 'POST' });
+export const disconnectRobinhoodAgent = () => request('/agent-trading/connect/disconnect', { method: 'POST' });
 
 // Integrations / API keys — bring-your-own-key status (booleans only).
 export const getIntegrationsStatus = () => request('/integrations/status');

@@ -42,7 +42,8 @@ def test_momentum_cycle_proposes_and_gates_from_analyst():
     approved = {p.order_args["symbol"] for p in plan.approved}
     assert "USAR" in approved and "DOWN" not in approved
     args = next(p.order_args for p in plan.approved if p.order_args["symbol"] == "USAR")
-    assert args["side"] == "buy" and args["amount"] == 100.0   # 10% of $1,000
+    # 10% of $1,000 = $100 → $100 / $23 ref ≈ 4.347826 shares (fractional quantity, no dollar amount)
+    assert args["side"] == "buy" and args["quantity"] == round(100.0 / 23.0, 6) and "amount" not in args
 
 
 def test_quiet_signals_propose_nothing():

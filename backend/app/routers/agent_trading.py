@@ -173,6 +173,98 @@ def agent_trading_backtest(profile: str = Query(None, description="profile for t
     }
 
 
+def _proposal_store():
+    from app.agent_trading.proposals import ProposalStore, resolve_proposals_path
+    return ProposalStore(resolve_proposals_path(settings.AGENT_TRADING_PROPOSALS))
+
+
+def _proposal_dict(p) -> dict:
+    from dataclasses import asdict
+    d = asdict(p)
+    d.pop("order_args", None)  # internal placement args — not surfaced to the UI
+    return d
+
+
+@router.get("/proposals")
+def agent_trading_proposals(status: str = Query(None, description="filter: pending|approved|rejected|placed|expired")):
+    """The human-in-the-loop approval queue: gate-approved orders awaiting your Approve/Reject.
+    Read-only. Approving one is a separate, explicit POST — nothing here places a trade."""
+    store = _proposal_store()
+    return {
+        "proposals": [_proposal_dict(p) for p in store.list(status=status)],
+        "counts": store.counts(),
+        "kill_switch_url": ROBINHOOD_KILL_URL,
+    }
+
+
+@router.post("/proposals/generate")
+def agent_trading_generate_proposals(
+    cash: float = Query(2000.0, gt=0, description="sim sleeve cash for sizing until the backend is the bound agent"),
+    profile: str = Query(None, description="strategy profile (defaults to the active one)"),
+):
+    """Run the Analyst → guardrail gate over the active research universe and queue the
+    gate-APPROVED orders for your approval. Until the backend is the bound Robinhood agent,
+    this sizes against a simulated cash sleeve so you can review the flow. It PLACES NOTHING —
+    it only writes the approval queue."""
+    from app.agent_trading.bridge import plan_cycle
+    from app.agent_trading.candidates import make_candidate_provider
+    from app.agent_trading.guardrails import AccountState, GuardrailConfig
+    from app.agent_trading.proposals import generate_proposals
+    from app.agent_trading.sizing import SizingConfig, size_decisions
+    from app.agent_trading.state import AgentState
+    from app.agent_trading.strategy import PROFILES, StrategyConfig, StrategyDecisionSource
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        return {"configured": False, "domain": None, "queued": 0, "proposals": []}
+
+    active = _store().load().strategy or settings.AGENT_TRADING_STRATEGY
+    sel = profile if profile in PROFILES else active
+    today = __import__("datetime").date.today().isoformat()
+
+    snapshot = AccountState(cash=cash, positions={}, prices={}, equity_peak=cash, trades_today=0)
+    provider = make_candidate_provider(dom, {}, today=today)
+    decisions = StrategyDecisionSource(StrategyConfig(profile=sel), provider).get_decisions([], today)
+    decisions = size_decisions(decisions, snapshot, SizingConfig(method="fixed_fractional", fraction=0.10))
+    plan = plan_cycle(account_number="approval-queue", snapshot=snapshot, decisions=decisions,
+                      config=GuardrailConfig(), persisted=AgentState(), as_of=today)
+
+    cycle_id, queued = generate_proposals(_proposal_store(), plan)
+    return {
+        "configured": True, "domain": dom, "profile": sel, "cycle_id": cycle_id,
+        "queued": len(queued), "blocked": len(plan.blocked),
+        "proposals": [_proposal_dict(p) for p in queued],
+        "note": "Sized against a simulated sleeve. Approve/Reject in-app; placement is wired when the backend becomes the bound agent.",
+    }
+
+
+@router.post("/proposals/{pid}/approve")
+def agent_trading_approve_proposal(pid: str):
+    """Mark a pending proposal APPROVED (ready to place). This does NOT place the order — the
+    bound backend agent does that on this approval; placement is never an agent-callable path."""
+    try:
+        p = _proposal_store().decide(pid, "approve", by="user")
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no proposal {pid}")
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"ok": True, "proposal": _proposal_dict(p),
+            "note": "Approved and queued for placement by the bound agent. Nothing has been placed yet."}
+
+
+@router.post("/proposals/{pid}/reject")
+def agent_trading_reject_proposal(pid: str):
+    """Discard a pending proposal. It will never be placed."""
+    try:
+        p = _proposal_store().decide(pid, "reject", by="user")
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no proposal {pid}")
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"ok": True, "proposal": _proposal_dict(p)}
+
+
 @router.get("/universe-review")
 def agent_trading_universe_review():
     """Keep the candidate LIST fresh: discover names that should be ADDED (new players in the

@@ -67,6 +67,14 @@ from .universe_screen import (
     run_universe_review,
     screen_universe,
 )
+from .proposals import (
+    Proposal,
+    ProposalStore,
+    apply_decision,
+    generate_proposals,
+    proposals_from_plan,
+    resolve_proposals_path,
+)
 from .runner import build_digest, run_readonly_cycle
 from .exposure import cross_exposure
 from .backtest import (

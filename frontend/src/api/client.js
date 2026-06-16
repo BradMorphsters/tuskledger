@@ -542,6 +542,18 @@ export const getAgentTradingBacktest = (profile) =>
   request(`/agent-trading/backtest${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`);
 export const getAgentTradingExposure = () => request('/agent-trading/exposure');
 
+// Human-in-the-loop approval queue. generate runs the Analyst→gate and queues gate-approved
+// orders; approve/reject are the user's per-order decision. Nothing here places a trade —
+// placement is bound to the user's approval and done by the backend (the bound agent).
+export const getAgentTradingProposals = (status) =>
+  request(`/agent-trading/proposals${status ? `?status=${encodeURIComponent(status)}` : ''}`);
+export const generateAgentTradingProposals = (profile) =>
+  request(`/agent-trading/proposals/generate${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`, { method: 'POST' });
+export const approveAgentTradingProposal = (id) =>
+  request(`/agent-trading/proposals/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+export const rejectAgentTradingProposal = (id) =>
+  request(`/agent-trading/proposals/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+
 // Integrations / API keys — bring-your-own-key status (booleans only).
 export const getIntegrationsStatus = () => request('/integrations/status');
 

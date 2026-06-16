@@ -25,6 +25,7 @@ import AgentActivity from '../components/AgentActivity'
 import AgentControl from '../components/AgentControl'
 import AgentBacktest from '../components/AgentBacktest'
 import AgentExposure from '../components/AgentExposure'
+import AgentProposals from '../components/AgentProposals'
 import TradingFloor from '../components/TradingFloor'
 
 const GREEN = 'var(--accent-green, #10b981)'
@@ -134,6 +135,9 @@ export default function AgentTrading() {
 
       {/* Loop control — pause / resume / re-arm + strategy selector */}
       <AgentControl />
+
+      {/* Human-in-the-loop approval queue — gate-approved orders awaiting your Approve/Reject */}
+      <AgentProposals />
 
       {/* Strategy backtest scoreboard + per-name drill-down — informs the strategy choice */}
       <AgentBacktest />

@@ -170,6 +170,10 @@ vi.mock('../api/client', () => ({
   setAgentTradingStrategy:   vi.fn(() => Promise.resolve({ status: 'active', strategy: 'momentum', strategies: ['signal_event', 'momentum', 'mean_reversion', 'rotation'] })),
   getAgentTradingBacktest:   vi.fn(() => Promise.resolve({ configured: false, comparison: [], detail: null })),
   getAgentTradingExposure:   vi.fn(() => Promise.resolve({ main_total: 0, n_main_names: 0, n_universe: 0, n_overlap: 0, rows: [], overlap: [], concentrated_proposals: [] })),
+  getAgentTradingProposals:  vi.fn(() => Promise.resolve({ proposals: [], counts: {} })),
+  generateAgentTradingProposals: vi.fn(() => Promise.resolve({ configured: true, queued: 0, proposals: [] })),
+  approveAgentTradingProposal: vi.fn(() => Promise.resolve({ ok: true })),
+  rejectAgentTradingProposal:  vi.fn(() => Promise.resolve({ ok: true })),
 
   // Subscription rules
   getSubscriptionRules:      vi.fn(() => Promise.resolve([])),

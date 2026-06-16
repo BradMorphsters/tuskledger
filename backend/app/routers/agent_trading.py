@@ -18,9 +18,17 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from dataclasses import replace
+
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
+
 from app.config import settings
+from app.database import get_db
 from app.services import agent_trading_log as log
 from app.agent_trading.events import EventLog, demo_plan, plan_to_events
+from app.agent_trading.state import StateStore, control_status, resolve_state_path
+from app.agent_trading.strategy import PROFILES
 
 router = APIRouter(prefix="/api/agent-trading", tags=["agent-trading"])
 
@@ -36,6 +44,24 @@ def _events_path() -> Path:
     if settings.AGENT_TRADING_EVENTS:
         return Path(settings.AGENT_TRADING_EVENTS).expanduser()
     return Path("var/agent_trading/events.jsonl")
+
+
+def _store() -> StateStore:
+    return StateStore(resolve_state_path(settings.AGENT_TRADING_STATE))
+
+
+def _control_payload(store: StateStore) -> dict:
+    s = store.load()
+    return {
+        "status": control_status(s),     # active | paused | halted
+        "halted": s.halted,
+        "paused": s.paused,
+        "equity_peak": s.equity_peak,
+        "last_reconciled": s.last_reconciled,
+        "strategy": s.strategy or settings.AGENT_TRADING_STRATEGY,  # active Analyst profile
+        "strategies": list(PROFILES),                              # the selectable profiles
+        "kill_switch_url": ROBINHOOD_KILL_URL,
+    }
 
 
 @router.get("/status")
@@ -70,6 +96,81 @@ def agent_trading_activity(limit: int = Query(100, ge=1, le=1000)):
 def agent_trading_guardrails():
     rows = log.load_rows(_path())
     return log.guardrail_breaches(rows)
+
+
+@router.get("/exposure")
+def agent_trading_exposure(db: Session = Depends(get_db)):
+    """Cross-portfolio exposure: the agent's universe vs your main-portfolio holdings, so a
+    name the agent wants to buy that you already hold heavily stands out. Read-only."""
+    from app.models import Holding, Security
+    from app.agent_trading.exposure import cross_exposure
+    from app.services import research_store as rs
+
+    main: dict[str, float] = {}
+    rows_q = (db.query(Holding, Security)
+              .join(Security, Holding.plaid_security_id == Security.plaid_security_id).all())
+    for h, sec in rows_q:
+        t = (sec.ticker_symbol or "").upper()
+        if not t:
+            continue
+        val = h.institution_value or (h.quantity or 0.0) * (h.institution_price or 0.0)
+        main[t] = main.get(t, 0.0) + (val or 0.0)
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    universe = [(e.get("ticker") or "").upper()
+                for e in ((rs.load_domain(dom).get("entities") if dom else []) or []) if e.get("ticker")]
+
+    log_rows = log.load_rows(_path())
+    proposed: set[str] = set()
+    if log_rows:
+        last = log_rows[-1].get("as_of")
+        for r in log_rows:
+            if r.get("as_of") == last and r.get("status") in ("approved", "executed"):
+                tk = (r.get("decision") or {}).get("ticker")
+                if tk:
+                    proposed.add(tk.upper())
+
+    out = cross_exposure(universe, main, proposed=proposed)
+    out["domain"] = dom
+    return out
+
+
+@router.get("/backtest")
+def agent_trading_backtest(profile: str = Query(None, description="profile for the per-name detail")):
+    """Backtest the price-driven Analyst profiles over the cached history. Returns a
+    comparison scoreboard + per-ticker simulated trades for one profile. Read-only."""
+    from app.agent_trading.backtest import PRICE_PROFILES, compare_profiles, trades_by_ticker
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    prices = rs.load_prices(dom) if dom else {}
+    if not prices:
+        return {"configured": False, "domain": dom, "comparison": [], "detail": None}
+
+    results = compare_profiles(prices, starting_cash=1000.0)
+    any_r = next(iter(results.values()))
+    comparison = sorted(
+        [{"profile": p, "total_return": r.total_return, "cagr": r.cagr,
+          "max_drawdown": r.max_drawdown, "trades": r.trades, "beats": r.beat_benchmark()}
+         for p, r in results.items()],
+        key=lambda x: x["total_return"], reverse=True,
+    )
+
+    # detail profile: the requested one (if price-based) → else the persisted strategy → else the best
+    persisted = _store().load().strategy or settings.AGENT_TRADING_STRATEGY
+    sel = profile if profile in PRICE_PROFILES else (persisted if persisted in PRICE_PROFILES else comparison[0]["profile"])
+    detail_res = results.get(sel)
+    detail = {
+        "profile": sel,
+        "trades_by_ticker": trades_by_ticker(detail_res),
+        "equity_curve": detail_res.equity_curve,
+        "benchmark_curve": detail_res.benchmark_curve,
+    } if detail_res else None
+
+    return {
+        "configured": True, "domain": dom, "months": any_r.months,
+        "benchmark_return": any_r.benchmark_return, "comparison": comparison, "detail": detail,
+    }
 
 
 # --------------------------------------------------------------------------- live activity
@@ -110,6 +211,51 @@ async def agent_trading_stream():
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# --------------------------------------------------------------------------- loop control
+
+@router.get("/control")
+def agent_trading_control():
+    """Loop run-state: active / paused / halted, plus the persisted peak. Read-only."""
+    return _control_payload(_store())
+
+
+@router.post("/pause")
+def agent_trading_pause():
+    """Manually stop the loop from trading (distinct from Robinhood's kill switch, which
+    disconnects the agent). Persists ``paused`` so it survives restarts."""
+    store = _store()
+    store.save(replace(store.load(), paused=True))
+    return _control_payload(store)
+
+
+@router.post("/resume")
+def agent_trading_resume():
+    """Clear a manual pause. Does NOT clear a drawdown halt — that needs re-arm."""
+    store = _store()
+    store.save(replace(store.load(), paused=False))
+    return _control_payload(store)
+
+
+@router.post("/strategy")
+def agent_trading_set_strategy(profile: str = Query(..., description="Analyst profile")):
+    """Set the active Analyst philosophy (persisted in policy state). Read-only setting —
+    it changes what the loop *considers*, not whether it can trade."""
+    if profile not in PROFILES:
+        raise HTTPException(status_code=400, detail=f"unknown profile {profile!r}; pick one of {list(PROFILES)}")
+    store = _store()
+    store.save(replace(store.load(), strategy=profile))
+    return _control_payload(store)
+
+
+@router.post("/rearm")
+def agent_trading_rearm():
+    """Human re-arm after a drawdown halt (or pause): clears both flags so the loop may run
+    again. The deliberate acknowledgement that you've reviewed why it tripped."""
+    store = _store()
+    store.rearm()
+    return _control_payload(store)
 
 
 @router.post("/demo-run")

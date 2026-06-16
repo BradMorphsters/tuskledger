@@ -120,6 +120,40 @@ def test_halt_persists_until_rearm(tmp_path):
     assert any(o.status == "executed" for o in r2.outcomes)
 
 
+def test_control_status_reflects_flags():
+    from app.agent_trading.state import control_status
+    assert control_status(AgentState()) == "active"
+    assert control_status(AgentState(paused=True)) == "paused"
+    assert control_status(AgentState(halted=True)) == "halted"
+    # halt takes precedence over pause
+    assert control_status(AgentState(halted=True, paused=True)) == "halted"
+
+
+def test_strategy_persists_in_state(tmp_path):
+    from dataclasses import replace
+    store = StateStore(tmp_path / "state.json")
+    assert store.load().strategy == ""           # default → falls back to config
+    store.save(replace(store.load(), strategy="momentum"))
+    assert store.load().strategy == "momentum"
+    # surviving a halt + re-arm doesn't lose the chosen strategy
+    store.mark_halted()
+    store.rearm()
+    assert store.load().strategy == "momentum"
+
+
+def test_store_pause_resume_rearm_cycle(tmp_path):
+    from dataclasses import replace
+    store = StateStore(tmp_path / "state.json")
+    store.save(replace(store.load(), paused=True))
+    assert store.load().paused is True
+    store.save(replace(store.load(), paused=False))
+    assert store.load().paused is False
+    store.mark_halted()
+    assert store.load().halted is True
+    store.rearm()
+    assert store.load().halted is False and store.load().paused is False
+
+
 def test_no_store_path_unchanged(tmp_path):
     """Without a store, behavior is exactly as before — broker provides peak/trades."""
     broker = SimulatedBroker(starting_cash=1000.0)

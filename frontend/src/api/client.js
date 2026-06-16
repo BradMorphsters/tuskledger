@@ -531,6 +531,16 @@ export const getAgentTradingGuardrails = () => request('/agent-trading/guardrail
 export const getAgentTradingEvents = (limit = 200) =>
   request(`/agent-trading/events?limit=${encodeURIComponent(limit)}`);
 export const runAgentTradingDemo = () => request('/agent-trading/demo-run', { method: 'POST' });
+// Loop control — pause/resume/re-arm the policy state (active | paused | halted).
+export const getAgentTradingControl = () => request('/agent-trading/control');
+export const pauseAgentTrading = () => request('/agent-trading/pause', { method: 'POST' });
+export const resumeAgentTrading = () => request('/agent-trading/resume', { method: 'POST' });
+export const rearmAgentTrading = () => request('/agent-trading/rearm', { method: 'POST' });
+export const setAgentTradingStrategy = (profile) =>
+  request(`/agent-trading/strategy?profile=${encodeURIComponent(profile)}`, { method: 'POST' });
+export const getAgentTradingBacktest = (profile) =>
+  request(`/agent-trading/backtest${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`);
+export const getAgentTradingExposure = () => request('/agent-trading/exposure');
 
 // Integrations / API keys — bring-your-own-key status (booleans only).
 export const getIntegrationsStatus = () => request('/integrations/status');

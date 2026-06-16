@@ -77,6 +77,15 @@ def test_scoreboard_line_ranks_and_flags():
     assert line.index("rotation") < line.index("momentum") or "momentum" in line
 
 
+def test_trade_log_records_entries_grouped_by_ticker():
+    from app.agent_trading import trades_by_ticker
+    prices = {"UP": _series([10, 11, 12, 13, 14, 16, 18, 20])}
+    r = backtest(prices, StrategyConfig(profile="momentum"), warmup=4, momentum_fn=_momentum_fn)
+    assert r.trades_log and all(set(t) >= {"as_of", "ticker", "action", "price", "shares", "notional"} for t in r.trades_log)
+    grouped = trades_by_ticker(r)
+    assert "UP" in grouped and len(grouped["UP"]) == r.trades
+
+
 def test_too_short_history_returns_flat():
     r = backtest({"X": _series([10, 11])}, StrategyConfig(profile="momentum"),
                  warmup=4, momentum_fn=_momentum_fn)

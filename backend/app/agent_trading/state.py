@@ -47,6 +47,7 @@ class AgentState:
     equity_peak: float = 0.0
     halted: bool = False          # drawdown breaker tripped; needs human re-arm
     paused: bool = False          # manual pause
+    strategy: str = ""            # active Analyst profile ("" → config default)
     last_reconciled: Optional[str] = None
     schema: int = STATE_SCHEMA
 
@@ -156,3 +157,13 @@ class StateStore:
         s = replace(self.load(), halted=False, paused=False)
         self.save(s)
         return s
+
+
+def control_status(state: AgentState) -> str:
+    """The loop's run-state for the control UI: 'halted' (breaker tripped, needs re-arm) >
+    'paused' (manual stop) > 'active' (may run)."""
+    if state.halted:
+        return "halted"
+    if state.paused:
+        return "paused"
+    return "active"

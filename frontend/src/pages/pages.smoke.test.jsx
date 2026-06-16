@@ -163,6 +163,13 @@ vi.mock('../api/client', () => ({
   getAgentTradingGuardrails: vi.fn(() => Promise.resolve({ blocked_total: 0, by_check: [], warnings: [] })),
   getAgentTradingEvents:     vi.fn(() => Promise.resolve({ events: [] })),
   runAgentTradingDemo:       vi.fn(() => Promise.resolve({ ok: true, emitted: 0 })),
+  getAgentTradingControl:    vi.fn(() => Promise.resolve({ status: 'active', halted: false, paused: false, equity_peak: 0, strategy: 'signal_event', strategies: ['signal_event', 'momentum', 'mean_reversion', 'rotation'] })),
+  pauseAgentTrading:         vi.fn(() => Promise.resolve({ status: 'paused', paused: true })),
+  resumeAgentTrading:        vi.fn(() => Promise.resolve({ status: 'active', paused: false })),
+  rearmAgentTrading:         vi.fn(() => Promise.resolve({ status: 'active', halted: false, paused: false })),
+  setAgentTradingStrategy:   vi.fn(() => Promise.resolve({ status: 'active', strategy: 'momentum', strategies: ['signal_event', 'momentum', 'mean_reversion', 'rotation'] })),
+  getAgentTradingBacktest:   vi.fn(() => Promise.resolve({ configured: false, comparison: [], detail: null })),
+  getAgentTradingExposure:   vi.fn(() => Promise.resolve({ main_total: 0, n_main_names: 0, n_universe: 0, n_overlap: 0, rows: [], overlap: [], concentrated_proposals: [] })),
 
   // Subscription rules
   getSubscriptionRules:      vi.fn(() => Promise.resolve([])),

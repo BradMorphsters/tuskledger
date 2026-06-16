@@ -14,6 +14,7 @@ testable; :func:`make_candidate_provider` is the thin live wiring.
 """
 from __future__ import annotations
 
+import datetime
 from typing import Optional, Sequence
 
 from .strategy import Candidate, CandidateProvider
@@ -47,6 +48,40 @@ def _signal_score(entry: dict) -> float:
     return _clamp01((raw or 0) / 3.0) if isinstance(raw, (int, float)) else 0.0
 
 
+def _is_stale(ent: dict, today: Optional[str] = None) -> bool:
+    """A research entity is stale once it's past its review ``next_due`` date."""
+    nd = (ent.get("review") or {}).get("next_due")
+    if not nd:
+        return False
+    today = today or datetime.date.today().isoformat()
+    try:
+        return str(nd) < str(today)
+    except Exception:
+        return False
+
+
+def blend_research(conviction, upside, conv_momentum: float, stale: bool,
+                   *, stale_factor: float = 0.7) -> tuple[float, float]:
+    """Turn the research signals into (research_score, rotation_score).
+
+    * ``research_score`` (the quality gate, all profiles) = conviction, **decayed if stale**.
+    * ``rotation_score`` (the rotation ranking) blends three things you already store:
+        - **expected value**: conviction tilted by upside  →  conv·(0.5 + 0.5·upside)
+        - **conviction-momentum**: a rising thesis lifts the rank, a falling one cuts it
+        - **staleness**: an out-of-review name is pushed down
+
+    All inputs are 0–100 (conviction/upside) except ``conv_momentum`` which is a fraction
+    (e.g. +0.12 = conviction up 12 points since tracking began)."""
+    conv = _clamp01((conviction or 0) / 100.0)
+    ups = _clamp01((upside or 0) / 100.0)
+    sf = stale_factor if stale else 1.0
+    research_score = round(_clamp01(conv * sf), 4)
+    ev = conv * (0.5 + 0.5 * ups)
+    mom_adj = 1.0 + max(-0.5, min(0.5, conv_momentum or 0.0))
+    rotation_score = round(_clamp01(ev * mom_adj * sf), 4)
+    return research_score, rotation_score
+
+
 def _price_features(price_entry: dict, market_data) -> tuple[Optional[float], bool, float, float]:
     """(current_price, trend_up, momentum_fraction, pullback_fraction) from the price cache."""
     if not price_entry:
@@ -70,9 +105,20 @@ def build_candidates(
     prices: dict[str, dict],
     holdings: dict[str, dict],
     market_data,
+    *,
+    momentum_by_ticker: Optional[dict[str, float]] = None,
+    today: Optional[str] = None,
+    theme: Optional[dict] = None,
 ) -> list[Candidate]:
     """Assemble Candidate rows. Pure: every input is plain data + an object exposing
-    ``compute_momentum``. Names with no usable price are dropped (can't trade them)."""
+    ``compute_momentum``. Names with no usable price are dropped (can't trade them).
+
+    ``momentum_by_ticker`` carries conviction-momentum (the change in conviction since
+    tracking began); ``today`` is used for staleness. Both feed ``blend_research``."""
+    mbt = momentum_by_ticker or {}
+    theme = theme or {}
+    theme_mom = float(theme.get("momentum") or 0.0)
+    theme_up = bool(theme.get("trend_up"))
     out: list[Candidate] = []
     seen: set[str] = set()
     for raw in tickers:
@@ -86,15 +132,23 @@ def build_candidates(
             price = _to_float((ent.get("fundamentals") or {}).get("price"))
         if not price or price <= 0:
             continue
+        scores = ent.get("scores") or {}
+        research_score, rotation_score = blend_research(
+            scores.get("conviction"), scores.get("upside"),
+            mbt.get(t, 0.0), _is_stale(ent, today),
+        )
         hold = holdings.get(t, {})
         out.append(Candidate(
             ticker=t,
             price=float(price),
-            research_score=_research_score(ent),
+            research_score=research_score,
+            rotation_score=rotation_score,
             signal_score=_signal_score(signals.get(t)),
             momentum=momentum,
             trend_up=trend_up,
             pullback=pullback,
+            theme_momentum=theme_mom,
+            theme_trend_up=theme_up,
             held_qty=_to_float(hold.get("qty")) or 0.0,
             avg_cost=_to_float(hold.get("avg_cost")) or 0.0,
         ))
@@ -116,6 +170,7 @@ def make_candidate_provider(
     *,
     store=None,
     market_data=None,
+    today: Optional[str] = None,
 ) -> CandidateProvider:
     """Live provider over the cached research / signals / price stores for ``domain`` (the
     active research domain). ``holdings`` overlays current Agentic positions so the Analyst
@@ -130,11 +185,34 @@ def make_candidate_provider(
     by_ticker = {(e.get("ticker") or "").upper(): e for e in entities if e.get("ticker")}
     signals = store.load_signals(domain) if domain else {}
     prices = store.load_prices(domain) if domain else {}
+    from .themes import load_theme
+    theme = load_theme(domain)
+
+    # conviction-momentum: history rows are keyed by entity id; the first row per id is the
+    # earliest, so (current conviction − earliest) is the drift since tracking began.
+    momentum_by_ticker: dict[str, float] = {}
+    try:
+        history = store.read_history(domain) if domain else []
+    except Exception:
+        history = []
+    first_conv: dict[str, float] = {}
+    for r in history:
+        i, c = r.get("id"), r.get("conviction")
+        if i and isinstance(c, (int, float)) and i not in first_conv:
+            first_conv[i] = c
+    for e in entities:
+        t = (e.get("ticker") or "").upper()
+        cur = (e.get("scores") or {}).get("conviction")
+        base = first_conv.get(e.get("id"))
+        if t and isinstance(cur, (int, float)) and isinstance(base, (int, float)):
+            momentum_by_ticker[t] = (cur - base) / 100.0
 
     def provider(watchlist: Sequence[str], as_of: str) -> list[Candidate]:
         universe = [w.upper() for w in (watchlist or list(by_ticker.keys()))]
         # always include held names so exits fire even if they fell off the watchlist
         tickers = list(dict.fromkeys(universe + list(holdings.keys())))
-        return build_candidates(tickers, by_ticker, signals, prices, holdings, market_data)
+        return build_candidates(tickers, by_ticker, signals, prices, holdings, market_data,
+                                momentum_by_ticker=momentum_by_ticker, today=today or as_of,
+                                theme=theme)
 
     return provider

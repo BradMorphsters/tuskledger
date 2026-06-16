@@ -23,13 +23,15 @@ from .strategy import StrategyConfig
 
 def build_digest(plan: CyclePlan, *, strategy: Optional[str] = None,
                  domain: Optional[str] = None, account_value: Optional[float] = None,
-                 scoreboard: Optional[str] = None) -> str:
+                 scoreboard: Optional[str] = None, theme: Optional[str] = None) -> str:
     """A concise, shareable summary of a read-only cycle (for a daily digest)."""
     lines = [f"Agent Trading — read-only digest · {plan.as_of}"]
     if strategy:
         lines.append(f"strategy: {strategy}" + (f" · universe: {domain}" if domain else ""))
     if account_value is not None:
         lines.append(f"account value: ${account_value:,.2f}")
+    if theme:
+        lines.append(theme)
     if scoreboard:
         lines.append(scoreboard)
 
@@ -125,6 +127,16 @@ def run_readonly_cycle(
             except Exception:
                 board = None
 
+    # sector tailwind line (best-effort, from the cached theme proxies)
+    theme_line = None
+    try:
+        from .themes import load_theme
+        th = load_theme(domain)
+        if th and th.get("n"):
+            theme_line = f"sector tailwind: {th.get('label', '?')} (avg {th.get('momentum', 0.0):+.1%})"
+    except Exception:
+        theme_line = None
+
     digest = build_digest(plan, strategy=profile, domain=domain,
-                          account_value=account_value, scoreboard=board)
+                          account_value=account_value, scoreboard=board, theme=theme_line)
     return {"plan": plan, "digest": digest, "cycle_id": cycle_id, "strategy": profile}

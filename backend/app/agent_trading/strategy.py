@@ -42,6 +42,7 @@ class StrategyConfig:
     stop_pct: float = 0.08            # stop-loss (all profiles)
     max_new_positions: int = 3        # cap new buys per cycle
     rotation_top_n: int = 5           # rotation basket size
+    require_theme_tailwind: bool = False  # if on, no new buys while the sector is in a downtrend
 
     def __post_init__(self):
         if self.profile not in PROFILES:
@@ -61,6 +62,8 @@ class Candidate:
     trend_up: bool = False        # price above its long moving average
     pullback: float = 0.0         # fraction below recent high (0..1)
     rotation_score: float = 0.0   # sector-rotation temperature (optional)
+    theme_momentum: float = 0.0   # sector/commodity tailwind (avg proxy-ETF 3-mo return)
+    theme_trend_up: bool = False  # is the underlying sector in an uptrend
     held_qty: float = 0.0
     avg_cost: float = 0.0
 
@@ -102,6 +105,8 @@ def _entry(c: Candidate, cfg: StrategyConfig) -> Optional[str]:
     """Return a rationale if this non-held name is a buy under the profile, else None."""
     if c.research_score < cfg.research_floor:
         return None  # quality gate applies to every profile
+    if cfg.require_theme_tailwind and not c.theme_trend_up:
+        return None  # don't fight the sector — no new buys while the theme is in a downtrend
     if cfg.profile == "signal_event":
         if c.signal_score >= cfg.signal_threshold:
             return (f"signal {c.signal_score:.2f} ≥ {cfg.signal_threshold:.2f} "

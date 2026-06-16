@@ -22,6 +22,8 @@ import { formatCurrency, formatDate } from '../lib/format'
 import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import AgentActivity from '../components/AgentActivity'
+import AgentControl from '../components/AgentControl'
+import TradingFloor from '../components/TradingFloor'
 
 const GREEN = 'var(--accent-green, #10b981)'
 const RED = 'var(--accent-red, #ef4444)'
@@ -57,6 +59,7 @@ export default function AgentTrading() {
   const [guardrails, setGuardrails] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
+  const [activityView, setActivityView] = useState('timeline')  // timeline | floor
 
   const load = () => {
     setLoading(true); setErr(null)
@@ -127,8 +130,20 @@ export default function AgentTrading() {
         )}
       </div>
 
-      {/* Live "watch it think" timeline — independent of the decision log */}
-      <AgentActivity />
+      {/* Loop control — pause / resume / re-arm the policy state */}
+      <AgentControl />
+
+      {/* Live activity — timeline (default) or the playful trading-floor replay */}
+      <div style={{ display: 'inline-flex', gap: 4, marginBottom: 10, padding: 3, borderRadius: 9, border: '1px solid var(--border)' }}>
+        {[['timeline', 'Timeline'], ['floor', 'Trading floor']].map(([key, label]) => (
+          <button key={key} onClick={() => setActivityView(key)} style={{
+            padding: '5px 12px', fontSize: 12.5, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
+            background: activityView === key ? 'var(--accent-blue, #3b82f6)' : 'transparent',
+            color: activityView === key ? '#fff' : 'var(--text-secondary)',
+          }}>{label}</button>
+        ))}
+      </div>
+      {activityView === 'timeline' ? <AgentActivity /> : <TradingFloor />}
 
       {err && (
         <div style={{ padding: 12, border: `1px solid ${RED}`, borderRadius: 10, color: RED, marginBottom: 16, fontSize: 14 }}>

@@ -173,6 +173,48 @@ def agent_trading_backtest(profile: str = Query(None, description="profile for t
     }
 
 
+@router.get("/universe-review")
+def agent_trading_universe_review():
+    """Keep the candidate LIST fresh: discover names that should be ADDED (new players in the
+    theme's sector ETFs, fresh SEC filers in its mining codes) and flag weak/stale names to
+    DROP. A review queue — it never mutates your research universe. Read-only."""
+    from app.agent_trading.universe_screen import run_universe_review
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        return {"configured": False, "domain": None, "add": [], "add_edgar": [], "drop": []}
+    out = run_universe_review(dom)
+    out["configured"] = True
+    return out
+
+
+@router.get("/ranking")
+def agent_trading_ranking(profile: str = Query(None, description="profile to rank under (defaults to the active one)")):
+    """The WHOLE candidate universe ranked under the active Analyst profile, with each name's
+    standing and the one thing it needs to make the cut. Answers 'why isn't X being bought?'
+    and surfaces the small/lower-ranked players the top-N cut hides. Read-only."""
+    from app.agent_trading.strategy import StrategyConfig, rank_universe
+    from app.agent_trading.candidates import make_candidate_provider
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        return {"configured": False, "domain": None, "profile": None, "ranking": []}
+
+    active = _store().load().strategy or settings.AGENT_TRADING_STRATEGY
+    sel = profile if profile in PROFILES else active
+    today = __import__("datetime").date.today().isoformat()
+    candidates = make_candidate_provider(dom, {}, today=today)([], today)
+    cfg = StrategyConfig(profile=sel)
+    rows = [r.__dict__ for r in rank_universe(candidates, cfg)]
+    return {
+        "configured": True, "domain": dom, "profile": sel, "universe": len(rows),
+        "top_n": cfg.rotation_top_n, "exit_n": cfg.rotation_exit_n,
+        "max_new_positions": cfg.max_new_positions, "ranking": rows,
+    }
+
+
 # --------------------------------------------------------------------------- live activity
 
 @router.get("/events")

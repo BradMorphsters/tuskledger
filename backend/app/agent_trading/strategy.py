@@ -41,7 +41,9 @@ class StrategyConfig:
     target_pct: float = 0.15          # take-profit (all profiles)
     stop_pct: float = 0.08            # stop-loss (all profiles)
     max_new_positions: int = 3        # cap new buys per cycle
-    rotation_top_n: int = 5           # rotation basket size
+    rotation_top_n: int = 5           # rotation basket size (buy into the top N)
+    rotation_exit_n: int = 8          # hysteresis: only SELL a held name once it falls below
+                                      # this (wider) rank — holds through small slips, no whipsaw
     require_theme_tailwind: bool = False  # if on, no new buys while the sector is in a downtrend
 
     def __post_init__(self):
@@ -125,7 +127,89 @@ def _rank(c: Candidate, cfg: StrategyConfig) -> float:
         return c.momentum
     if cfg.profile == "mean_reversion":
         return c.pullback
+    if cfg.profile == "rotation":
+        return c.rotation_score or c.research_score
     return c.signal_score  # signal_event
+
+
+def _blocked_reason(c: Candidate, cfg: StrategyConfig) -> str:
+    """For a non-held name that didn't trigger: the one thing it needs to make the cut."""
+    if c.research_score < cfg.research_floor:
+        return f"quality {c.research_score:.2f} below the {cfg.research_floor:.2f} floor"
+    if cfg.require_theme_tailwind and not c.theme_trend_up:
+        return "sector is in a downtrend (theme-tailwind gate is on)"
+    if cfg.profile == "momentum":
+        if not c.trend_up:
+            return "not in an uptrend (price below its moving average)"
+        return f"momentum {c.momentum:+.1%} below the {cfg.momentum_threshold:+.1%} entry"
+    if cfg.profile == "mean_reversion":
+        if not c.trend_up:
+            return "not in an uptrend yet"
+        return f"only {c.pullback:.0%} off its high — needs a {cfg.pullback_pct:.0%} dip to buy"
+    if cfg.profile == "signal_event":
+        return f"signal {c.signal_score:.2f} below the {cfg.signal_threshold:.2f} entry"
+    return "no entry trigger fired"
+
+
+@dataclass(frozen=True)
+class RankedName:
+    """One name's standing in the full universe this cycle — the transparency row behind
+    'why isn't X being bought?'. Covers EVERY candidate, not just the ones that act."""
+
+    ticker: str
+    rank: int
+    score: float            # the metric this profile ranks by (thesis / momentum / pullback / signal)
+    research_score: float
+    held: bool
+    action: Optional[str]   # "buy" / "sell" / None — what the loop does with it THIS cycle
+    status: str             # in_basket | buffer | below_cutoff | qualifies | capped | blocked | exit | held
+    note: str               # plain-English why, and what it would take to make the cut
+
+
+def rank_universe(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[RankedName]:
+    """Rank and annotate the WHOLE candidate list under the active profile — so a small/
+    lower-ranked name's exact standing is visible, not hidden behind the top-N cut. Pure.
+
+    Every name in the universe is scored and placed every cycle; this just exposes where each
+    one sits and the single thing it needs to get bought. ``rotation`` is rank-gated (top-N),
+    so a small name makes the cut only by climbing; the trigger profiles (momentum /
+    mean_reversion / signal_event) are NOT rank-gated — a small name makes the cut purely on
+    its own trigger, capped per cycle by ``max_new_positions``."""
+    acts = {d.ticker: d for d in propose(candidates, cfg)}
+    ranked = sorted(candidates, key=lambda c: _rank(c, cfg), reverse=True)
+    out: list[RankedName] = []
+    for i, c in enumerate(ranked, 1):
+        d = acts.get(c.ticker)
+        action = d.action if d else None
+        if cfg.profile == "rotation":
+            if c.research_score < cfg.research_floor:
+                status, note = "blocked", f"quality {c.research_score:.2f} below the {cfg.research_floor:.2f} floor"
+            elif i <= cfg.rotation_top_n:
+                status, note = "in_basket", f"top {cfg.rotation_top_n} by thesis — owned/bought"
+            elif i <= cfg.rotation_exit_n:
+                status = "buffer"
+                note = f"rank {i}: kept if already held, not a new buy (anti-churn buffer to {cfg.rotation_exit_n})"
+            else:
+                status = "below_cutoff"
+                note = f"rank {i}: needs to climb into the top {cfg.rotation_top_n} to be bought"
+        else:
+            if action == "sell":
+                status, note = "exit", d.rationale
+            elif action == "buy":
+                status, note = "qualifies", d.rationale
+            elif c.held:
+                status, note = "held", "thesis intact — no exit trigger"
+            elif _entry(c, cfg):
+                status = "capped"
+                note = f"qualifies, but beyond this cycle's cap of {cfg.max_new_positions} new buys — buys a later cycle"
+            else:
+                status, note = "blocked", _blocked_reason(c, cfg)
+        out.append(RankedName(
+            ticker=c.ticker, rank=i, score=round(_rank(c, cfg), 4),
+            research_score=round(c.research_score, 3), held=c.held,
+            action=action, status=status, note=note,
+        ))
+    return out
 
 
 def propose(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[Decision]:
@@ -152,17 +236,24 @@ def propose(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[Decisi
 
 
 def _rotation(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[Decision]:
+    """Hold the top-N by thesis (conviction × upside × conviction-trend), with hysteresis:
+    BUY into the top ``rotation_top_n``, but only SELL a held name once it falls below the
+    wider ``rotation_exit_n``. That gap is the anti-churn buffer — a name slipping from #5 to
+    #6 is *held*, not sold into the dip; it's only rotated out when it clearly drops out."""
     score = lambda c: (c.rotation_score or c.research_score)
     eligible = [c for c in candidates if c.research_score >= cfg.research_floor]
-    target = {c.ticker for c in sorted(eligible, key=score, reverse=True)[:cfg.rotation_top_n]}
+    ranked = sorted(eligible, key=score, reverse=True)
+    buy_set = {c.ticker for c in ranked[:cfg.rotation_top_n]}                       # entries
+    keep_set = {c.ticker for c in ranked[:max(cfg.rotation_exit_n, cfg.rotation_top_n)]}  # held tolerance
+
     decisions: list[Decision] = []
     for c in candidates:
-        if c.held and c.ticker not in target:
-            decisions.append(_sell(c, f"rotated out of the top {cfg.rotation_top_n}"))
+        if c.held and c.ticker not in keep_set:
+            decisions.append(_sell(c, f"rotated out — fell below the top {cfg.rotation_exit_n}"))
     bought = 0
-    for c in sorted(eligible, key=score, reverse=True):
-        if c.ticker in target and not c.held and bought < cfg.max_new_positions:
-            decisions.append(_buy(c, f"rotated in — score {score(c):.2f}"))
+    for c in ranked:
+        if c.ticker in buy_set and not c.held and bought < cfg.max_new_positions:
+            decisions.append(_buy(c, f"rotated in — thesis score {score(c):.2f}"))
             bought += 1
     return decisions
 

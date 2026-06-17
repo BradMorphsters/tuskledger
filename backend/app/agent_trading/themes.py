@@ -16,16 +16,29 @@ import re
 import time
 from typing import Optional
 
-# Sector-proxy ETFs per research domain (commodity baskets that track the theme).
+# Sector-proxy ETFs per research domain (commodity baskets that track the theme). This is just a
+# curated default for the built-in domain; ANY other industry supplies its own proxies via
+# ``meta.industry.sector_etfs`` in its research file (no code change needed to retarget).
 THEME_PROXIES: dict[str, list[str]] = {
     "critical-minerals": ["URA", "REMX", "LIT", "COPX"],   # uranium, rare-earth, lithium, copper miners
 }
 
 
 def proxies_for(domain: Optional[str]) -> list[str]:
+    """Sector-proxy ETFs for the domain. Built-in domains use the curated default above; a
+    new industry falls back to whatever it declared in ``meta.industry.sector_etfs`` — so the
+    sector-tailwind signal works for any industry configured on the Research page."""
     if not domain:
         return []
-    return THEME_PROXIES.get(domain.strip().lower(), [])
+    hit = THEME_PROXIES.get(domain.strip().lower())
+    if hit:
+        return hit
+    try:  # fall back to the per-domain industry config (meta.industry.sector_etfs)
+        from app.services import research_store as store
+        meta = ((store.load_domain(domain) or {}).get("meta", {}) or {}).get("industry", {}) or {}
+        return [str(e).upper() for e in (meta.get("sector_etfs") or [])]
+    except Exception:
+        return []
 
 
 def theme_features(proxy_histories: dict[str, dict], market_data) -> dict:

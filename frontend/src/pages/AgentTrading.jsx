@@ -27,6 +27,7 @@ import AgentControl from '../components/AgentControl'
 import AgentBacktest from '../components/AgentBacktest'
 import AgentExposure from '../components/AgentExposure'
 import AgentProposals from '../components/AgentProposals'
+import AgentRanking from '../components/AgentRanking'
 import TradingFloor from '../components/TradingFloor'
 
 const GREEN = 'var(--accent-green, #10b981)'
@@ -145,6 +146,9 @@ export default function AgentTrading() {
 
       {/* Human-in-the-loop approval queue — gate-approved orders awaiting your Approve/Reject */}
       <AgentProposals />
+
+      {/* Rotation pick list — where holdings rank vs the buy/keep lines; see a rebalance coming */}
+      <AgentRanking />
 
       {/* Live activity — timeline (default) or the playful trading-floor replay */}
       <div style={{ display: 'inline-flex', gap: 4, marginBottom: 10, padding: 3, borderRadius: 9, border: '1px solid var(--border)' }}>

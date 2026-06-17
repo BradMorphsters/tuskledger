@@ -152,6 +152,30 @@ def build_candidates(
             held_qty=_to_float(hold.get("qty")) or 0.0,
             avg_cost=_to_float(hold.get("avg_cost")) or 0.0,
         ))
+
+    # Orphaned holdings: a held name that ISN'T in the active universe (e.g. left over after
+    # switching industries) gets no candidate above, so it could never be exited. Surface each as
+    # an exit-only candidate — research_score 0 (below any floor) so the strategy rotates it out
+    # instead of stranding it. Priced from the live position; avg cost as a last resort.
+    for raw, hold in (holdings or {}).items():
+        t = (raw or "").upper().strip()
+        if not t or t in seen:
+            continue
+        qty = _to_float(hold.get("qty")) or 0.0
+        if qty <= 0:
+            continue
+        px = (_to_float(hold.get("price")) or _to_float((prices.get(t) or {}).get("current"))
+              or _to_float(hold.get("avg_cost")))
+        if not px or px <= 0:
+            continue
+        seen.add(t)
+        out.append(Candidate(
+            ticker=t, price=float(px),
+            research_score=0.0, rotation_score=0.0, signal_score=0.0,
+            momentum=0.0, trend_up=False, pullback=0.0,
+            theme_momentum=theme_mom, theme_trend_up=theme_up,
+            held_qty=qty, avg_cost=_to_float(hold.get("avg_cost")) or 0.0,
+        ))
     return out
 
 
@@ -242,9 +266,12 @@ def overlay_live_prices(prices: dict, quotes: dict, *, now_epoch: float) -> dict
 
 def holdings_from_state(account_state) -> dict[str, dict]:
     """Adapt an AccountState (from the broker snapshot) to the holdings dict the provider
-    overlays, so exits can value open positions."""
+    overlays, so exits can value open positions. Carries the current price too, so a held name
+    that's NOT in the active universe (e.g. left over from a prior industry) can still be priced
+    and exited."""
+    prices = getattr(account_state, "prices", None) or {}
     return {
-        t.upper(): {"qty": p.qty, "avg_cost": p.avg_price}
+        t.upper(): {"qty": p.qty, "avg_cost": p.avg_price, "price": prices.get(t)}
         for t, p in (account_state.positions or {}).items()
     }
 

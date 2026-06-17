@@ -55,12 +55,34 @@ _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 Fetcher = Callable[[str, dict], tuple[Optional[str], Optional[str]]]
 
 
+def _industry_meta(domain: Optional[str]) -> dict:
+    """Per-domain industry knobs from the research file (``meta.industry``) — the single place a
+    new industry declares its own ETFs / SIC codes, so discovery retargets with no code change."""
+    if not domain:
+        return {}
+    try:
+        from app.services import research_store as store
+        return ((store.load_domain(domain) or {}).get("meta", {}) or {}).get("industry", {}) or {}
+    except Exception:
+        return {}
+
+
 def proxies_for(domain: Optional[str]) -> list[str]:
-    return GLOBALX_PROXIES.get((domain or "").strip().lower(), [])
+    """Global-X-diffable sector ETFs: the curated built-in list, else the domain's own
+    ``meta.industry.sector_etfs`` so a new industry's Tier-1 discovery works out of the box."""
+    hit = GLOBALX_PROXIES.get((domain or "").strip().lower())
+    if hit:
+        return hit
+    return [str(e).upper() for e in (_industry_meta(domain).get("sector_etfs") or [])]
 
 
 def sic_for(domain: Optional[str]) -> list[str]:
-    return SIC_CODES.get((domain or "").strip().lower(), [])
+    """EDGAR SIC codes: the curated built-in list, else the domain's own
+    ``meta.industry.sic_codes`` (Tier-2 discovery retargets per industry)."""
+    hit = SIC_CODES.get((domain or "").strip().lower())
+    if hit:
+        return hit
+    return [str(s) for s in (_industry_meta(domain).get("sic_codes") or [])]
 
 
 # --------------------------------------------------------------------------- pure parsing

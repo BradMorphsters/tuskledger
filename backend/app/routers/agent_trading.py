@@ -764,7 +764,7 @@ def agent_trading_ranking(profile: str = Query(None, description="profile to ran
     standing and the one thing it needs to make the cut. Answers 'why isn't X being bought?'
     and surfaces the small/lower-ranked players the top-N cut hides. Read-only."""
     from app.agent_trading.strategy import StrategyConfig, rank_universe
-    from app.agent_trading.candidates import make_candidate_provider
+    from app.agent_trading.candidates import holdings_from_state, make_candidate_provider
     from app.services import research_store as rs
 
     dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
@@ -774,13 +774,46 @@ def agent_trading_ranking(profile: str = Query(None, description="profile to ran
     active = _store().load().strategy or settings.AGENT_TRADING_STRATEGY
     sel = profile if profile in PROFILES else active
     today = __import__("datetime").date.today().isoformat()
-    candidates = make_candidate_provider(dom, {}, today=today)([], today)
+    # Overlay LIVE holdings so each row's held/qty is real — that's what makes "where do my
+    # positions rank?" answerable. Falls back to no-holdings when Tusk isn't the bound agent.
+    holdings: dict = {}
+    connected = False
+    try:
+        broker = _read_broker()
+        if broker is not None:
+            holdings = holdings_from_state(broker.snapshot())
+            connected = True
+    except Exception:  # noqa: BLE001 — ranking must still render without a live read
+        holdings = {}
+    candidates = make_candidate_provider(dom, holdings, today=today)([], today)
     cfg = StrategyConfig(profile=sel)
     rows = [r.__dict__ for r in rank_universe(candidates, cfg)]
+    held_rows = [r for r in rows if r["held"]]
+
+    # Rank trend: compare each name to the most recent prior-day snapshot (+N climbed, −N fell),
+    # then record today's snapshot (one per day, so reloads don't pile up). Best-effort — a
+    # history hiccup must never break the ranking.
+    try:
+        from app.agent_trading import rank_history as rh
+        hpath = _events_path().parent / "rank_history.json"
+        hist = rh.load(hpath)
+        ranks = {r["ticker"]: r["rank"] for r in rows}
+        # First run: pre-seed two flat prior days with today's ranks so the trend shows "no
+        # movement" instead of blank, and real movement accrues from here.
+        hist = rh.seed_flat(hist, profile=sel, domain=dom, today=today, ranks=ranks, days=2)
+        dl = rh.deltas(hist, profile=sel, domain=dom, today=today, ranks=ranks)
+        for r in rows:
+            r["rank_delta"] = dl.get(r["ticker"])   # +N climbed / −N fell / 0 flat / None = new
+        rh.save(hpath, rh.record(hist, profile=sel, domain=dom, today=today, ranks=ranks))
+    except Exception:  # noqa: BLE001
+        for r in rows:
+            r.setdefault("rank_delta", None)
+
     return {
         "configured": True, "domain": dom, "profile": sel, "universe": len(rows),
         "top_n": cfg.rotation_top_n, "exit_n": cfg.rotation_exit_n,
         "max_new_positions": cfg.max_new_positions, "ranking": rows,
+        "connected": connected, "held_count": len(held_rows),
     }
 
 

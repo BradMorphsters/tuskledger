@@ -169,6 +169,8 @@ class RankedName:
     action: Optional[str]   # "buy" / "sell" / None — what the loop does with it THIS cycle
     status: str             # in_basket | buffer | below_cutoff | qualifies | capped | blocked | exit | held
     note: str               # plain-English why, and what it would take to make the cut
+    held_qty: float = 0.0   # current position size (0 when not held)
+    avg_cost: float = 0.0
 
 
 def rank_universe(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[RankedName]:
@@ -213,6 +215,7 @@ def rank_universe(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[
             ticker=c.ticker, rank=i, score=round(_rank(c, cfg), 4),
             research_score=round(c.research_score, 3), held=c.held,
             action=action, status=status, note=note,
+            held_qty=round(c.held_qty, 6), avg_cost=round(c.avg_cost, 4),
         ))
     return out
 
@@ -254,7 +257,12 @@ def _rotation(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[Deci
     decisions: list[Decision] = []
     for c in candidates:
         if c.held and c.ticker not in keep_set:
-            decisions.append(_sell(c, f"rotated out — fell below the top {cfg.rotation_exit_n}"))
+            if c.research_score < cfg.research_floor:
+                why = (f"exiting — quality {c.research_score:.2f} below the {cfg.research_floor:.2f} "
+                       f"floor (or not in the active universe)")
+            else:
+                why = f"rotated out — fell below the top {cfg.rotation_exit_n}"
+            decisions.append(_sell(c, why))
     bought = 0
     for c in ranked:
         if c.ticker in buy_set and not c.held and bought < cfg.max_new_positions:

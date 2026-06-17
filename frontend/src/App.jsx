@@ -268,10 +268,14 @@ export default function App() {
     { to: '/bills-calendar', icon: CalendarDays, label: 'Bills Calendar' },
     { to: '/investments', icon: LineChart, label: 'Investments' },
     { to: '/trading-tax', icon: Receipt, label: 'Trading Tax' },
+
+    { divider: true, label: 'Trading' },
     { to: '/research', icon: Gem, label: 'Research' },
     { to: '/signals', icon: Landmark, label: 'Signals' },
     { to: '/rotation', icon: Gauge, label: 'Rotation' },
     { to: '/agent-trading', icon: Bot, label: 'Agent Trading' },
+
+    { divider: true },
     { to: '/insights', icon: Lightbulb, label: 'Insights' },
     { to: '/business', icon: Briefcase, label: 'Business' },
     { to: '/tax-prep', icon: FolderOpen, label: 'Tax Prep' },
@@ -340,15 +344,18 @@ export default function App() {
         <nav className="sidebar-nav">
           {navItems.map((item, idx) => {
             if (item.divider) {
+              // A bare divider is a thin line; a divider with a `label` also renders a small
+              // section caption above the line, turning it into a mini section header.
               return (
-                <div
-                  key={`divider-${idx}`}
-                  style={{
-                    height: 1,
-                    background: 'var(--border)',
-                    margin: '6px 0',
-                  }}
-                />
+                <div key={`divider-${idx}`} style={{ margin: item.label ? '14px 0 4px' : '6px 0' }}>
+                  {item.label && (
+                    <div style={{
+                      fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, textTransform: 'uppercase',
+                      color: 'var(--text-secondary)', padding: '0 12px 5px',
+                    }}>{item.label}</div>
+                  )}
+                  <div style={{ height: 1, background: 'var(--border)' }} />
+                </div>
               )
             }
             const { to, icon: Icon, label } = item

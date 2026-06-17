@@ -7,6 +7,9 @@ pydantic==2.7.4
 pydantic-settings==2.5.2
 httpx==0.27.2
 apscheduler==3.10.4
+tzlocal==5.2          # required by apscheduler at import; pin it explicitly so it can't be
+                      # dropped from the resolution (an unpinned mcp once did exactly that,
+                      # crashing boot with ModuleNotFoundError: tzlocal on the Railway demo)
 alembic==1.13.1
 pyotp==2.9.0
 bcrypt==5.0.0
@@ -16,4 +19,6 @@ cryptography==47.0.0
 pyjwt[crypto]==2.9.0
 zeroconf==0.132.2
 jsonschema==4.25.1
-mcp>=1.9.1
+mcp==1.10.1           # pinned (was >=1.9.1): the floating range let pip resolve a newer mcp whose
+                      # transitive deps reshuffled the install set and dropped tzlocal — pin for
+                      # reproducible builds. Only used for live agentic trading (imported lazily).

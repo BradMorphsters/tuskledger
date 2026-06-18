@@ -36,6 +36,10 @@ research/*.edgar.json
 # Sector-tailwind (commodity-proxy ETF) cache — derived runtime data.
 research/*.theme.json
 research/sec_ciks.json
+# Finnhub estimates/earnings cache — derived runtime data.
+research/*.finnhub.json
+# Congress member→committee map (public data, but a generated/refreshed cache).
+research/congress_committees.json
 # Runtime "active industry" pointer (set via the in-app admin switcher).
 research/.active-domain.json
 # Daily research briefings written by the scheduled monitoring task —

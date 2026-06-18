@@ -473,6 +473,12 @@ export const getResearchPositions = (domain) =>
   request(`/research/${encodeURIComponent(domain)}/positions`);
 export const getResearchAlerts = (domain) =>
   request(`/research/${encodeURIComponent(domain)}/alerts`);
+export const getResearchMarketExtras = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/market-extras`);
+export const getResearchSynthesis = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/synthesis`);
+export const getResearchPoliticalFlow = (domain) =>
+  request(`/research/${encodeURIComponent(domain)}/political-flow`);
 export const getResearchEntity = (domain, id) =>
   request(`/research/${encodeURIComponent(domain)}/entity/${encodeURIComponent(id)}`);
 export const getResearchForTicker = (ticker) =>

@@ -270,6 +270,46 @@ async def lifespan(app: FastAPI):
             hours=settings.SYNC_INTERVAL_HOURS,
             id="plaid_sync",
         )
+        # Research market-data warm. The daily briefing refreshes the research FILE + analyst
+        # targets, but NOTHING warmed the market caches (prices/theme/finnhub/signals/edgar), so
+        # they drifted stale and could feed the synthesis/alerts a false "current" read.
+        #   • prices+theme+finnhub: every few hours (Twelve Data free tier; the refresh is now
+        #     stalest-first so coverage rotates), with a first pass ~25s after boot so the app
+        #     opens fresh.
+        #   • Quiver signals + EDGAR: once a day (cron) to respect Quiver's metered quota / SEC.
+        # Broad guards — a warm failure must never affect the API or boot.
+        from datetime import datetime as _dt, timedelta as _td
+
+        def _active_domain():
+            from app.services import research_store as _rs
+            return _rs.get_active_domain() or (_rs.list_domains() or [None])[0]
+
+        def _warm_prices():
+            try:
+                dom = _active_domain()
+                if dom:
+                    from app.routers.research import refresh_research_prices
+                    refresh_research_prices(dom, months=14, update_fundamentals=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _warm_flows():
+            try:
+                dom = _active_domain()
+                if not dom:
+                    return
+                for mod, fn in (("app.routers.signals", "signals_refresh"),
+                                ("app.routers.edgar", "edgar_refresh")):
+                    try:
+                        getattr(__import__(mod, fromlist=[fn]), fn)(dom)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception:  # noqa: BLE001
+                pass
+
+        scheduler.add_job(_warm_prices, "interval", hours=max(3, settings.SYNC_INTERVAL_HOURS),
+                          id="research_warm_prices", next_run_time=_dt.now() + _td(seconds=25))
+        scheduler.add_job(_warm_flows, "cron", hour=5, minute=20, id="research_warm_flows")
         scheduler.start()
 
     # Bonjour / mDNS advertisement for the mobile app's auto-discovery.

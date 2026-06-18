@@ -4,15 +4,20 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-06-14T04:31:55Z",
-    "updated_by": "research-sweep",
+    "last_updated": "2026-06-18T03:52:31Z",
+    "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
     "disclaimer": "Research/educational only; not investment advice. Scores are subjective judgments, not price targets. Figures approximate as of June 2026; verify before acting.",
     "industry": {
       "label": "critical minerals",
       "benchmark": "SPY",
-      "sector_etfs": ["URA", "LIT", "COPX", "REMX"],
+      "sector_etfs": [
+        "URA",
+        "LIT",
+        "COPX",
+        "REMX"
+      ],
       "proxy_keywords": {
         "uranium": "URA",
         "lithium": "LIT",
@@ -20,7 +25,17 @@
         "rare earth": "REMX",
         "magnet": "REMX",
         "ree": "REMX"
-      }
+      },
+      "fred_series": [
+        "PCOPPUSDM"
+      ],
+      "relevant_committees": [
+        "Energy & Natural Resources",
+        "Natural Resources",
+        "Armed Services",
+        "Science, Space & Technology",
+        "Foreign Affairs"
+      ]
     }
   },
   "dimensions": {
@@ -250,12 +265,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$57",
+        "price": "$60.84",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DoD 15% equity +$150M loan +price floor; Apple $500M",
       "risk_rating": "Med",
@@ -337,12 +353,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$16",
+        "price": "$15.30",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DPA Title III eligible; AUD80M (Donald)",
       "risk_rating": "Med",
@@ -424,12 +441,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$165",
+        "price": "$166.56",
         "market_cap": "~$20B",
         "revenue": "$5.4B FY25",
         "cash": "~$2.7B liq.",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$90M DoD (Kings Mountain)",
       "risk_rating": "Med",
@@ -494,12 +512,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$8.5",
+        "price": "$9.50",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None (Argentina)",
       "risk_rating": "High",
@@ -564,12 +583,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$13",
+        "price": "$14.80",
         "market_cap": "~$1.6B",
         "revenue": "$110M FY25",
         "cash": "~$6M (high debt)",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None (Brazil)",
       "risk_rating": "High",
@@ -634,12 +654,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$80 ADS",
+        "price": "$86.65",
         "market_cap": "~$1.35B",
         "revenue": "~$86M H1",
         "cash": "n/a",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Limited (post-merger)",
       "risk_rating": "High",
@@ -704,12 +725,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$84",
+        "price": "$82.99",
         "market_cap": "~$23B",
         "revenue": "$4.5B TTM",
         "cash": "strong",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None (Chile)",
       "risk_rating": "Med",
@@ -774,12 +796,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$106",
+        "price": "$105.67",
         "market_cap": "~$47B",
         "revenue": "C$3.5B FY25",
         "cash": "strong",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Western-supply preference",
       "risk_rating": "Low",
@@ -861,12 +884,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$11",
+        "price": "$11.42",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Domestic-supply preference",
       "risk_rating": "Med",
@@ -1017,12 +1041,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$1.8",
+        "price": "$1.55",
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Domestic-supply preference",
       "risk_rating": "High",
@@ -1174,12 +1199,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$68",
+        "price": "$69.06",
         "market_cap": "~$92B",
         "revenue": "$25.9B FY25",
         "cash": "~$3.9B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$80M DOE; IRA",
       "risk_rating": "Low",
@@ -1244,12 +1270,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$190",
+        "price": "$191.68",
         "market_cap": "~$152B",
         "revenue": "$13.4B TTM",
         "cash": "strong",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None (Peru/Mexico)",
       "risk_rating": "Low",
@@ -1314,12 +1341,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$25",
+        "price": "$30.43",
         "market_cap": "~$2.9B",
         "revenue": "$263M Q1'26",
         "cash": "net debt ~$490M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None (Brazil)",
       "risk_rating": "High",
@@ -1384,12 +1412,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$7.3",
+        "price": "$7.43",
         "market_cap": "~$2.2B",
         "revenue": "record FY25",
         "cash": "n/a",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Florence is US asset",
       "risk_rating": "Med",
@@ -1454,12 +1483,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$25",
+        "price": "$28.17",
         "market_cap": "~$8B",
         "revenue": "$757M Q1'26",
         "cash": "~$1.0B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Copper World is US asset",
       "risk_rating": "Med",
@@ -1768,12 +1798,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$6.6",
+        "price": "$7.29",
         "market_cap": "~$4B",
         "revenue": "has revenue",
         "cash": "n/a",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None confirmed",
       "risk_rating": "High",
@@ -3158,12 +3189,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$0.21",
+        "price": "$0.17",
         "market_cap": "~$64M",
         "revenue": "some concentrate",
         "cash": "financing gap",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$166M DOE + GM/Stellantis $115M",
       "risk_rating": "V.High",
@@ -3226,12 +3258,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$4.6",
+        "price": "$3.24",
         "market_cap": "~$13M",
         "revenue": "~nil",
         "cash": "~$6.8M (going concern)",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "None material",
       "risk_rating": "V.High",
@@ -3294,12 +3327,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$57",
+        "price": "$58.82",
         "market_cap": "~$10B",
         "revenue": "pre-revenue",
         "cash": "~$2.5B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DOE/INL site + fuel",
       "risk_rating": "V.High",
@@ -3364,12 +3398,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$13",
+        "price": "$10.34",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DOE-certified design; Fluor",
       "risk_rating": "V.High",
@@ -3434,12 +3469,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$10",
+        "price": "$9.29",
         "market_cap": "~$0.41B",
         "revenue": "pre-revenue",
         "cash": "equity-funded",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DOE/INL lab collaboration",
       "risk_rating": "V.High",
@@ -3572,12 +3608,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$34",
+        "price": "$34.68",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Li/Cu/U/RE/Ni",
       "notes": "Most diversified true 'critical minerals' basket (125 holds); replaces dead CRIT/KMET",
@@ -3630,12 +3667,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$81",
+        "price": "$86.76",
         "aum": "~$7.5B",
         "expense_ratio": "0.65%",
         "return_1y": "~+96%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Copper",
       "notes": "Well-diversified equal-ish weight; standard copper-equity vehicle",

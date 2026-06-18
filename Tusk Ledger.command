@@ -96,6 +96,16 @@ if [ -f "$PROJECT_DIR/backend/.env" ] && \
    grep -q '^LAN_SYNC_ENABLED=true' "$PROJECT_DIR/backend/.env"; then
   BACKEND_HOST="0.0.0.0"
   echo "Detected LAN_SYNC_ENABLED=true — binding backend to 0.0.0.0 for mobile sync."
+  # Surface this Mac's Wi-Fi address so the phone "just works": the iOS app auto-discovers the
+  # laptop over Bonjour, but if the DHCP lease changed (or discovery misses), the user needs the
+  # current IP to re-pair. en0 is Wi-Fi on most Macs; en1 is the fallback.
+  LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
+  if [ -n "$LAN_IP" ]; then
+    echo "   📱 iOS app: this Mac is ${LAN_IP} on your Wi-Fi — the app should auto-find it (Bonjour)."
+    echo "      If it won't connect, re-scan the QR on the Pair phone page: http://localhost:3000/pair-phone"
+  else
+    echo "   📱 iOS app: couldn't read a Wi-Fi IP — make sure this Mac is on Wi-Fi, not Ethernet-only."
+  fi
 fi
 echo "Starting backend (FastAPI on http://${BACKEND_HOST}:8000)..."
 cd "$PROJECT_DIR/backend"

@@ -457,6 +457,7 @@ def agent_trading_generate_proposals(
     cash: float = Query(2000.0, gt=0, description="sim sleeve cash for sizing until the backend is the bound agent"),
     profile: str = Query(None, description="strategy profile (defaults to the active one)"),
     max_price_age_hours: float = Query(48.0, gt=0, description="stale-data gate: skip new buys whose price feed is older than this"),
+    db: Session = Depends(get_db),
 ):
     """Run the Analyst → guardrail gate over the active research universe and queue the
     gate-APPROVED orders for your approval. A stale-data gate runs first: a name is skipped for
@@ -524,6 +525,14 @@ def agent_trading_generate_proposals(
         snapshot = AccountState(cash=cash, positions={}, prices={}, equity_peak=cash, trades_today=0)
 
     candidates = make_candidate_provider(dom, holdings, today=today, prices_override=prices)([], today)
+
+    # Finnhub estimate-revision tilt: rising analyst estimates lift a name's rotation rank, falling
+    # cut it (bounded). Loaded once; also feeds the earnings-blackout gate below. Cold cache → no-op.
+    from app.agent_trading.event_risk import apply_revision_tilt, earnings_skips
+    from app.services import finnhub as _finnhub
+    _fh_cache = _finnhub.load_cache(dom)
+    candidates = apply_revision_tilt(candidates, _fh_cache)
+
     skips = freshness_skips(candidates, prices, by_ticker, now_epoch=_time.time(),
                             today=today, max_price_age_hours=max_price_age_hours)
     fresh = [c for c in candidates if c.held or c.ticker not in skips]
@@ -560,10 +569,54 @@ def agent_trading_generate_proposals(
         skips = {**skips, **chase}
         fresh = [c for c in fresh if c.held or c.ticker.upper() not in chase]
 
+    # Event-risk gate: defer a NEW buy when the name just filed a capital raise (S-1/S-3/424B
+    # dilution) within the lookback — the top drawdown source for pre-revenue juniors. Reads the
+    # per-domain EDGAR activity cache; held names are flagged (warning), never force-sold.
+    from app.agent_trading.event_risk import event_risk_skips
+    erisk = event_risk_skips(fresh, rs.load_edgar(dom), today=today,
+                             lookback_days=settings.AGENT_TRADING_DILUTION_LOOKBACK_DAYS)
+    if erisk:
+        skips = {**skips, **erisk}
+        fresh = [c for c in fresh if c.held or c.ticker.upper() not in erisk]
+
+    # Earnings-blackout gate: defer a NEW buy within N days of the name's next print (event risk).
+    esk = earnings_skips(fresh, _fh_cache, today=today,
+                         blackout_days=settings.AGENT_TRADING_EARNINGS_BLACKOUT_DAYS)
+    if esk:
+        skips = {**skips, **esk}
+        fresh = [c for c in fresh if c.held or c.ticker.upper() not in esk]
+
     # Candidates already carry live prices (universe was re-quoted above), so the Analyst ranked
     # and the sizer sizes off current prices — no stale-cache gap into a market order.
     decisions = propose_strategy(fresh, strat_cfg)
     decisions = size_decisions(decisions, snapshot, sizing)
+
+    # Tax-friendly rotation: a soft rank-slip exit only fires to FUND a qualifying new buy (held
+    # otherwise, to avoid a taxable sale); when capital MUST be freed, the most tax-favorable names
+    # go first (harvest losses → long-term gains → short-term); wash-sale-conflicting buys are
+    # deferred. Hard exits (quality floor / orphan) are untouched. Pure layer; see rotation_coupling.
+    from app.agent_trading.rotation_coupling import acquired_at_from_place_log, couple_rotation_sells
+    from app.agent_trading.wash_sale import make_db_wash_sale_lookup
+    try:
+        _ws = make_db_wash_sale_lookup(db)
+    except Exception:  # noqa: BLE001 — wash-sale wiring must never break a cycle
+        _ws = None
+    _acq: dict = {}
+    try:
+        _pl = _events_path().parent / "place_log.jsonl"
+        if _pl.exists():
+            _acq = acquired_at_from_place_log(
+                [json.loads(ln) for ln in _pl.read_text().splitlines() if ln.strip()])
+    except Exception:  # noqa: BLE001 — holding-period is best-effort
+        _acq = {}
+    coupling = couple_rotation_sells(
+        decisions, snapshot, cap=cap, cash_floor_pct=grc.cash_floor_pct,
+        wash_sale_lookup=_ws or (lambda _t, _s: False), acquired_at=_acq, today=today,
+        couple=strat_cfg.couple_sells_to_buys, tax_aware=strat_cfg.tax_aware_exit)
+    decisions = coupling.decisions
+    if coupling.skips():
+        skips = {**skips, **coupling.skips()}
+
     plan = plan_cycle(account_number=(live_account if live else "approval-queue"), snapshot=snapshot,
                       decisions=decisions, config=grc, persisted=AgentState(),
                       order_policy=order_policy, as_of=today)

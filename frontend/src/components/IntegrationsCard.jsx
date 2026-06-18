@@ -28,16 +28,21 @@ export default function IntegrationsCard() {
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {items.map(it => (
-          <div key={it.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
+          <div key={it.key} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0, flex: '1 1 220px' }}>
               <div style={{ fontWeight: 600, fontSize: 13 }}>{it.label}</div>
               <code style={{ fontSize: 11, color: 'var(--text-muted)' }}>{it.env}</code>
+              {it.note && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.4 }}>{it.note}</div>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {it.configured
                 ? <Pill tone="success" soft><CheckCircle size={11} /> Connected</Pill>
-                : <Pill tone="neutral" soft><AlertCircle size={11} /> Not set</Pill>}
-              {it.url && <a href={it.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent-blue)' }}>get a key →</a>}
+                : it.optional
+                  ? <Pill tone="neutral" soft>Optional · keyless OK</Pill>
+                  : <Pill tone="neutral" soft><AlertCircle size={11} /> Not set</Pill>}
+              {it.url && <a href={it.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent-blue)' }}>{it.optional ? 'optional key →' : 'get a key →'}</a>}
             </div>
           </div>
         ))}

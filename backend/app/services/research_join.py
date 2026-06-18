@@ -36,6 +36,10 @@ CONCENTRATION_PCT = 30.0
 HIGH_CONVICTION_FOR_SIGNALS = 85
 # Insider Form-4 filings in 90d at/above which a "cluster" is worth flagging.
 INSIDER_CLUSTER_90D = 8
+# Finnhub: flag an upcoming earnings date within this many days (event risk); and an analyst
+# net-rating revision of at least this magnitude (improving/deteriorating estimates).
+EARNINGS_SOON_DAYS = 10
+REVISION_ALERT = 0.10
 
 _price_re = re.compile(r"-?\d+(?:\.\d+)?")
 
@@ -530,6 +534,8 @@ def get_alerts(
     # other. Cache-only — no network, demo-safe.
     signals_cache = store.load_signals(domain)
     edgar_cache = store.load_edgar(domain)
+    from app.services import finnhub as _finnhub
+    finnhub_cache = _finnhub.load_cache(domain)
     scan_ids = set(held_by_id)
     for ent in entities:
         conv = (ent.get("scores") or {}).get("conviction") or 0
@@ -561,6 +567,10 @@ def get_alerts(
                     f"{tk}: net congressional buying "
                     f"({_usd(con['net_usd_90d'])}, {con['buyers_90d']} buyer(s), 90d).",
                     source="quiver")
+            elif (con.get("net_usd_90d") or 0) < 0:
+                add(base, "flow_congress_sell", scope, ent_id,
+                    f"{tk}: net congressional selling ({_usd(-con['net_usd_90d'])}, 90d).",
+                    source="quiver")
             lob = sig.get("lobbying") or {}
             if (lob.get("recent_usd") or 0) > 0 and lob.get("trend") == "up":
                 add("low", "flow_lobbying", scope, ent_id,
@@ -586,6 +596,27 @@ def get_alerts(
                 add(base, "insider_cluster", scope, ent_id,
                     f"{tk}: insider Form-4 filings clustering ({ins} in 90d, up vs prior).",
                     source="edgar")
+
+        # ----- Finnhub estimates / earnings (finnhub cache) -----
+        fh = finnhub_cache.get(tk)
+        if fh and fh.get("available"):
+            ne = fh.get("next_earnings")
+            if ne:
+                try:
+                    dd = (date.fromisoformat(str(ne)[:10]) - today).days
+                except ValueError:
+                    dd = None
+                if dd is not None and 0 <= dd <= EARNINGS_SOON_DAYS:
+                    add(base, "earnings_soon", scope, ent_id,
+                        f"{tk}: earnings in {dd}d ({ne}) — event risk near.", source="finnhub")
+            rev = fh.get("revision")
+            if isinstance(rev, (int, float)):
+                if rev >= REVISION_ALERT:
+                    add("low", "revision_up", scope, ent_id,
+                        f"{tk}: analyst estimates revising up (net +{rev:.2f}).", source="finnhub")
+                elif rev <= -REVISION_ALERT:
+                    add("med" if held else "low", "revision_down", scope, ent_id,
+                        f"{tk}: analyst estimates revising down (net {rev:.2f}).", source="finnhub")
 
     # Category concentration across held research names.
     matched_value = pr["matched_market_value"] or 0.0
@@ -616,3 +647,59 @@ def get_alerts(
     sev_order = {"high": 0, "med": 1, "low": 2}
     alerts.sort(key=lambda a: (sev_order.get(a["severity"], 3), a["scope"] != "held"))
     return alerts
+
+
+def get_political_flow(domain: Optional[str] = None, today: Optional[date] = None,
+                       limit: int = 12) -> dict:
+    """Universe-filtered 'political flow': congressional trades (buys AND sells, with the
+    individual trades — member, party, chamber, amount) plus EDGAR insider Form-4 activity, for
+    the names in the active industry. Every name relates to the industry by construction (it's in
+    the universe). ``committee_relevant`` on each trade is a phase-2 scaffold — it stays False
+    until a member→committee data source is wired (the industry's relevant committees are surfaced
+    in ``relevant_committees`` so the UI can show what we'd match against). Cache-only; demo-safe."""
+    today = today or date.today()
+    entities = _entities(domain)
+    signals = store.load_signals(domain)
+    edgar = store.load_edgar(domain)
+    try:
+        meta = ((store.load_domain(domain) or {}).get("meta", {}) or {}).get("industry", {}) or {}
+        committees = [str(c) for c in (meta.get("relevant_committees") or [])]
+    except Exception:  # noqa: BLE001
+        committees = []
+    from app.services import congress_committees as cc
+    cmap = cc.load_map()   # member→committee map (phase 2); {} until refreshed → flags stay False
+
+    rows: list[dict] = []
+    for e in entities:
+        tk = (e.get("ticker") or "").upper()
+        if not tk:
+            continue
+        sig = signals.get(tk) or {}
+        con = (sig.get("congress") or {}) if sig.get("available") else {}
+        ed = edgar.get(tk) or {}
+        insider_filings = ed.get("insider_filings_90d") if ed.get("available") else None
+        trades: list[dict] = []
+        for it in (con.get("items") or [])[:8]:
+            tx = str(it.get("tx") or "").lower()
+            side = "buy" if ("purchase" in tx or "buy" in tx) else "sell" if ("sale" in tx or "sell" in tx) else "other"
+            rel = cc.committees_for(it.get("who"), cmap, committees) if cmap else []
+            trades.append({"date": it.get("date"), "who": it.get("who"), "party": it.get("party"),
+                           "house": it.get("house"), "side": side, "amount": it.get("amount"),
+                           "committee_relevant": bool(rel), "committees": rel})
+        buys = con.get("buys_usd_90d") or 0
+        sells = con.get("sells_usd_90d") or 0
+        if not (trades or buys or sells or insider_filings):
+            continue
+        net = con.get("net_usd_90d") or 0
+        direction = ("buying" if net > 0 else "selling" if net < 0
+                     else "mixed" if (buys and sells) else "neutral")
+        rows.append({
+            "ticker": tk, "name": e.get("name"),
+            "buys_usd_90d": buys, "sells_usd_90d": sells, "net_usd_90d": net,
+            "buyers_90d": con.get("buyers_90d") or 0, "direction": direction, "trades": trades,
+            "committee_relevant": any(t["committee_relevant"] for t in trades),
+            "insider_filings_90d": insider_filings, "insider_trend": ed.get("insider_trend"),
+        })
+    rows.sort(key=lambda r: (-(abs(r["buys_usd_90d"]) + abs(r["sells_usd_90d"])),
+                             -(r["insider_filings_90d"] or 0)))
+    return {"domain": domain, "relevant_committees": committees, "rows": rows[:limit]}

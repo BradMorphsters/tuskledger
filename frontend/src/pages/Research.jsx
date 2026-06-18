@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Gem, AlertTriangle, Target, Clock, Flag, TrendingUp, X, RefreshCw,
+  Gem, AlertTriangle, Target, Clock, Flag, TrendingUp, X, RefreshCw, Sparkles, Landmark, ChevronDown,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -30,7 +30,271 @@ import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import PublicActivityDetail, { SignalBadge, TrendArrow } from '../components/PublicActivity'
 import EdgarActivity from '../components/EdgarActivity'
-import { getSignalsFeed } from '../api/client'
+import { getSignalsFeed, getResearchMarketExtras, getResearchSynthesis, getResearchPoliticalFlow } from '../api/client'
+
+// ── Congressional flow direction helpers ────────────────────────────────
+const FLOW_TONE = { buying: 'success', selling: 'danger', mixed: 'warning', neutral: 'neutral' }
+function flowMoney(r) {
+  const b = r.buys_usd_90d || 0, s = r.sells_usd_90d || 0
+  const parts = []
+  if (b) parts.push(`+$${(b / 1000).toFixed(0)}k buy`)
+  if (s) parts.push(`−$${(s / 1000).toFixed(0)}k sell`)
+  return parts.join(' · ')
+}
+
+// ── Spotlight: congressional flow (compact, inside the synthesis) ────────
+function PoliticalFlowSpot({ s }) {
+  return (
+    <SpotShell icon={<Landmark size={14} />} title={s.title}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {(s.items || []).map(i => (
+          <div key={i.ticker} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 46, fontSize: 11, fontFamily: 'monospace' }}>{i.ticker}</span>
+            <Pill tone={FLOW_TONE[i.direction] || 'neutral'} soft>{i.direction}</Pill>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+              {flowMoney(i) || `${i.buyers_90d || 0} member(s)`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </SpotShell>
+  )
+}
+
+// ── Dedicated 'Congress & insider activity' roll-up card ────────────────
+function PoliticalFlowRow({ r }) {
+  const [open, setOpen] = useState(false)
+  const trades = r.trades || []
+  return (
+    <div style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
+      <div onClick={() => trades.length && setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: trades.length ? 'pointer' : 'default' }}>
+        <strong style={{ fontFamily: 'monospace', fontSize: 13, width: 52 }}>{r.ticker}</strong>
+        <Pill tone={FLOW_TONE[r.direction] || 'neutral'} soft>congress {r.direction}</Pill>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{flowMoney(r) || (r.buyers_90d ? `${r.buyers_90d} member(s)` : '—')}</span>
+        {r.insider_filings_90d ? <Pill tone="info" soft>{r.insider_filings_90d} insider Form-4{r.insider_trend === 'up' ? ' ▲' : ''}</Pill> : null}
+        {r.committee_relevant && <Pill tone="warning" soft><Landmark size={10} /> on relevant committee</Pill>}
+        {trades.length > 0 && <ChevronDown size={14} style={{ marginLeft: 'auto', color: 'var(--text-muted)', transform: open ? 'rotate(180deg)' : 'none' }} />}
+      </div>
+      {open && trades.length > 0 && (
+        <div style={{ marginTop: 8, paddingLeft: 62, display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {trades.map((t, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              <span style={{ width: 70, color: 'var(--text-muted)' }}>{t.date}</span>
+              <span style={{ color: t.side === 'buy' ? POS : t.side === 'sell' ? NEG : 'var(--text-secondary)', fontWeight: 500, width: 34 }}>{t.side}</span>
+              <span style={{ flex: 1 }}>
+                {t.who}{t.house ? ` · ${t.house}` : ''}{t.party ? ` (${t.party})` : ''}
+                {t.committee_relevant && (t.committees || []).length > 0 && (
+                  <span title={(t.committees || []).join(', ')} style={{ marginLeft: 6, color: 'var(--accent-blue)', whiteSpace: 'nowrap' }}>
+                    · {(t.committees[0] || '').replace(/^(House|Senate) Committee on /, '')}
+                  </span>
+                )}
+              </span>
+              {t.amount ? <span style={{ color: 'var(--text-muted)' }}>~${Number(t.amount).toLocaleString()}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PoliticalFlowCard({ domain }) {
+  const [data, setData] = useState(undefined)
+  useEffect(() => {
+    if (!domain) return
+    setData(undefined)
+    getResearchPoliticalFlow(domain).then(setData).catch(() => setData(null))
+  }, [domain])
+  if (!data || !data.rows || data.rows.length === 0) return null   // only show when there's activity
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card-header">
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Landmark size={16} style={{ color: BLUE }} /> Congress &amp; insider activity
+        </div>
+      </div>
+      <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-muted)' }}>
+        Congressional buys &amp; sells (click a row for the individual trades) and SEC Form-4 insider activity, on names in this industry.
+      </p>
+      <div>{data.rows.map(r => <PoliticalFlowRow key={r.ticker} r={r} />)}</div>
+      {data.relevant_committees && data.relevant_committees.length > 0 && (
+        <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+          Phase 2: weight trades by members on {data.relevant_committees.slice(0, 3).join(', ')}{data.relevant_committees.length > 3 ? '…' : ''} committees (needs a member→committee source).
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Spotlight visuals (deterministic; the AI only curates which/what order) ──
+const SEV_TONE = { danger: 'danger', warning: 'warning', info: 'info', success: 'success', neutral: 'neutral' }
+const fmtPct1 = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`)
+
+function SpotShell({ icon, title, children }) {
+  return (
+    <div style={{ background: 'var(--bg-hover)', borderRadius: 8, padding: '12px 14px' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>{icon} {title}</div>
+      {children}
+    </div>
+  )
+}
+
+function ConcentrationSpot({ s }) {
+  const items = s.items || []
+  const scale = Math.max(s.guide_pct || 0, ...items.map(i => i.weight_pct || 0), 1) * 1.08
+  return (
+    <SpotShell icon={<Target size={14} />} title={s.title}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {items.map(i => {
+          const over = (i.weight_pct || 0) > (s.guide_pct || Infinity)
+          return (
+            <div key={i.ticker} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 42, fontSize: 11, fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{i.ticker}</span>
+              <div style={{ flex: 1, position: 'relative', height: 13, background: 'var(--bg-card)', borderRadius: 4 }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, (i.weight_pct / scale) * 100)}%`, background: over ? '#E24B4A' : '#888780', borderRadius: 4 }} />
+                {s.guide_pct != null && <div style={{ position: 'absolute', left: `${(s.guide_pct / scale) * 100}%`, top: -3, bottom: -3, borderLeft: '1.5px dashed var(--text-muted)' }} />}
+              </div>
+              <span style={{ width: 38, textAlign: 'right', fontSize: 11 }}>{(i.weight_pct ?? 0).toFixed(1)}%</span>
+            </div>
+          )
+        })}
+      </div>
+      {s.guide_pct != null && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 9 }}>Dashed line = your {s.guide_pct}% guide.</div>}
+    </SpotShell>
+  )
+}
+
+function RiskFlagsSpot({ s }) {
+  return (
+    <SpotShell icon={<Flag size={14} />} title={s.title}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {(s.flags || []).map((f, i) => <Pill key={i} tone={SEV_TONE[f.severity] || 'neutral'} soft>{f.label}</Pill>)}
+      </div>
+    </SpotShell>
+  )
+}
+
+function SectorGaugeSpot({ s }) {
+  const t = Math.max(0, Math.min(100, s.temperature ?? 0))
+  const cc = s.commodity_3mo_change
+  return (
+    <SpotShell icon={<TrendingUp size={14} />} title={s.title}>
+      <div style={{ position: 'relative', height: 13, borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+        <div style={{ flex: 1, background: '#9FE1CB' }} /><div style={{ flex: 1, background: '#FAC775' }} />
+        <div style={{ flex: 1, background: '#F0997B' }} /><div style={{ flex: 1, background: '#F09595' }} />
+      </div>
+      <div style={{ position: 'relative', height: 0 }}><div style={{ position: 'absolute', left: `${t}%`, top: -15, width: 2, height: 17, background: 'var(--text-primary)' }} /></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
+        <span>Early</span><span>Stirring</span><span>Rotating</span><span>Hot</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12 }}>
+        <span>{s.stage || '—'} · {Math.round(t)}/100</span>
+        {cc != null && <span style={{ marginLeft: 'auto', color: cc >= 0 ? POS : NEG, display: 'inline-flex', alignItems: 'center', gap: 3 }}>commodity {fmtPct1(cc)}</span>}
+      </div>
+    </SpotShell>
+  )
+}
+
+function EarningsRunwaySpot({ s }) {
+  const H = s.horizon_days || 90
+  return (
+    <SpotShell icon={<Clock size={14} />} title={s.title}>
+      <div style={{ position: 'relative', height: 34 }}>
+        <div style={{ position: 'absolute', left: 0, right: 0, top: 7, height: 2, background: 'var(--border)' }} />
+        <div style={{ position: 'absolute', left: 0, top: 0, width: `${((s.blackout_days || 0) / H) * 100}%`, height: 16, background: 'var(--danger-bg, rgba(226,75,74,0.25))', borderRadius: 3 }} title="earnings blackout" />
+        <div style={{ position: 'absolute', left: 0, top: 4 }}><div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-muted)' }} /><div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>now</div></div>
+        {(s.events || []).map(e => (
+          <div key={e.ticker} style={{ position: 'absolute', left: `${Math.min(96, (e.days / H) * 100)}%`, top: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: e.days <= (s.blackout_days || 0) ? '#E24B4A' : '#378ADD' }} />
+            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 3, transform: 'translateX(-40%)', whiteSpace: 'nowrap' }}>{e.ticker} {e.days}d</div>
+          </div>
+        ))}
+      </div>
+    </SpotShell>
+  )
+}
+
+function SynthesisSpotlights({ spotlights, highlights }) {
+  const ordered = useMemo(() => {
+    const spots = spotlights || []
+    if (!highlights || !highlights.length) return spots
+    const byId = Object.fromEntries(spots.map(s => [s.id, s]))
+    const out = highlights.map(id => byId[id]).filter(Boolean)
+    for (const s of spots) if (!out.includes(s)) out.push(s)
+    return out
+  }, [spotlights, highlights])
+  if (!ordered.length) return null
+  const render = s => {
+    if (s.type === 'concentration') return <ConcentrationSpot s={s} />
+    if (s.type === 'risk_flags') return <RiskFlagsSpot s={s} />
+    if (s.type === 'sector_gauge') return <SectorGaugeSpot s={s} />
+    if (s.type === 'earnings_runway') return <EarningsRunwaySpot s={s} />
+    if (s.type === 'political_flow') return <PoliticalFlowSpot s={s} />
+    return null
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginTop: 14 }}>
+      {ordered.map(s => <div key={s.id}>{render(s)}</div>)}
+    </div>
+  )
+}
+
+// ── Research AI synthesis (holistic local-AI read across every plane) ────
+function ResearchSynthesisCard({ domain }) {
+  const [narr, setNarr] = useState(undefined)  // undefined=loading, null=error
+  const load = () => {
+    setNarr(undefined)
+    getResearchSynthesis(domain).then(setNarr).catch(() => setNarr(null))
+  }
+  useEffect(() => { if (domain) load() }, [domain])
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card-header">
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Sparkles size={16} style={{ color: BLUE }} /> Research AI synthesis
+          {narr && narr.source && (
+            <Pill tone={narr.source === 'ollama' ? 'success' : 'neutral'} soft>
+              {narr.source === 'ollama' ? 'local AI' : 'computed summary'}
+            </Pill>
+          )}
+        </div>
+        <button onClick={load} title="Regenerate"
+          style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <RefreshCw size={12} className={narr === undefined ? 'spinning' : ''} /> Regenerate
+        </button>
+      </div>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-muted)' }}>
+        One read across your holdings + the universe: thesis, flow, SEC filings, earnings &amp; revisions, the commodity backdrop, valuation, catalysts, and alerts. Numbers computed locally; the model only narrates.
+      </p>
+      {narr === undefined ? (
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>Generating… (a local model can take ~10–25s)</p>
+      ) : narr === null ? (
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>Couldn't generate a synthesis.</p>
+      ) : (
+        <>
+          <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{narr.narrative}</p>
+          {narr.spotlights && narr.spotlights.length > 0 && (
+            <SynthesisSpotlights spotlights={narr.spotlights} highlights={narr.highlights} />
+          )}
+          {(() => {
+            const fr = narr.bundle?.data_freshness?.prices
+            if (!fr || !fr.n_stale) return null
+            return (
+              <p style={{ margin: '10px 0 0', fontSize: 11, color: ORANGE }}>
+                ⚠ {fr.n_stale} of {fr.n} prices are over 48h old (stalest {Math.round(fr.stalest_h)}h) — price/valuation reads may lag. Use “refresh prices” to update.
+              </p>
+            )
+          })()}
+          {narr.note && (
+            <p style={{ margin: '8px 0 0', fontSize: 11.5, color: 'var(--text-muted)' }}>
+              {narr.note} — enable a local model with <code>LLM_ENABLED=true</code> + Ollama for a written read.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
 
 const POS = 'var(--accent-green, #10b981)'
 const NEG = 'var(--accent-red, #ef4444)'
@@ -637,9 +901,10 @@ function ConvictionUpsideScatter({ rows, onOpen, asOf }) {
 }
 
 // ── Universe table ──────────────────────────────────────────────────────
-function UniverseTable({ rows, onOpen, signals = {} }) {
+function UniverseTable({ rows, onOpen, signals = {}, earnings = {} }) {
   const [sort, setSort] = useState({ key: 'conviction', dir: 'desc' })
   const hasFlow = Object.keys(signals).length > 0
+  const hasEarn = Object.keys(earnings).length > 0
   const sorted = useMemo(() => {
     const r = [...rows]
     const { key, dir } = sort
@@ -671,6 +936,7 @@ function UniverseTable({ rows, onOpen, signals = {} }) {
             {th('upside', 'Upside')}
             {th('risk_rating', 'Risk', 'center')}
             {th('to_high', 'Vs target')}
+            {hasEarn && <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Earnings · Rev</th>}
             {hasFlow && <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Flow</th>}
           </tr>
         </thead>
@@ -702,6 +968,31 @@ function UniverseTable({ rows, onOpen, signals = {} }) {
                   return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{row.security_type === 'equity' ? 'no coverage' : '—'}</span>
                 })()}
               </td>
+              {hasEarn && (
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {(() => {
+                    const e = earnings[row.ticker]
+                    if (!e) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
+                    const near = e.days_to_earnings != null && e.days_to_earnings <= 5
+                    const rev = e.revision
+                    return (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {e.next_earnings
+                          ? <Pill tone={near ? 'warning' : 'neutral'} soft title={`Next earnings ${e.next_earnings}`}>
+                              {formatDate(e.next_earnings)}{e.days_to_earnings != null ? ` · ${e.days_to_earnings}d` : ''}
+                            </Pill>
+                          : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>no date</span>}
+                        {rev != null && Math.abs(rev) >= 0.10 && (
+                          <span title={`Analyst revision net ${rev > 0 ? '+' : ''}${rev.toFixed(2)}`}
+                                style={{ fontSize: 12, fontWeight: 600, color: rev > 0 ? POS : NEG }}>
+                            {rev > 0 ? '▲' : '▼'}
+                          </span>
+                        )}
+                      </span>
+                    )
+                  })()}
+                </td>
+              )}
               {hasFlow && (
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {(() => {
@@ -729,7 +1020,7 @@ function UniverseTable({ rows, onOpen, signals = {} }) {
 }
 
 // ── Entity detail drawer ────────────────────────────────────────────────
-function EntityDrawer({ domain, id, livePrice, onClose }) {
+function EntityDrawer({ domain, id, livePrice, finnhub = {}, onClose }) {
   const [ent, setEnt] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -810,6 +1101,39 @@ function EntityDrawer({ domain, id, livePrice, onClose }) {
                 )}
               </Section>
             )}
+
+            {isEquity && (() => {
+              const fh = finnhub[(ent.ticker || '').toUpperCase()] || finnhub[ent.ticker]
+              if (!fh) return null
+              const near = fh.days_to_earnings != null && fh.days_to_earnings <= 5
+              const rev = fh.revision
+              return (
+                <Section title="Earnings & estimates (Finnhub)">
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Next earnings</div>
+                      {fh.next_earnings
+                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <strong>{formatDate(fh.next_earnings)}</strong>
+                            {fh.days_to_earnings != null && <Pill tone={near ? 'warning' : 'neutral'} soft>{fh.days_to_earnings}d</Pill>}
+                          </span>
+                        : <span style={{ color: 'var(--text-muted)' }}>not scheduled</span>}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Analyst revision</div>
+                      {rev != null
+                        ? <span style={{ fontWeight: 600, color: rev > 0.001 ? POS : rev < -0.001 ? NEG : 'var(--text-secondary)' }}>
+                            {rev > 0 ? '▲ +' : rev < 0 ? '▼ ' : ''}{rev.toFixed(2)}
+                          </span>
+                        : <span style={{ color: 'var(--text-muted)' }}>no coverage</span>}
+                    </div>
+                  </div>
+                  {near && <p style={{ margin: '8px 0 0', fontSize: 11.5, color: ORANGE }}>
+                    ⚠ Inside the agent's earnings-blackout window — new buys are deferred until after the print.
+                  </p>}
+                </Section>
+              )
+            })()}
 
             <Section title="History">
               <div style={{ display: 'inline-flex', marginBottom: 10, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -980,6 +1304,7 @@ export default function Research() {
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null)
   const [sigByTk, setSigByTk] = useState({})  // ticker -> compact flow summary
+  const [extras, setExtras] = useState({ finnhub: {}, theme: {} })  // earnings/revisions + sector theme
   const [allUniverse, setAllUniverse] = useState([])  // unfiltered, for the scatter map
   // Universe filters
   const [tier, setTier] = useState('')
@@ -1021,6 +1346,15 @@ export default function Research() {
       .catch(() => setSigByTk({}))
   }, [domain])
 
+  // Finnhub earnings/revision (per-ticker) + FRED sector-tailwind theme. Display only; degrades
+  // to empty when the caches/keys are cold, so Research stays independent of these feeds.
+  useEffect(() => {
+    if (!domain) { setExtras({ finnhub: {}, theme: {} }); return }
+    getResearchMarketExtras(domain)
+      .then(x => setExtras({ finnhub: x?.finnhub || {}, theme: x?.theme || {} }))
+      .catch(() => setExtras({ finnhub: {}, theme: {} }))
+  }, [domain])
+
   // Full universe (unfiltered) once per domain — feeds the conviction/upside
   // scatter, which carries its own tabs + filters independent of the table.
   useEffect(() => {
@@ -1057,6 +1391,24 @@ export default function Research() {
             <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
               Long-term-hold conviction, catalysts, and invalidation triggers — joined onto the names you actually hold.
             </p>
+            {(() => {
+              const t = extras.theme || {}
+              const has = (t.n || 0) > 0 || t.fred_momentum != null
+              if (!has) return null
+              const pct = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`)
+              return (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8 }}
+                      title={`Sector tailwind — miner ETFs ${pct(t.etf_momentum)}, commodity via FRED ${pct(t.fred_momentum)} (3-mo)`}>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Sector tailwind</span>
+                  <Pill tone={t.trend_up ? 'success' : 'warning'} soft>
+                    {t.trend_up ? '▲' : '▼'} {pct(t.momentum)}
+                  </Pill>
+                  {t.fred_momentum != null && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>copper {pct(t.fred_momentum)}</span>
+                  )}
+                </span>
+              )
+            })()}
           </div>
         </div>
         {domains.length > 0 && (
@@ -1077,6 +1429,9 @@ export default function Research() {
           <span style={{ color: NEG }}>{error}</span>
         </div>
       )}
+
+      {domain && !loading && <ResearchSynthesisCard domain={domain} />}
+      {domain && !loading && <PoliticalFlowCard domain={domain} />}
 
       {loading && !positions && (
         <EmptyState icon={<RefreshCw size={24} className="spinning" />} title="Loading research…" />
@@ -1156,12 +1511,12 @@ export default function Research() {
           </div>
           {universe.length === 0
             ? <EmptyState compact icon={<TrendingUp size={24} />} title="No names match these filters" />
-            : <UniverseTable rows={universe} signals={sigByTk} onOpen={(eid, lp) => setSelected({ id: eid, livePrice: lp })} />}
+            : <UniverseTable rows={universe} signals={sigByTk} earnings={extras.finnhub} onOpen={(eid, lp) => setSelected({ id: eid, livePrice: lp })} />}
         </>
       )}
 
       {selected && domain && (
-        <EntityDrawer domain={domain} id={selected.id} livePrice={selected.livePrice} onClose={() => setSelected(null)} />
+        <EntityDrawer domain={domain} id={selected.id} livePrice={selected.livePrice} finnhub={extras.finnhub} onClose={() => setSelected(null)} />
       )}
     </div>
   )

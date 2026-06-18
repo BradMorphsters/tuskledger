@@ -50,6 +50,15 @@ class StrategyConfig:
     rotation_exit_n: int = 8          # hysteresis: only SELL a held name once it falls below
                                       # this (wider) rank — holds through small slips, no whipsaw
     require_theme_tailwind: bool = False  # if on, no new buys while the sector is in a downtrend
+    # Tax-friendly rotation (applied by the coupling layer, post-sizing, in the live cycle —
+    # NOT inside pure propose(), so the backtest's mechanical rotation is unchanged):
+    couple_sells_to_buys: bool = True  # a soft rank-slip exit only fires to FUND a qualifying new
+                                       # buy; if cash already covers the buys, the slipped name is
+                                       # held (no gratuitous, taxable turnover). Hard exits (below
+                                       # the floor / out of universe) always fire regardless.
+    tax_aware_exit: bool = True        # when capital MUST be freed, sell the most tax-favorable
+                                       # names first (harvest losses → long-term gains → short-term)
+                                       # and defer wash-sale conflicts.
 
     def __post_init__(self):
         if self.profile not in PROFILES:
@@ -89,8 +98,10 @@ def _buy(c: Candidate, why: str) -> Decision:
     return Decision(c.ticker, "buy", c.price, target_notional=None, rationale=why)
 
 
-def _sell(c: Candidate, why: str) -> Decision:
-    return Decision(c.ticker, "sell", c.price, target_notional=None, rationale=why)
+def _sell(c: Candidate, why: str, exit_kind: str = "thesis") -> Decision:
+    # exit_kind defaults to the unconditional "thesis" (stop/target/floor/signal/trend exits);
+    # the rotation rule passes "rotate" for a soft rank-slip the coupling layer may defer.
+    return Decision(c.ticker, "sell", c.price, target_notional=None, rationale=why, exit_kind=exit_kind)
 
 
 def _exit_reason(c: Candidate, cfg: StrategyConfig) -> Optional[str]:
@@ -260,9 +271,10 @@ def _rotation(candidates: Sequence[Candidate], cfg: StrategyConfig) -> list[Deci
             if c.research_score < cfg.research_floor:
                 why = (f"exiting — quality {c.research_score:.2f} below the {cfg.research_floor:.2f} "
                        f"floor (or not in the active universe)")
+                decisions.append(_sell(c, why, exit_kind="thesis"))   # unconditional — broken thesis
             else:
                 why = f"rotated out — fell below the top {cfg.rotation_exit_n}"
-            decisions.append(_sell(c, why))
+                decisions.append(_sell(c, why, exit_kind="rotate"))   # soft — coupled to a replacement buy
     bought = 0
     for c in ranked:
         if c.ticker in buy_set and not c.held and bought < cfg.max_new_positions:

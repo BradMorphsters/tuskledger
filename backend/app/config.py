@@ -195,6 +195,22 @@ class Settings(BaseSettings):
     # How far through the last price a marketable limit sits, in basis points (25 = 0.25%). Only
     # used when AGENT_TRADING_ORDER_TYPE="limit". Buy sits ABOVE last, sell BELOW.
     AGENT_TRADING_LIMIT_BPS: float = 25.0
+    # Event-risk gate (free, EDGAR-driven): defer a NEW buy when the name filed a capital raise
+    # (S-1 / S-3 / 424B shelf takedown) within this many days — the top drawdown source for
+    # pre-revenue juniors. Held names are never force-sold by it (flagged only). 0 = gate off.
+    # Reads the per-domain EDGAR activity cache (warmed by the daily job); cold cache = no-op.
+    AGENT_TRADING_DILUTION_LOOKBACK_DAYS: int = 21
+    # FRED (free, no key needed for the public series endpoint; a key raises limits). When a
+    # domain declares macro/commodity series in meta.industry.fred_series, their 3-mo change is
+    # blended into the sector-tailwind theme. Blank → key-less fetch (still works) or ETF-only.
+    FRED_API_KEY: str = ""
+    # Finnhub (free tier: estimates + earnings calendar + company news). Powers the earnings-date
+    # buy-gate (no new buys within N days of a print) and an estimate-revision tilt to the rotation
+    # score. Blank → both features are inert (no gate, no tilt); nothing else is affected.
+    FINNHUB_API_KEY: str = ""
+    # Earnings-date gate: defer a NEW buy within this many days of the name's next earnings date
+    # (event risk). 0 = off. Needs the Finnhub earnings cache (daily job); cold cache = no-op.
+    AGENT_TRADING_EARNINGS_BLACKOUT_DAYS: int = 5
 
     class Config:
         env_file = ".env"

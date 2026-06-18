@@ -180,6 +180,12 @@ def run_live_cycle(
     max_price_age_hours: float = 48.0,
     require_fresh_research: bool = True,
     alert_log: Optional[alerts.AlertLog] = None,
+    wash_sale_lookup=None,
+    acquired_at: Optional[dict] = None,
+    edgar_cache: Optional[dict] = None,
+    dilution_lookback_days: int = 21,
+    finnhub_cache: Optional[dict] = None,
+    earnings_blackout_days: int = 5,
 ) -> dict:
     """Read the bound sleeve → Analyst → freshness gate → guardrail gate → QUEUE for approval.
 
@@ -202,13 +208,68 @@ def run_live_cycle(
         holdings = holdings_from_state(snapshot)
         candidates = factory(domain, holdings, today=today)([], today)
 
+        # Finnhub overlays (estimate-revision tilt + earnings cache). Injected for tests, else
+        # loaded for the domain. Cold cache → no-ops.
+        fhcache = finnhub_cache
+        if fhcache is None and domain:
+            try:
+                from app.services import finnhub as _fh
+                fhcache = _fh.load_cache(domain)
+            except Exception:  # noqa: BLE001
+                fhcache = {}
+        if fhcache:
+            from .event_risk import apply_revision_tilt
+            candidates = apply_revision_tilt(candidates, fhcache)
+
         skips = freshness_skips(candidates, prices, entities_by_ticker, now_epoch=now_epoch,
                                 today=today, max_price_age_hours=max_price_age_hours,
                                 require_fresh_research=require_fresh_research)
         fresh = [c for c in candidates if c.held or c.ticker not in skips]
 
+        # Event-risk gate: defer NEW buys on a fresh capital-raise filing (dilution). Held names
+        # are flagged, never force-sold. Cache is injected (tests) or loaded for the domain.
+        ecache = edgar_cache
+        if ecache is None and domain:
+            try:
+                from app.services import research_store as _rs
+                ecache = _rs.load_edgar(domain)
+            except Exception:  # noqa: BLE001 — a cold/absent cache must never break the cycle
+                ecache = {}
+        if ecache:
+            from .event_risk import event_risk_skips
+            erisk = event_risk_skips(fresh, ecache, today=today, lookback_days=dilution_lookback_days)
+            if erisk:
+                for _t, _r in erisk.items():
+                    skips.setdefault(_t, _r)
+                fresh = [c for c in fresh if c.held or c.ticker.upper() not in erisk]
+
+        # Earnings-blackout gate (Finnhub): defer NEW buys within N days of a print.
+        if fhcache:
+            from .event_risk import earnings_skips
+            esk = earnings_skips(fresh, fhcache, today=today, blackout_days=earnings_blackout_days)
+            if esk:
+                for _t, _r in esk.items():
+                    skips.setdefault(_t, _r)
+                fresh = [c for c in fresh if c.held or c.ticker.upper() not in esk]
+
         decisions = propose_strategy(fresh, strat)
         decisions = size_decisions(decisions, snapshot, sizing or SizingConfig())
+
+        # Tax-friendly rotation (see rotation_coupling): defer a soft rank-slip sell unless it's
+        # needed to fund a qualifying buy, sell the most tax-favorable names first when capital
+        # must be freed, and defer wash-sale-conflicting buys. No-op on non-rotation profiles
+        # (they emit no "rotate" sells). Held/deferred names surface in the skipped list.
+        if getattr(strat, "couple_sells_to_buys", False):
+            from .rotation_coupling import couple_rotation_sells
+            _cr = couple_rotation_sells(
+                decisions, snapshot, cap=grc.max_deployed_notional or 0.0,
+                cash_floor_pct=grc.cash_floor_pct,
+                wash_sale_lookup=wash_sale_lookup or (lambda _t, _s: False),
+                acquired_at=acquired_at, today=today,
+                couple=strat.couple_sells_to_buys, tax_aware=getattr(strat, "tax_aware_exit", True))
+            decisions = _cr.decisions
+            for _t, _r in _cr.skips().items():
+                skips.setdefault(_t, _r)
 
         persisted = state_store.load() if state_store is not None else AgentState()
         plan = plan_cycle(account_number=account_number, snapshot=snapshot, decisions=decisions,

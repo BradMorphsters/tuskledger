@@ -41,6 +41,42 @@ def proxies_for(domain: Optional[str]) -> list[str]:
         return []
 
 
+def fred_series_for(domain: Optional[str]) -> list[str]:
+    """FRED macro/commodity series IDs the domain declared in ``meta.industry.fred_series``
+    (e.g. ["PCOPPUSDM"] for copper). Empty when none configured → theme stays ETF-only."""
+    if not domain:
+        return []
+    try:
+        from app.services import research_store as store
+        meta = ((store.load_domain(domain) or {}).get("meta", {}) or {}).get("industry", {}) or {}
+        return [str(s).strip() for s in (meta.get("fred_series") or []) if str(s).strip()]
+    except Exception:
+        return []
+
+
+def blend_theme(etf_feat: dict, fred_feat: Optional[dict]) -> dict:
+    """Combine the ETF-proxy tailwind with the FRED macro/commodity tailwind into one read.
+
+    Keeps the ETF feat's shape; overrides ``momentum`` with the average of whichever components
+    are present, and retains both component reads for transparency. ``trend_up`` requires the
+    blended momentum to be non-negative AND at least one component trending up — so a commodity
+    rolling over can flip the regime even while the miner ETF lags."""
+    out = dict(etf_feat or {})
+    if not fred_feat or fred_feat.get("n", 0) == 0:
+        return out
+    parts: list[float] = []
+    if (etf_feat or {}).get("n", 0) > 0:
+        parts.append(float(etf_feat.get("momentum") or 0.0))
+    parts.append(float(fred_feat.get("momentum") or 0.0))
+    mom = round(sum(parts) / len(parts), 4)
+    out["etf_momentum"] = (etf_feat or {}).get("momentum")
+    out["fred_momentum"] = fred_feat.get("momentum")
+    out["fred"] = fred_feat
+    out["momentum"] = mom
+    out["trend_up"] = (mom >= 0.0) and bool((etf_feat or {}).get("trend_up") or fred_feat.get("trend_up"))
+    return out
+
+
 def theme_features(proxy_histories: dict[str, dict], market_data) -> dict:
     """Aggregate sector-proxy momentum into one tailwind read.
 
@@ -83,8 +119,10 @@ def load_theme(domain: Optional[str]) -> dict:
         return {}
 
 
-def refresh_theme(domain: str, *, market_data=None, store=None, months: int = 14) -> dict:
-    """Fetch the domain's sector-proxy ETFs, aggregate, and cache the tailwind. (Daily job.)"""
+def refresh_theme(domain: str, *, market_data=None, store=None, months: int = 14,
+                  fred_fetch=None) -> dict:
+    """Fetch the domain's sector-proxy ETFs, aggregate, blend in any configured FRED macro/
+    commodity series, and cache the tailwind. (Daily job.) ``fred_fetch`` is injectable for tests."""
     if market_data is None:
         from app.services import market_data as market_data
     proxies = proxies_for(domain)
@@ -98,6 +136,22 @@ def refresh_theme(domain: str, *, market_data=None, store=None, months: int = 14
             histories[etf] = fetched
     feat = theme_features(histories, market_data)
     feat["proxies"] = proxies
+
+    # Blend the underlying commodity/macro trend (FRED) when the domain declares series. Keyless;
+    # any fetch failure just leaves the ETF-only read intact.
+    series = fred_series_for(domain)
+    if series:
+        from app.services import fred as fred_mod
+        fetch = fred_fetch or fred_mod.fetch_series
+        changes: dict[str, Optional[float]] = {}
+        for sid in series:
+            try:
+                obs = fetch(sid)
+            except Exception:
+                obs = []
+            changes[sid] = fred_mod.series_change(obs) if obs else None
+        feat = blend_theme(feat, fred_mod.theme_from_series(changes))
+
     feat["fetched_at"] = time.time()
     try:
         p = _theme_path(domain)

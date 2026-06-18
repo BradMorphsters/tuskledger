@@ -225,6 +225,73 @@ def research_alerts(domain: str, db: Session = Depends(get_db)):
         _handle(exc)
 
 
+@router.get("/{domain}/synthesis")
+def research_synthesis(domain: str, db: Session = Depends(get_db)):
+    """Holistic local-AI synthesis across the WHOLE Research picture — held positions + flags, the
+    scored universe, rotation temperature, public-money flow, SEC filings (dilution/insider),
+    Finnhub earnings/revisions, the FRED commodity backdrop, valuation, catalysts, and alerts.
+    Numbers computed in Python; the local LLM only narrates. Read-only; falls back to a computed
+    template when the LLM is off/unreachable."""
+    from app.services import research_synthesis as rsyn
+    try:
+        return rsyn.synthesize(db, domain)
+    except Exception as exc:  # noqa: BLE001
+        _handle(exc)
+
+
+@router.post("/{domain}/refresh-committees")
+def refresh_committees(domain: str):
+    """Rebuild the member→committee map (phase 2) from the public unitedstates/congress-legislators
+    data — the backend httpx-fetches the full files. Global map (serves every industry); ``domain``
+    is accepted for routing parity. Returns ``{ok, members, relevant_committees}``."""
+    from app.services import congress_committees as cc
+    try:
+        return cc.refresh()
+    except Exception as exc:  # noqa: BLE001
+        _handle(exc)
+
+
+@router.get("/{domain}/political-flow")
+def research_political_flow(domain: str):
+    """Universe-filtered congressional trades (buys AND sells, with the individual trades) plus
+    EDGAR insider Form-4 activity. Read-only, cache-only."""
+    try:
+        return rj.get_political_flow(domain=domain)
+    except Exception as exc:  # noqa: BLE001
+        _handle(exc)
+
+
+@router.get("/{domain}/market-extras")
+def research_market_extras(domain: str):
+    """Read-only display feed for the new external signals: per-ticker Finnhub earnings/revision
+    (for the universe-table badges + drawer) and the domain's sector-tailwind theme incl. the
+    FRED commodity blend. Cache-only — empty/None where a key/cache is cold. Demo-safe."""
+    from datetime import date as _date
+
+    from app.agent_trading.themes import load_theme
+    from app.services import finnhub as _finnhub
+    try:
+        today = _date.today()
+        cache = _finnhub.load_cache(domain) or {}
+        finnhub_rows: dict[str, dict] = {}
+        for tk, v in cache.items():
+            if not isinstance(v, dict) or not v.get("available"):
+                continue
+            ne = v.get("next_earnings")
+            days = None
+            if ne:
+                try:
+                    days = (_date.fromisoformat(str(ne)[:10]) - today).days
+                except ValueError:
+                    days = None
+            finnhub_rows[tk] = {"next_earnings": ne, "days_to_earnings": days,
+                                "revision": v.get("revision")}
+        theme = load_theme(domain) or {}
+        return {"domain": domain, "finnhub": finnhub_rows, "theme": theme}
+    except Exception as exc:  # noqa: BLE001
+        _handle(exc)
+
+
 @router.get("/{domain}/history")
 def research_history(domain: str):
     """Append-only snapshot rows for trend / thesis-drift charts."""
@@ -310,7 +377,12 @@ def refresh_research_prices(
     failed: list[str] = []
     ym = date.today().strftime("%Y-%m")
     changed_fundamentals = False
-    for e in data.get("entities", []):
+    # Stalest-first: a rate-limited provider (Twelve Data free ~8/min) can only refresh a handful
+    # per run, so iterating in file order leaves later names PERMANENTLY stale. Sorting by cached
+    # fetched_at (missing = oldest) rotates coverage so the most out-of-date names refresh first.
+    _ents = sorted((e for e in data.get("entities", []) if e.get("ticker")),
+                   key=lambda e: (cache.get((e.get("ticker") or "").strip().upper()) or {}).get("fetched_at", 0))
+    for e in _ents:
         tk = e.get("ticker")
         if not tk:
             continue
@@ -348,7 +420,33 @@ def refresh_research_prices(
             store.save_domain(domain, data, updated_by="price-refresh")
         except store.ResearchError:
             pass  # never fail the whole refresh on a validation hiccup
-    return {"domain": domain, "refreshed": refreshed, "failed": failed}
+
+    # Warm the agent-trading cycle's external-signal caches on the same daily pass: the
+    # sector-tailwind theme (sector ETFs + any FRED commodity/macro series the domain declares)
+    # and the Finnhub estimates/earnings cache. Both degrade to no-ops without keys/series and
+    # must never fail the price refresh. (EDGAR's dilution cache is warmed by /edgar/refresh.)
+    theme_warmed = finnhub_warmed = 0
+    try:
+        from app.agent_trading.themes import refresh_theme
+        feat = refresh_theme(domain)
+        theme_warmed = int(bool(feat))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if settings.FINNHUB_API_KEY:
+            from app.services import finnhub as fh
+            tickers = [e.get("ticker") for e in data.get("entities", []) if e.get("ticker")]
+            finnhub_warmed = len(fh.refresh(domain, tickers, api_key=settings.FINNHUB_API_KEY))
+    except Exception:  # noqa: BLE001
+        pass
+    try:   # self-heal the congress committee map on first run (it changes ~once per Congress)
+        from app.services import congress_committees as cc
+        if not (cc.load_map().get("members")):
+            cc.refresh()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"domain": domain, "refreshed": refreshed, "failed": failed,
+            "theme_warmed": theme_warmed, "finnhub_warmed": finnhub_warmed}
 
 
 @router.get("/{domain}/entity/{entity_id}")

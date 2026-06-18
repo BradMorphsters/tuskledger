@@ -36,6 +36,12 @@ class Decision:
     target_notional: Optional[float] = None
     confidence: float = 0.0
     rationale: str = ""
+    # Why a sell fires, so the tax-aware coupling layer can tell turnover from risk:
+    #   "rotate" — a soft rank-slip exit (the name fell out of the keep band but its thesis is
+    #              intact). Coupled to a replacement buy: only sold when capital must be freed.
+    #   "thesis" — an unconditional exit (quality floor breached, left the universe, stop/target).
+    #   None     — not a sell, or an untagged sell (treated as unconditional, i.e. "thesis").
+    exit_kind: Optional[str] = None
 
 
 class DecisionSource(Protocol):

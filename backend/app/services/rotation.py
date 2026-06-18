@@ -286,7 +286,7 @@ def compute(domain: str, today: Optional[date] = None) -> dict:
 
 
 def _confluence(domain: str, data: dict, signals: dict, edgar: dict,
-                today: date, limit: int = 4) -> list[dict]:
+                today: date, finnhub: Optional[dict] = None, limit: int = 4) -> list[dict]:
     """The decision-relevant standouts: names where the *thesis* and the live
     public-money / filing / valuation signals currently line up. Each name is
     scored by how many independent planes agree, with plain-English reasons plus
@@ -356,12 +356,27 @@ def _confluence(domain: str, data: dict, signals: dict, edgar: dict,
                 break
 
         if score >= 3 and len(reasons) >= 2:
-            out.append({
+            row = {
                 "ticker": tk, "name": e.get("name"), "conviction": conv,
                 "confluence_score": score, "reasons": reasons, "caveats": caveats,
                 "thesis": (e.get("thesis") or {}).get("summary"),
                 "invalidation_triggers": (e.get("invalidation_triggers") or [])[:2],
-            })
+            }
+            # Finnhub context — informational ONLY (does not change confluence_score). Earnings
+            # proximity is event risk; a downward revision is a caveat the LLM can weigh.
+            fh = (finnhub or {}).get(tk)
+            if fh and fh.get("available"):
+                ne = fh.get("next_earnings")
+                if ne:
+                    try:
+                        row["days_to_earnings"] = (date.fromisoformat(str(ne)[:10]) - today).days
+                    except ValueError:
+                        pass
+                    row["next_earnings"] = ne
+                rev = fh.get("revision")
+                if isinstance(rev, (int, float)):
+                    row["analyst_revision"] = round(rev, 4)
+            out.append(row)
     out.sort(key=lambda x: (-x["confluence_score"], -(x["conviction"] or 0)))
     return out[:limit]
 
@@ -396,9 +411,17 @@ _SYSTEM = """You are a concise sector analyst helping a long-term holder decide
 whether capital is beginning to ROTATE into a thematic equity universe they
 already research. You are given a JSON object of PRE-COMPUTED metrics: a sector
 rotation temperature with its components, a `trend` (what changed since the last
-reading), and `names_to_watch` — specific tickers where this holder's own thesis
-and the live public-money / filing / valuation signals currently line up, each
-with the reasons, any caveats, and the thesis + invalidation notes.
+reading), an optional `commodity_context` (the underlying commodity/macro trend
+behind the sector, FRED + ETFs), and `names_to_watch` — specific tickers where
+this holder's own thesis and the live public-money / filing / valuation signals
+currently line up, each with the reasons, any caveats, the thesis + invalidation
+notes, and where available `next_earnings`/`days_to_earnings` (event risk) and an
+`analyst_revision` (positive = estimates rising, negative = falling).
+
+Use this extra context where relevant, as CONTEXT not as a score: e.g. note when
+a named standout reports earnings within days (event risk before adding), when its
+estimates are being revised down (a caveat), or when the commodity backdrop is
+rising/falling beneath the sector read. Never invent any of these values.
 
 Hard rules — not suggestions:
   - ONLY use numbers, tickers, and reasons that appear in the JSON. Never invent
@@ -443,7 +466,30 @@ def build_bundle(domain: str, agg: Optional[dict] = None) -> dict:
         today = date.fromisoformat(agg["as_of"])
     except (KeyError, ValueError):
         today = date.today()
-    names = _confluence(domain, data, store.load_signals(domain), store.load_edgar(domain), today)
+    # New external context — informational for the narrative only (NOT folded into the
+    # temperature/component math): per-name Finnhub earnings/revisions + the FRED commodity blend.
+    finnhub_cache: dict = {}
+    theme: dict = {}
+    try:
+        from app.services import finnhub as _fh
+        finnhub_cache = _fh.load_cache(domain) or {}
+    except Exception:  # noqa: BLE001
+        finnhub_cache = {}
+    try:
+        from app.agent_trading.themes import load_theme
+        theme = load_theme(domain) or {}
+    except Exception:  # noqa: BLE001
+        theme = {}
+    names = _confluence(domain, data, store.load_signals(domain), store.load_edgar(domain),
+                        today, finnhub=finnhub_cache)
+    commodity_context = None
+    if theme.get("fred_momentum") is not None or theme.get("n"):
+        commodity_context = {
+            "commodity_3mo_change": theme.get("fred_momentum"),   # FRED (e.g. copper) 3-mo change
+            "sector_etf_3mo_change": theme.get("etf_momentum"),
+            "sector_trend_up": theme.get("trend_up"),
+            "note": "Underlying commodity/macro backdrop (FRED + sector ETFs); context only.",
+        }
     return {
         "sector": agg.get("industry") or domain,
         "rotation_temperature_0_100": agg["temperature"],
@@ -452,6 +498,7 @@ def build_bundle(domain: str, agg: Optional[dict] = None) -> dict:
         "valuation_rerating": c["rerating"],
         "score_momentum": c["momentum"],
         "catalyst_cadence": c["cadence"],
+        "commodity_context": commodity_context,
         "trend": _trend_note(domain, agg),
         "names_to_watch": names,
     }

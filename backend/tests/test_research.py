@@ -285,12 +285,154 @@ def test_signal_tripwire_alerts_from_caches(research_env, db, factory):
     assert by_type["flow_contract"]["source"] == "quiver"
 
 
+def test_political_flow_and_congress_sell_alert(research_env, db, factory):
+    """Universe-filtered congressional buys/sells (with trades) + a net-selling alert."""
+    _seed_holdings(factory)
+    store.save_signals(DOMAIN, {"HELD1": {"available": True, "congress": {
+        "buys_usd_90d": 0, "sells_usd_90d": 50000, "net_usd_90d": -50000, "buyers_90d": 0,
+        "items": [{"date": "2026-06-01", "who": "Rep. X", "party": "R",
+                   "house": "Representatives", "tx": "sale", "amount": 50000}]}}})
+    store.save_edgar(DOMAIN, {"HELD1": {"available": True, "insider_filings_90d": 9, "insider_trend": "up"}})
+
+    pf = rj.get_political_flow(domain=DOMAIN, today=TODAY)
+    row = next(r for r in pf["rows"] if r["ticker"] == "HELD1")
+    assert row["direction"] == "selling" and row["sells_usd_90d"] == 50000
+    assert row["trades"][0]["side"] == "sell" and row["trades"][0]["who"] == "Rep. X"
+    assert row["trades"][0]["committee_relevant"] is False        # phase-2 scaffold
+    assert row["insider_filings_90d"] == 9
+
+    alerts = rj.get_alerts(db, domain=DOMAIN, today=TODAY)        # net selling surfaces as an alert
+    assert any(a["type"] == "flow_congress_sell" and a["ticker"] == "HELD1" for a in alerts)
+
+
+def test_congress_committee_map_and_matching():
+    """Pure: build the member→committee map and match Quiver-style names (incl. fuzzy fallback)."""
+    from app.services import congress_committees as cc
+    committees = [{"type": "house", "name": "House Committee on Natural Resources", "thomas_id": "HSII"},
+                  {"type": "senate", "name": "Senate Committee on Armed Services", "thomas_id": "SSAS"},
+                  {"type": "house", "name": "House Committee on Agriculture", "thomas_id": "HSAG"}]
+    membership = {"HSII": [{"name": "Ro Khanna"}], "SSAS": [{"name": "Jack Reed"}],
+                  "HSAG": [{"name": "Someone Else"}]}
+    m = cc.build_map(committees, membership, keywords=None)
+    assert m["members"]["ro khanna"]["committees"] == ["House Committee on Natural Resources"]
+    assert cc.committees_for("Ro Khanna", m, ["natural resources"]) == ["House Committee on Natural Resources"]
+    assert cc.committees_for("Ro Khanna", m, ["armed services"]) == []          # not on that committee
+    assert cc.committees_for("Rohit Khanna", m, ["natural resources"])          # last-name + first-initial fallback
+    assert cc.committees_for("Nobody Here", m) == []
+
+
+def test_political_flow_committee_flagging(research_env, db, factory):
+    """A traded member who sits on a relevant committee gets committee_relevant=True end-to-end."""
+    import json
+    from app.services import congress_committees as cc
+    _seed_holdings(factory)
+    store.save_signals(DOMAIN, {"HELD1": {"available": True, "congress": {
+        "buys_usd_90d": 8000, "sells_usd_90d": 0, "net_usd_90d": 8000, "buyers_90d": 1,
+        "items": [{"date": "2026-06-01", "who": "Ro Khanna", "party": "D",
+                   "house": "Representatives", "tx": "purchase", "amount": 8000}]}}})
+    cc._map_path().write_text(json.dumps({"members": {
+        "ro khanna": {"name": "Ro Khanna", "committees": ["House Committee on Natural Resources"]}}}))
+    d = store.load_domain(DOMAIN)
+    d.setdefault("meta", {}).setdefault("industry", {})["relevant_committees"] = ["Natural Resources"]
+    store.save_domain(DOMAIN, d, updated_by="test")
+    row = next(r for r in rj.get_political_flow(domain=DOMAIN, today=TODAY)["rows"] if r["ticker"] == "HELD1")
+    assert row["committee_relevant"] is True
+    assert "Natural Resources" in row["trades"][0]["committees"][0]
+
+
 def test_signal_alerts_absent_when_caches_cold(research_env, db, factory):
     """Single-source self-disabling: no flow/filing alerts when caches are cold."""
     _seed_holdings(factory)
     alerts = rj.get_alerts(db, domain=DOMAIN, today=TODAY)
     types = {a["type"] for a in alerts}
     assert not ({"flow_contract", "flow_darkpool", "dilution_watch", "insider_cluster"} & types)
+    # Finnhub plane is likewise dormant when its cache is cold.
+    assert not ({"earnings_soon", "revision_up", "revision_down"} & types)
+
+
+def test_data_freshness_flags_stale_prices(research_env):
+    """The synthesis surfaces stale price caches so old data isn't presented as current."""
+    import time
+    from app.services import research_synthesis as rsyn
+    store.save_prices(DOMAIN, {
+        "AAA": {"history": [{}], "current": 1, "fetched_at": time.time() - 200 * 3600},  # 200h stale
+        "BBB": {"history": [{}], "current": 1, "fetched_at": time.time() - 1 * 3600},     # fresh
+    })
+    fr = rsyn._data_freshness(DOMAIN)["prices"]
+    assert fr["n"] == 2 and fr["n_stale"] == 1 and fr["stalest_h"] >= 199
+
+
+def test_research_synthesis_bundle_and_template(research_env, db, factory, monkeypatch):
+    """The holistic synthesis assembles every plane and narrates via the template when LLM is off."""
+    from app.services import finnhub, research_synthesis
+    monkeypatch.setattr(research_synthesis.settings, "LLM_ENABLED", False)  # force the computed path
+    _seed_holdings(factory)
+    finnhub.save_cache(DOMAIN, {"HELD1": {"available": True, "next_earnings": "2026-06-18", "revision": 0.4}})
+    out = research_synthesis.synthesize(db, DOMAIN)
+    assert out["source"] == "template"
+    assert "not investment advice" in out["narrative"].lower()
+    b = out["bundle"]
+    assert set(b) >= {"portfolio", "alerts", "sector", "names_to_watch"}
+    assert b["portfolio"]["n_positions"] >= 1
+    # The sector block carries the rotation temperature; holdings carry their flags.
+    assert "rotation_temperature_0_100" in b["sector"]
+    assert any(h.get("flags") for h in b["portfolio"]["holdings"])
+
+
+def test_build_spotlights_and_highlight_parsing():
+    """Deterministic spotlights from a bundle + AI HIGHLIGHTS parsing (pure, no DB)."""
+    from app.services import research_synthesis as rsyn
+    bundle = {
+        "portfolio": {"holdings": [
+            {"ticker": "USAR", "weight_pct": 13.3, "flags": ["below_cost", "large_position"],
+             "next_earnings": None, "days_to_earnings": None},
+            {"ticker": "NB", "weight_pct": 6.2, "flags": [], "next_earnings": "2026-06-20", "days_to_earnings": 3},
+        ]},
+        "alerts": [{"severity": "high", "type": "dilution_watch", "ticker": "USAR", "message": "x"}],
+        "sector": {"rotation_temperature_0_100": 34, "stage": "Stirring",
+                   "commodity_context": {"commodity_3mo_change": 0.038}},
+        "names_to_watch": [{"ticker": "LAC", "next_earnings": "2026-08-12", "days_to_earnings": 56}],
+    }
+    spots = rsyn.build_spotlights(bundle)
+    ids = [s["id"] for s in spots]
+    assert ids == ["concentration", "risk_flags", "sector_gauge", "earnings_runway"]
+    rf = next(s for s in spots if s["id"] == "risk_flags")
+    assert rf["ticker"] == "USAR" and any(c["label"] == "dilution" for c in rf["flags"])  # alert folded in
+    er = next(s for s in spots if s["id"] == "earnings_runway")
+    assert [e["ticker"] for e in er["events"]] == ["NB", "LAC"]   # held + watch, nearest first
+
+    clean, hl = rsyn._parse_highlights(
+        "Para.\nInformational only, not investment advice.\nHIGHLIGHTS: risk_flags, sector_gauge, bogus", ids)
+    assert hl == ["risk_flags", "sector_gauge"] and "HIGHLIGHTS" not in clean
+    clean2, hl2 = rsyn._parse_highlights("just prose", ids)
+    assert hl2 is None and clean2 == "just prose"
+
+    # AI-curation fallback: order spotlights by where the model emphasises each topic in prose.
+    spots = [{"id": "concentration", "type": "concentration", "items": [{"ticker": "USAR"}]},
+             {"id": "risk_flags", "type": "risk_flags", "ticker": "USAR"},
+             {"id": "sector_gauge", "type": "sector_gauge"},
+             {"id": "earnings_runway", "type": "earnings_runway"}]
+    narr = "The sector backdrop is stirring with copper firming. USAR shows dilution risk. Earnings are months out."
+    inferred = rsyn._infer_highlights(narr, spots)
+    assert inferred[0] == "sector_gauge"                       # 'sector' is mentioned first
+    assert {"risk_flags", "earnings_runway"} <= set(inferred)
+    assert rsyn._infer_highlights("nothing relevant here", spots) is None
+
+
+def test_finnhub_tripwire_alerts_from_cache(research_env, db, factory):
+    """Finnhub earnings/revision cache surfaces as additive research alerts (source=finnhub)."""
+    from app.services import finnhub
+    _seed_holdings(factory)
+    finnhub.save_cache(DOMAIN, {
+        "HELD1": {"available": True, "next_earnings": "2026-06-18", "revision": 0.5},  # 5d after TODAY
+    })
+    alerts = rj.get_alerts(db, domain=DOMAIN, today=TODAY)
+    by = {(a["type"], a["ticker"]): a for a in alerts}
+    assert ("earnings_soon", "HELD1") in by
+    assert "5d" in by[("earnings_soon", "HELD1")]["message"]
+    assert by[("earnings_soon", "HELD1")]["source"] == "finnhub"
+    assert ("revision_up", "HELD1") in by
+    assert by[("revision_up", "HELD1")]["source"] == "finnhub"
 
 
 # ── Universe ──────────────────────────────────────────────────────────────

@@ -42,5 +42,26 @@ def integrations_status():
                 "configured": bool((s.QUIVER_API_KEY or "").strip()),
                 "url": "https://api.quiverquant.com/pricing/",
             },
+            {
+                "key": "finnhub",
+                "label": "Finnhub — analyst estimates & earnings calendar",
+                "provider": "Finnhub",
+                "env": "FINNHUB_API_KEY",
+                "configured": bool((s.FINNHUB_API_KEY or "").strip()),
+                "url": "https://finnhub.io/register",
+                "note": "Free tier covers estimates, earnings dates & news. Powers the "
+                        "earnings-blackout gate and the estimate-revision tilt in Agent Trading.",
+            },
+            {
+                "key": "fred",
+                "label": "FRED — commodity & macro series for the sector theme",
+                "provider": "St. Louis Fed (FRED)",
+                "env": "FRED_API_KEY",
+                "configured": bool((s.FRED_API_KEY or "").strip()),
+                "optional": True,
+                "url": "https://fredaccount.stlouisfed.org/apikeys",
+                "note": "Optional — the public CSV works with no key. A free key only raises "
+                        "rate limits. Blends commodity/macro trend into the sector tailwind.",
+            },
         ]
     }

@@ -211,6 +211,18 @@ class Settings(BaseSettings):
     # Earnings-date gate: defer a NEW buy within this many days of the name's next earnings date
     # (event risk). 0 = off. Needs the Finnhub earnings cache (daily job); cold cache = no-op.
     AGENT_TRADING_EARNINGS_BLACKOUT_DAYS: int = 5
+    # On-device voice for the 'Ask Tusk' assistant. Both engines are optional and run locally on
+    # Apple Silicon — Parakeet STT (pip install parakeet-mlx) + Kokoro-82M TTS (pip install kokoro).
+    # False/missing models → the assistant stays text-only (the UI hides the mic). Nothing leaves
+    # the machine. See services/voice.py for install steps.
+    VOICE_ENABLED: bool = False
+    VOICE_TTS_VOICE: str = "af_heart"
+    # The assistant's name/persona (the "Jarvis" identity). Character is fixed in
+    # services/assistant_persona.py; only the name is configurable.
+    ASSISTANT_NAME: str = "Tusk"
+    # Where thumbs up/down feedback + learned routing overrides are stored.
+    # Blank → backend/var/assistant_feedback/.
+    ASSISTANT_FEEDBACK_DIR: str = ""
 
     class Config:
         env_file = ".env"

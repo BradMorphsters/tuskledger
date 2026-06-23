@@ -446,6 +446,161 @@ def upsert_entity(
     return merged
 
 
+def remove_entity(
+    domain: str,
+    entity_id: str,
+    updated_by: str = "tuskledger",
+) -> dict[str, Any]:
+    """Drop one entity from a domain (matched by ``id``, falling back to ``ticker``), then
+    re-validate + atomically write. Returns ``{removed, id, ticker, remaining}``.
+
+    The inverse of :func:`upsert_entity`, for the universe-review "approve a drop" path —
+    a name that's fallen out of every theme ETF and is weak/stale. No history row is
+    appended (the entity is gone); the snapshot heartbeat simply stops covering it.
+    """
+    data = load_domain(domain)
+    entities = data.get("entities", []) or []
+    key = (entity_id or "").strip()
+    if not key:
+        raise ResearchValidationError("entity id/ticker required", ["empty id"])
+    idx = next(
+        (i for i, e in enumerate(entities)
+         if e.get("id") == key or (e.get("ticker") or "").upper() == key.upper()),
+        None,
+    )
+    if idx is None:
+        raise ResearchNotFound(f"No entity {entity_id!r} in domain {domain!r}")
+    removed = entities.pop(idx)
+    save_domain(domain, data, updated_by=updated_by)
+    return {
+        "removed": True,
+        "id": removed.get("id"),
+        "ticker": removed.get("ticker"),
+        "remaining": len(entities),
+    }
+
+
+def upsert_entities(
+    domain: str,
+    entities: list[dict[str, Any]],
+    updated_by: str = "tuskledger",
+) -> dict[str, Any]:
+    """Insert/merge MANY entities in a single load → validate → atomic write (vs. one file
+    rewrite per name in a loop of :func:`upsert_entity`). Used by the universe-review "approve
+    all" path. Match is by ``id`` (falling back to ``ticker``); incoming keys win on merge.
+    Returns ``{written: [ids], count, total}``. A history row is appended per entity."""
+    if not entities:
+        return {"written": [], "count": 0, "total": len(load_domain(domain).get("entities", []) or [])}
+    data = load_domain(domain)
+    meta_domain = (data.get("meta") or {}).get("domain", domain)
+    rows = data.setdefault("entities", [])
+    by_id = {e.get("id"): i for i, e in enumerate(rows) if e.get("id")}
+    written: list[dict[str, Any]] = []
+    for entity in entities:
+        if not isinstance(entity, dict):
+            raise ResearchValidationError("entity must be an object", ["entity not an object"])
+        eid = entity.get("id") or entity.get("ticker")
+        if not eid:
+            raise ResearchValidationError("entity needs an 'id' or 'ticker'",
+                                          ["entity.id / entity.ticker missing"])
+        incoming = dict(entity)
+        incoming.setdefault("id", eid)
+        incoming.setdefault("ticker", eid)
+        incoming.setdefault("domain", meta_domain)
+        incoming["updated_by"] = updated_by
+        incoming["updated_at"] = _today()
+        if incoming["id"] in by_id:
+            i = by_id[incoming["id"]]
+            merged = {**rows[i], **incoming}
+            rows[i] = merged
+        else:
+            by_id[incoming["id"]] = len(rows)
+            rows.append(incoming)
+            merged = incoming
+        written.append(merged)
+    save_domain(domain, data, updated_by=updated_by)  # one validate + one atomic write
+    for m in written:
+        append_history(domain, m)
+    return {"written": [m.get("id") for m in written], "count": len(written), "total": len(rows)}
+
+
+def remove_entities(
+    domain: str,
+    ids: list[str],
+    updated_by: str = "tuskledger",
+) -> dict[str, Any]:
+    """Drop MANY entities in a single load → validate → atomic write (matched by ``id`` or
+    ``ticker``). Returns ``{removed: [ids], count, remaining}``. Unknown ids are skipped."""
+    data = load_domain(domain)
+    rows = data.get("entities", []) or []
+    want = {(x or "").strip().upper() for x in (ids or []) if (x or "").strip()}
+    if not want:
+        return {"removed": [], "count": 0, "remaining": len(rows)}
+    kept: list[dict[str, Any]] = []
+    removed: list[str] = []
+    for e in rows:
+        if (e.get("id") or "").upper() in want or (e.get("ticker") or "").upper() in want:
+            removed.append(e.get("id"))
+        else:
+            kept.append(e)
+    if removed:
+        data["entities"] = kept
+        save_domain(domain, data, updated_by=updated_by)
+    return {"removed": removed, "count": len(removed), "remaining": len(kept)}
+
+
+# ── Universe-review decisions (reject persistence) ─────────────────────────
+def universe_decisions_path(domain: str) -> Path:
+    return research_dir() / f"{_slug(domain)}.universe-decisions.json"
+
+
+def load_universe_decisions(domain: str) -> dict[str, Any]:
+    """Persisted user decisions on the universe-review queue so a *rejected* candidate
+    doesn't keep reappearing each week. Two maps keyed by TICKER:
+
+    * ``ignored`` — add-candidates the user dismissed (filtered out of future ``add``/
+      ``add_edgar``); ``kept`` — drop-candidates the user chose to keep (filtered out of
+      future ``drop``). Each value is ``{reason, at}``. Not schema-validated — a small
+      sidecar control file, like the signals/edgar caches. Missing/corrupt → empty maps.
+    """
+    p = universe_decisions_path(domain)
+    base = {"ignored": {}, "kept": {}}
+    if not p.exists():
+        return base
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return base
+        return {"ignored": dict(data.get("ignored") or {}), "kept": dict(data.get("kept") or {})}
+    except (OSError, json.JSONDecodeError):
+        return base
+
+
+def save_universe_decisions(domain: str, data: dict[str, Any]) -> None:
+    _atomic_write(universe_decisions_path(domain),
+                  {"ignored": dict(data.get("ignored") or {}), "kept": dict(data.get("kept") or {})})
+
+
+def record_universe_decision(
+    domain: str, ticker: str, bucket: str, *, reason: str = "", restore: bool = False,
+) -> dict[str, Any]:
+    """Add (or, with ``restore``, remove) a TICKER in the ``ignored`` or ``kept`` map.
+    Returns the updated decisions document."""
+    if bucket not in ("ignored", "kept"):
+        raise ResearchValidationError(f"bad bucket {bucket!r}", ["bucket must be ignored|kept"])
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        raise ResearchValidationError("ticker required", ["empty ticker"])
+    dec = load_universe_decisions(domain)
+    if restore:
+        dec[bucket].pop(tk, None)
+    else:
+        dec[bucket][tk] = {"reason": reason or "", "at": _now_iso()}
+    save_universe_decisions(domain, dec)
+    return dec
+
+
 _index_re = re.compile(r"^(.*?)\[(\d+)\]$")
 
 

@@ -14,9 +14,11 @@ import asyncio
 import json
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from dataclasses import replace
 
@@ -99,16 +101,26 @@ def agent_trading_sleeve():
         return {"connected": False, "armed": bool(settings.AGENT_TRADING_ARMED),
                 "cash": None, "deployable": None}
     try:
-        snap = make_broker(store, mode=MODE_READ_ONLY).snapshot()
+        broker = make_broker(store, mode=MODE_READ_ONLY)
+        snap = broker.snapshot()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Couldn't read your sleeve: {e}")
     invested = round(snap.total_value() - snap.cash, 2)
     cap = settings.AGENT_TRADING_MAX_DEPLOYED or 0.0
     headroom = round(cap - invested, 2) if cap > 0 else None
     deployable = min(snap.cash, headroom) if headroom is not None else snap.cash
+    # Buying power from the fuller get_portfolio read — distinct from settled cash (it can include
+    # unsettled proceeds). Best-effort: a read miss leaves it null rather than failing the sleeve.
+    buying_power = None
+    try:
+        bp = broker.portfolio_details().get("buying_power")
+        buying_power = round(bp, 2) if bp else None
+    except Exception:  # noqa: BLE001
+        buying_power = None
     return {
         "connected": True, "armed": bool(settings.AGENT_TRADING_ARMED),
         "cash": round(snap.cash, 2),          # sleeve cash available to trade
+        "buying_power": buying_power,         # get_portfolio buying power (may include unsettled)
         "invested": invested,                 # current market value of held positions
         "cap": cap or None,                   # self-imposed deployment ceiling (0/None = unlimited)
         "cap_headroom": headroom,             # room left under the cap
@@ -498,6 +510,7 @@ def agent_trading_generate_proposals(
     holdings: dict = {}
     live_account = "approval-queue"
     reconciled: list = []
+    broker_ro = None  # set when live, so later gates (tradability) can reuse the read-only broker
     if live:
         broker_ro = make_broker(_agent_store(), mode=MODE_READ_ONLY)
         try:
@@ -585,6 +598,30 @@ def agent_trading_generate_proposals(
     if esk:
         skips = {**skips, **esk}
         fresh = [c for c in fresh if c.held or c.ticker.upper() not in esk]
+
+    # Tradability gate: ask Robinhood's get_equity_tradability read tool whether each NEW-buy
+    # candidate is actually tradable (and Agentic-eligible) before it can reach the approval queue.
+    # Held names are exempt so exits still fire. Best-effort and fail-open: a read error, or a
+    # symbol the tool doesn't rate (tradable is None), never blocks the cycle — only an explicit
+    # tradable=False vetoes. This is what finally sources lifecycle.validate_symbol's `tradable`.
+    if live and broker_ro is not None:
+        try:
+            from app.agent_trading.lifecycle import validate_symbol
+            cand_syms = [c.ticker.upper() for c in fresh if not c.held]
+            trd = broker_ro.tradability(cand_syms) if cand_syms else {}
+            untradable: dict[str, str] = {}
+            for c in fresh:
+                if c.held:
+                    continue
+                info = trd.get(c.ticker.upper())
+                if info is not None and info.get("tradable") is False:
+                    _, why = validate_symbol(c.ticker, tradable=False)
+                    untradable[c.ticker.upper()] = why or f"{c.ticker} is not tradable on Robinhood"
+            if untradable:
+                skips = {**skips, **untradable}
+                fresh = [c for c in fresh if c.held or c.ticker.upper() not in untradable]
+        except Exception:  # noqa: BLE001 — tradability is a best-effort gate; never break a cycle
+            pass
 
     # Candidates already carry live prices (universe was re-quoted above), so the Analyst ranked
     # and the sizer sizes off current prices — no stale-cache gap into a market order.
@@ -809,6 +846,281 @@ def agent_trading_universe_review():
     out = run_universe_review(dom)
     out["configured"] = True
     return out
+
+
+class UniverseDecideIn(BaseModel):
+    """One Approve/Reject/Undo action on a universe-review candidate."""
+    action: str                       # approve | reject | restore
+    kind: str                         # add | add_edgar | drop
+    ticker: str
+    name: Optional[str] = None
+    weight: float = 0.0               # ETF weight (Tier-1 adds) — feeds the provisional score
+    sources: list[str] = []           # the candidate's source tags (for ETF-count breadth)
+    security_type: str = "equity"     # equity | fund | etf | trust | other (user-editable later)
+    reason: str = ""                  # optional note stored with a rejection
+
+
+def _universe_standing(domain: str, ticker: str) -> Optional[dict]:
+    """The new name's standing under the active Analyst profile, right after it's added — this is
+    'run the analyst scorer on approve'. Ranks the whole universe (no live holdings needed for a
+    fresh, non-held name) and returns just this ticker's row. Best-effort: None if it can't price."""
+    try:
+        import datetime as _dt
+        from app.agent_trading.strategy import StrategyConfig, rank_universe
+        from app.agent_trading.candidates import make_candidate_provider
+        active = (_store().load().strategy or settings.AGENT_TRADING_STRATEGY or "rotation")
+        sel = active if active in PROFILES else "rotation"
+        today = _dt.date.today().isoformat()
+        candidates = make_candidate_provider(domain, {}, today=today)([], today)
+        rows = rank_universe(candidates, StrategyConfig(profile=sel))
+        tk = (ticker or "").upper()
+        row = next((r for r in rows if (r.ticker or "").upper() == tk), None)
+        if row is None:
+            return None
+        return {
+            "profile": sel, "rank": row.rank, "total": len(rows), "score": row.score,
+            "research_score": row.research_score, "status": row.status, "note": row.note,
+            "action": row.action,
+        }
+    except Exception:  # noqa: BLE001 — standing is informational; never fail the add on it
+        return None
+
+
+@router.post("/universe-review/decide")
+def agent_trading_universe_decide(body: UniverseDecideIn):
+    """Act on one universe-review candidate. The review queue is read-only; THIS is the explicit,
+    per-candidate apply step:
+
+    * **approve add / add_edgar** — create the research entity, fetch its price, assign a
+      *provisional, evidence-based* conviction (``provisional_conviction``), then run the Analyst
+      scorer and return the name's standing.
+    * **approve drop** — remove the entity from the universe.
+    * **reject** — durably dismiss the candidate (ignored add / kept drop) so it doesn't reappear.
+    * **restore** — undo a prior rejection.
+
+    Never touches money or places a trade — it only edits the research candidate list.
+    """
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        raise HTTPException(status_code=409, detail="No active research domain.")
+    action = (body.action or "").lower().strip()
+    kind = (body.kind or "").lower().strip()
+    tk = (body.ticker or "").strip().upper()
+    if not tk:
+        raise HTTPException(status_code=422, detail="ticker is required")
+    if kind not in ("add", "add_edgar", "drop"):
+        raise HTTPException(status_code=422, detail="kind must be add | add_edgar | drop")
+    is_add = kind in ("add", "add_edgar")
+    bucket = "ignored" if is_add else "kept"
+
+    try:
+        if action == "reject":
+            rs.record_universe_decision(dom, tk, bucket, reason=body.reason)
+            return {"ok": True, "applied": "ignore" if is_add else "keep", "ticker": tk}
+
+        if action == "restore":
+            rs.record_universe_decision(dom, tk, bucket, restore=True)
+            return {"ok": True, "applied": "restore", "ticker": tk}
+
+        if action != "approve":
+            raise HTTPException(status_code=422, detail="action must be approve | reject | restore")
+
+        # ---- approve ----
+        if kind == "drop":
+            res = rs.remove_entity(dom, tk, updated_by="universe-review")
+            return {"ok": True, "applied": "drop", "ticker": tk, **res}
+
+        # approve an add: price → provisional score → create → analyst standing
+        import datetime as _dt
+        from app.services import market_data as md
+        from app.agent_trading.candidates import _signal_score
+        from app.agent_trading.universe_screen import build_provisional_entity, provisional_conviction
+
+        today = _dt.date.today().isoformat()
+        next_due = (_dt.date.today() + _dt.timedelta(days=14)).isoformat()
+        tier = 1 if kind == "add" else 2
+
+        # price (best-effort) + warm the cache so the standing scorer can read momentum
+        price = None
+        momentum = 0.0
+        trend_up = False
+        try:
+            fetched = md.fetch_prices(tk, months=14)
+        except Exception:  # noqa: BLE001
+            fetched = None
+        if fetched:
+            price = fetched.get("current")
+            try:
+                cache = rs.load_prices(dom)
+                cache[tk] = {**fetched, "fetched_at": time.time()}
+                rs.save_prices(dom, cache)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                m = md.compute_momentum(fetched.get("history") or [], price) if price else None
+                if m:
+                    momentum = (m.get("ret_3mo_pct") or 0.0) / 100.0
+                    trend_up = (m.get("score") or 0) >= 50
+            except Exception:  # noqa: BLE001
+                pass
+
+        # public-activity signal from the Quiver cache (same normalization the Analyst uses)
+        try:
+            sig = (rs.load_signals(dom) or {}).get(tk)
+            signal_score = _signal_score(sig) if sig else 0.0
+        except Exception:  # noqa: BLE001
+            signal_score = 0.0
+
+        etf_count = sum(1 for s in (body.sources or []) if str(s).upper().startswith("ETF"))
+        scores = provisional_conviction(
+            tier=tier, etf_weight=body.weight, etf_count=etf_count,
+            signal_score=signal_score, momentum=momentum, trend_up=trend_up,
+        )
+        entity = build_provisional_entity(
+            ticker=tk, domain=dom, scores=scores, name=body.name, tier=tier,
+            security_type=body.security_type, price=price, today=today, next_due=next_due,
+            sources=[{"title": "Universe review (discovery)", "as_of": today, "confidence": "low"}],
+        )
+        try:
+            rs.upsert_entity(dom, entity, updated_by="universe-review")
+        except rs.ResearchValidationError as e:
+            raise HTTPException(status_code=422, detail={"msg": "entity failed validation", "errors": e.errors})
+
+        return {
+            "ok": True, "applied": "add", "ticker": tk, "tier": tier,
+            "price": price, "conviction": scores["conviction"], "upside": scores["upside"],
+            "basis": scores["basis"], "standing": _universe_standing(dom, tk),
+        }
+    except HTTPException:
+        raise
+    except rs.ResearchNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"decide failed: {e}")
+
+
+def _universe_standings(domain: str, tickers: set) -> dict:
+    """Standing for several names at once — ranks the whole universe ONCE (vs. once per name)
+    and returns ``{TICKER: {rank, total, status, research_score}}`` for the requested tickers."""
+    try:
+        import datetime as _dt
+        from app.agent_trading.strategy import StrategyConfig, rank_universe
+        from app.agent_trading.candidates import make_candidate_provider
+        active = (_store().load().strategy or settings.AGENT_TRADING_STRATEGY or "rotation")
+        sel = active if active in PROFILES else "rotation"
+        today = _dt.date.today().isoformat()
+        rows = rank_universe(make_candidate_provider(domain, {}, today=today)([], today),
+                             StrategyConfig(profile=sel))
+        want = {(t or "").upper() for t in tickers}
+        return {(r.ticker or "").upper(): {"rank": r.rank, "total": len(rows),
+                                           "status": r.status, "research_score": r.research_score}
+                for r in rows if (r.ticker or "").upper() in want}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+class UniverseBulkItem(BaseModel):
+    ticker: str
+    name: Optional[str] = None
+    kind: Optional[str] = None         # add | add_edgar (for adds); ignored for drops
+    weight: float = 0.0
+    sources: list[str] = []
+
+
+class UniverseBulkIn(BaseModel):
+    """Apply one action to a whole group of universe-review candidates at once."""
+    action: str                        # approve | reject
+    kind: str                          # adds | drops
+    items: list[UniverseBulkItem] = []
+    security_type: str = "equity"
+
+
+@router.post("/universe-review/decide-bulk")
+def agent_trading_universe_decide_bulk(body: UniverseBulkIn):
+    """Bulk Approve/Reject for the universe-review queue — the "approve all adds" / "remove all
+    drops" buttons. One batched store write for the whole group (not one file rewrite per name).
+
+    For speed on a large batch, an **approve-adds** here does NOT fetch a live price per name
+    (single-approve still does) — each name gets its provisional, evidence-based conviction now
+    and its price fills on the next daily refresh; standings are computed once at the end. Never
+    touches money — it only edits the research candidate list."""
+    from app.services import research_store as rs
+
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        raise HTTPException(status_code=409, detail="No active research domain.")
+    action = (body.action or "").lower().strip()
+    group = (body.kind or "").lower().strip()
+    if group not in ("adds", "drops"):
+        raise HTTPException(status_code=422, detail="kind must be adds | drops")
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=422, detail="action must be approve | reject")
+    tickers = [(_it.ticker or "").strip().upper() for _it in body.items if (_it.ticker or "").strip()]
+    if not tickers:
+        return {"ok": True, "applied": "noop", "count": 0}
+
+    try:
+        # ---- reject in bulk: persist dismissals in one write ----
+        if action == "reject":
+            bucket = "ignored" if group == "adds" else "kept"
+            dec = rs.load_universe_decisions(dom)
+            import datetime as _dt
+            stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for tk in tickers:
+                dec[bucket][tk] = {"reason": "bulk", "at": stamp}
+            rs.save_universe_decisions(dom, dec)
+            return {"ok": True, "applied": "ignore" if group == "adds" else "keep", "count": len(tickers)}
+
+        # ---- approve drops in bulk: batch-remove ----
+        if group == "drops":
+            res = rs.remove_entities(dom, tickers, updated_by="universe-review")
+            return {"ok": True, "applied": "drop", **res}
+
+        # ---- approve adds in bulk: batch create + provisional score, prices on next refresh ----
+        import datetime as _dt
+        from app.agent_trading.candidates import _signal_score
+        from app.agent_trading.universe_screen import build_provisional_entity, provisional_conviction
+
+        today = _dt.date.today().isoformat()
+        next_due = (_dt.date.today() + _dt.timedelta(days=14)).isoformat()
+        signals = rs.load_signals(dom) or {}
+        entities = []
+        scored_meta = {}
+        for it in body.items:
+            tk = (it.ticker or "").strip().upper()
+            if not tk:
+                continue
+            tier = 1 if (it.kind or "").lower() == "add" else 2
+            etf_count = sum(1 for s in (it.sources or []) if str(s).upper().startswith("ETF"))
+            sig = signals.get(tk)
+            scores = provisional_conviction(
+                tier=tier, etf_weight=it.weight, etf_count=etf_count,
+                signal_score=_signal_score(sig) if sig else 0.0,
+            )
+            entities.append(build_provisional_entity(
+                ticker=tk, domain=dom, scores=scores, name=it.name, tier=tier,
+                security_type=body.security_type, price=None, today=today, next_due=next_due,
+                sources=[{"title": "Universe review (discovery)", "as_of": today, "confidence": "low"}],
+            ))
+            scored_meta[tk] = scores["conviction"]
+        try:
+            res = rs.upsert_entities(dom, entities, updated_by="universe-review")
+        except rs.ResearchValidationError as e:
+            raise HTTPException(status_code=422, detail={"msg": "batch failed validation", "errors": e.errors})
+
+        standings = _universe_standings(dom, set(scored_meta.keys()))
+        names = [{"ticker": tk, "conviction": scored_meta[tk],
+                  "status": (standings.get(tk) or {}).get("status")} for tk in scored_meta]
+        return {"ok": True, "applied": "add", "count": res["count"], "priced": False,
+                "names": names}
+    except HTTPException:
+        raise
+    except rs.ResearchNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"bulk decide failed: {e}")
 
 
 @router.get("/ranking")

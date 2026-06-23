@@ -28,6 +28,7 @@ import AgentBacktest from '../components/AgentBacktest'
 import AgentExposure from '../components/AgentExposure'
 import AgentProposals from '../components/AgentProposals'
 import AgentRanking from '../components/AgentRanking'
+import AgentUniverseReview from '../components/AgentUniverseReview'
 import TradingFloor from '../components/TradingFloor'
 
 const GREEN = 'var(--accent-green, #10b981)'
@@ -149,6 +150,9 @@ export default function AgentTrading() {
 
       {/* Rotation pick list — where holdings rank vs the buy/keep lines; see a rebalance coming */}
       <AgentRanking />
+
+      {/* Universe review — approve/reject the weekly add/drop candidate queue (edits the list, not money) */}
+      <AgentUniverseReview />
 
       {/* Live activity — timeline (default) or the playful trading-floor replay */}
       <div style={{ display: 'inline-flex', gap: 4, marginBottom: 10, padding: 3, borderRadius: 9, border: '1px solid var(--border)' }}>
@@ -329,6 +333,13 @@ function SleeveBar({ sleeve }) {
       <div style={sleeveStat}>
         <div style={sleeveLabel}>Cash to trade</div>
         <div style={{ ...sleeveValue, color: GREEN }}>{usd(sleeve.cash)}</div>
+        {/* Buying power from get_portfolio — surfaced only when it differs from settled cash
+            (e.g. unsettled proceeds), so an identical number isn't repeated as noise. */}
+        {sleeve.buying_power != null && Math.abs(sleeve.buying_power - sleeve.cash) >= 1 && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+            {usd(sleeve.buying_power)} buying power
+          </div>
+        )}
       </div>
       <div style={sleeveStat}>
         <div style={sleeveLabel}>Deployable now</div>

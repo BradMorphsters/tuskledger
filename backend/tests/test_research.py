@@ -143,7 +143,9 @@ def test_real_seed_validates():
     errs = list(Draft202012Validator(schema).iter_errors(seed))
     assert errs == [], errs[:3]
     assert seed["meta"]["domain"] == "critical-minerals"
-    assert len(seed["entities"]) == 60
+    # Lower bound, not exact: the universe is curated over time (names approved/dropped via the
+    # universe-review flow), so pinning an exact count would make this brittle.
+    assert len(seed["entities"]) >= 60
 
 
 def test_validate_rejects_missing_required(research_env):
@@ -483,3 +485,80 @@ def test_universe_filters(research_env, db, factory):
     assert all(r["conviction"] >= 80 for r in rj.get_universe(db, domain=DOMAIN, min_conviction=80, today=TODAY))
     held_rows = rj.get_universe(db, domain=DOMAIN, held_only=True, today=TODAY)
     assert {r["ticker"] for r in held_rows} == {"HELD1", "HELD2", "NEWT", "AMBIGX"}
+
+
+# ── Universe-review apply: remove_entity + decisions sidecar ────────────────
+def test_remove_entity_drops_and_persists(research_env):
+    before = store.load_domain(DOMAIN)
+    n0 = len(before["entities"])
+    res = store.remove_entity(DOMAIN, "WATCH1", updated_by="universe-review")
+    assert res["removed"] is True and res["ticker"] == "WATCH1"
+    after = store.load_domain(DOMAIN)
+    assert len(after["entities"]) == n0 - 1
+    assert all(e.get("id") != "WATCH1" for e in after["entities"])
+    # doc still validates after the write
+    store.validate(after)
+
+
+def test_remove_entity_matches_by_ticker_and_raises_when_absent(research_env):
+    # match by ticker even though the id differs (NEWT's id is ALIASD)
+    res = store.remove_entity(DOMAIN, "NEWT")
+    assert res["removed"] is True and res["id"] == "ALIASD"
+    with pytest.raises(store.ResearchNotFound):
+        store.remove_entity(DOMAIN, "NOPE")
+
+
+def test_universe_decisions_roundtrip_and_restore(research_env):
+    assert store.load_universe_decisions(DOMAIN) == {"ignored": {}, "kept": {}}
+    store.record_universe_decision(DOMAIN, "tsla", "ignored", reason="off-theme")
+    store.record_universe_decision(DOMAIN, "ddd", "kept", reason="still good")
+    dec = store.load_universe_decisions(DOMAIN)
+    assert "TSLA" in dec["ignored"] and dec["ignored"]["TSLA"]["reason"] == "off-theme"
+    assert "DDD" in dec["kept"]
+    # restore removes it
+    store.record_universe_decision(DOMAIN, "TSLA", "ignored", restore=True)
+    assert "TSLA" not in store.load_universe_decisions(DOMAIN)["ignored"]
+
+
+def test_universe_decision_bad_bucket_raises(research_env):
+    with pytest.raises(store.ResearchValidationError):
+        store.record_universe_decision(DOMAIN, "AAA", "garbage")
+
+
+def test_upsert_entities_batch_adds_in_one_write(research_env):
+    n0 = len(store.load_domain(DOMAIN)["entities"])
+    new = [
+        {"id": "NEWA", "ticker": "NEWA", "name": "New A", "domain": DOMAIN,
+         "security_type": "equity", "scores": {"factors": {}, "conviction": 55, "upside": 40}},
+        {"id": "NEWB", "ticker": "NEWB", "name": "New B", "domain": DOMAIN,
+         "security_type": "equity", "scores": {"factors": {}, "conviction": 41, "upside": 42}},
+    ]
+    res = store.upsert_entities(DOMAIN, new, updated_by="universe-review")
+    assert res["count"] == 2 and set(res["written"]) == {"NEWA", "NEWB"}
+    after = store.load_domain(DOMAIN)
+    assert len(after["entities"]) == n0 + 2
+    store.validate(after)
+    # an existing id merges instead of duplicating
+    res2 = store.upsert_entities(DOMAIN, [{"id": "NEWA", "ticker": "NEWA", "name": "New A",
+        "domain": DOMAIN, "security_type": "equity",
+        "scores": {"factors": {}, "conviction": 70, "upside": 50}}])
+    assert res2["count"] == 1
+    a = next(e for e in store.load_domain(DOMAIN)["entities"] if e["id"] == "NEWA")
+    assert a["scores"]["conviction"] == 70
+    assert len([e for e in store.load_domain(DOMAIN)["entities"] if e["id"] == "NEWA"]) == 1
+
+
+def test_remove_entities_batch(research_env):
+    n0 = len(store.load_domain(DOMAIN)["entities"])
+    res = store.remove_entities(DOMAIN, ["WATCH1", "newt", "nope"], updated_by="universe-review")
+    # WATCH1 by id, NEWT by ticker; "nope" skipped
+    assert res["count"] == 2 and set(res["removed"]) == {"WATCH1", "ALIASD"}
+    after = store.load_domain(DOMAIN)
+    assert len(after["entities"]) == n0 - 2
+    store.validate(after)
+
+
+def test_remove_entities_empty_is_noop(research_env):
+    n0 = len(store.load_domain(DOMAIN)["entities"])
+    res = store.remove_entities(DOMAIN, [])
+    assert res["count"] == 0 and res["remaining"] == n0

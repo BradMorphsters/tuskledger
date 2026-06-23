@@ -16,7 +16,7 @@ import StaleBalanceAlert from '../components/StaleBalanceAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
-import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview } from '../components/DashboardTiles'
+import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview, SpendingPace } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
 import { formatCurrencyZero, cleanMerchantName } from '../lib/format'
 
@@ -49,24 +49,25 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v10. Added CashBalances tile and placed it second in row 1
-// so the "is anything low?" view sits next to the Pulse score —
-// together they answer "am I OK right now?" at a glance.
-//   Row 1: Pulse | Cash | HSA
-//   Row 2: Portfolio | Forecast | DCFSA
-//   Row 3: Loans (alone — stretches; snapshot is null)
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v10'
+// Bumped to v11. Added SpendingPace tile (this month's cumulative spend vs a
+// 4-month moving-average baseline, by day-of-month) and placed it right after
+// Forecast so the two cash-trajectory charts sit together.
+//   Row 1: Pulse | Accounts | Cash
+//   Row 2: HSA | Portfolio | Forecast
+//   Row 3: Pace | DCFSA | Loans
+//   Row 4: Snapshot
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v11'
 // 'accounts' lands second in the default order, right after Pulse,
 // because "what's the balance on each of my accounts" is the most
 // common reason a user opens the dashboard. Existing users with a
 // stored tile order will fall back to this default — the saved-order
 // validation rejects orders that don't include every key, which is
 // exactly what we want when adding a new tile.
-const DEFAULT_TILE_ORDER = ['pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'dcfsa', 'loans', 'snapshot']
+const DEFAULT_TILE_ORDER = ['pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'pace', 'dcfsa', 'loans', 'snapshot']
 const TILE_LABELS = {
   pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
-  cash: 'Cash', accounts: 'Accounts',
+  cash: 'Cash', accounts: 'Accounts', pace: 'Pace',
 }
 
 function HealthTilesRow() {
@@ -101,6 +102,7 @@ function HealthTilesRow() {
     if (key === 'portfolio') return <PortfolioSnapshot />
     if (key === 'cash') return <CashBalances />
     if (key === 'accounts') return <AccountsOverview />
+    if (key === 'pace') return <SpendingPace />
     return null
   }
 

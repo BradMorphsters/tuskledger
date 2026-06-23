@@ -118,6 +118,13 @@ class FakeMCP:
             return {"data": {"positions": self._positions}}
         if tool == "get_equity_quotes":
             return {"data": {"quotes": [{"symbol": "NVDA", "last_trade_price": "130.00"}]}}
+        if tool == "get_equity_tradability":
+            want = {s.upper() for s in args.get("symbols", [])}
+            rows = [
+                {"symbol": "NVDA", "tradable": True, "fractional": True},
+                {"symbol": "BADX", "tradable": False},
+            ]
+            return {"data": {"results": [r for r in rows if r["symbol"] in want] or rows}}
         if tool == "review_equity_order":
             return {"data": {"warnings": [], "would_execute": True}}
         if tool == "place_equity_order":
@@ -228,3 +235,48 @@ def test_parse_account_state_defensive_fields():
     assert state.cash == 250.5
     assert set(state.positions) == {"ROAR"}
     assert state.prices["ROAR"] == 11.0
+
+
+# --------------------------------------------------------------------------- tradability (new tool)
+
+def test_parse_tradability_tolerates_shapes():
+    from app.agent_trading.brokers import parse_tradability
+    # envelope with results[]
+    env = parse_tradability({"data": {"results": [
+        {"symbol": "NVDA", "tradable": "true", "fractional": "true"},
+        {"symbol": "BADX", "tradable": False},
+    ]}})
+    assert env["NVDA"] == {"tradable": True, "fractional": True}
+    assert env["BADX"]["tradable"] is False
+    # bare list with an alternate flag name
+    lst = parse_tradability([{"ticker": "F", "can_trade": 1}])
+    assert lst["F"]["tradable"] is True
+    # symbol-keyed dict; unknown flag -> None (never a silent veto)
+    keyed = parse_tradability({"AAPL": {"fractional": True}})
+    assert keyed["AAPL"]["tradable"] is None and keyed["AAPL"]["fractional"] is True
+
+
+def test_read_only_tradability_read_tool():
+    mcp = FakeMCP()
+    b = RobinhoodMCPBroker(ACCT, mcp, mode=MODE_READ_ONLY)
+    trd = b.tradability(["NVDA", "BADX"])
+    assert trd["NVDA"]["tradable"] is True
+    assert trd["BADX"]["tradable"] is False
+    assert "get_equity_tradability" in mcp.tools()
+    assert b.tradability([]) == {}            # no symbols -> no call
+
+
+def test_disarmed_blocks_tradability_and_portfolio_details():
+    b = RobinhoodMCPBroker(ACCT, FakeMCP())   # disarmed
+    with pytest.raises(BrokerError):
+        b.tradability(["NVDA"])
+    with pytest.raises(BrokerError):
+        b.portfolio_details()
+
+
+def test_portfolio_details_surfaces_buying_power():
+    b = RobinhoodMCPBroker(ACCT, FakeMCP(), mode=MODE_READ_ONLY)
+    d = b.portfolio_details()
+    assert d["cash"] == 500.0
+    assert d["buying_power"] == 500.0          # pulled out of the nested buying_power object
+    assert d["total_value"] == 500.0

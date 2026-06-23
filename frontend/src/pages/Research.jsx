@@ -1430,6 +1430,7 @@ export default function Research() {
         </div>
       )}
 
+      {/* Ask Tusk is now global — it lives in the floating Ask button (AskPanel), available on every page. */}
       {domain && !loading && <ResearchSynthesisCard domain={domain} />}
       {domain && !loading && <PoliticalFlowCard domain={domain} />}
 

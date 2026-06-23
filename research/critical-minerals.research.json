@@ -4,7 +4,7 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-06-18T03:52:31Z",
+    "last_updated": "2026-06-23T03:25:29Z",
     "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
@@ -265,7 +265,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$60.84",
+        "price": "$60.29",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
@@ -353,7 +353,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$15.30",
+        "price": "$16.15",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
@@ -441,7 +441,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$166.56",
+        "price": "$156.69",
         "market_cap": "~$20B",
         "revenue": "$5.4B FY25",
         "cash": "~$2.7B liq.",
@@ -512,7 +512,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.50",
+        "price": "$8.96",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
@@ -583,7 +583,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$14.80",
+        "price": "$12.98",
         "market_cap": "~$1.6B",
         "revenue": "$110M FY25",
         "cash": "~$6M (high debt)",
@@ -654,7 +654,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$86.65",
+        "price": "$78.17",
         "market_cap": "~$1.35B",
         "revenue": "~$86M H1",
         "cash": "n/a",
@@ -725,7 +725,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$82.99",
+        "price": "$78.46",
         "market_cap": "~$23B",
         "revenue": "$4.5B TTM",
         "cash": "strong",
@@ -796,7 +796,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$105.67",
+        "price": "$107.36",
         "market_cap": "~$47B",
         "revenue": "C$3.5B FY25",
         "cash": "strong",
@@ -884,7 +884,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$11.42",
+        "price": "$11.47",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
@@ -971,12 +971,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$1.9",
+        "price": "$1.53",
         "market_cap": "~$0.6B",
         "revenue": "ramping",
         "cash": "~$112M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Domestic-supply preference",
       "risk_rating": "High",
@@ -1041,7 +1042,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.55",
+        "price": "$1.43",
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
@@ -1112,12 +1113,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$200",
+        "price": "$183.68",
         "market_cap": "~$5B (verify)",
         "revenue": "$450-500M guide",
         "cash": "strong",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "~$1B+ DOE (HALEU)",
       "risk_rating": "High",
@@ -1199,7 +1201,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$69.06",
+        "price": "$69.21",
         "market_cap": "~$92B",
         "revenue": "$25.9B FY25",
         "cash": "~$3.9B",
@@ -1270,7 +1272,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$191.68",
+        "price": "$189.91",
         "market_cap": "~$152B",
         "revenue": "$13.4B TTM",
         "cash": "strong",
@@ -1341,7 +1343,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$30.43",
+        "price": "$30.45",
         "market_cap": "~$2.9B",
         "revenue": "$263M Q1'26",
         "cash": "net debt ~$490M",
@@ -1412,7 +1414,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.43",
+        "price": "$6.96",
         "market_cap": "~$2.2B",
         "revenue": "record FY25",
         "cash": "n/a",
@@ -1483,7 +1485,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$28.17",
+        "price": "$27.91",
         "market_cap": "~$8B",
         "revenue": "$757M Q1'26",
         "cash": "~$1.0B",
@@ -1554,12 +1556,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$7",
+        "price": "$7.80",
         "market_cap": "~$1.3B",
         "revenue": "$125M guide",
         "cash": "~$90M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$248M DLA contract",
       "risk_rating": "High",
@@ -1641,12 +1644,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$15",
+        "price": "$18.65",
         "market_cap": "~$5B",
         "revenue": "$25M Q1'26 (+221%)",
         "cash": "$260M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DoD grants + ~$325M EXIM LOI",
       "risk_rating": "Med",
@@ -1728,12 +1732,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$4",
+        "price": "$2.93",
         "market_cap": "~$460M",
         "revenue": "$7.8M Q3'26",
         "cash": "needs capital",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$115M + $144M DOE",
       "risk_rating": "High",
@@ -1798,7 +1803,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.29",
+        "price": "$7.09",
         "market_cap": "~$4B",
         "revenue": "has revenue",
         "cash": "n/a",
@@ -1867,12 +1872,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$28",
+        "price": "$24.12",
         "market_cap": "~$5.6B",
         "revenue": "~$6M Q1'26",
         "cash": "~$1.75B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "Commerce $277M + $1.3B loan (CHIPS); DOE $19M",
       "risk_rating": "High",
@@ -1960,12 +1966,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$4.2",
+        "price": "$4.30",
         "market_cap": "~$2.0B",
         "revenue": "pre-revenue",
         "cash": "~$1.21B",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$2.26B DOE loan; DOE 5% + GM 38%",
       "risk_rating": "High",
@@ -2030,12 +2037,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$26",
+        "price": "$23.80",
         "market_cap": "~$2.9B",
         "revenue": "pre-revenue",
         "cash": "~$714M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$2.9B EXIM + $59M DPA",
       "risk_rating": "High",
@@ -2117,12 +2125,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$6",
+        "price": "$5.20",
         "market_cap": "~$0.66B",
         "revenue": "pre-revenue",
         "cash": "~$307M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "EXIM up to $800M (LOI)",
       "risk_rating": "High",
@@ -2204,12 +2213,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$4",
+        "price": "$4.00",
         "market_cap": "~$0.48B",
         "revenue": "pre-revenue",
         "cash": "partly funded",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "DoD $22.4M",
       "risk_rating": "High",
@@ -2272,12 +2282,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$2.4",
+        "price": "$1.51",
         "market_cap": "~$0.3B",
         "revenue": "pre-commercial",
         "cash": "~CA$74M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "US$645M pkg (Canada); GM+Panasonic $50M",
       "risk_rating": "High",
@@ -2342,12 +2353,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$1.5",
+        "price": "$0.51",
         "market_cap": "~$0.2-0.3B",
         "revenue": "$5.6M FY25",
         "cash": "capital-intensive",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$100M DOE + up to $755M loan + $103M 48C",
       "risk_rating": "High",
@@ -2412,12 +2424,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$0.7",
+        "price": "$0.60",
         "market_cap": "micro",
         "revenue": "pre-revenue",
         "cash": "needs capital",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$20M DoD + C$20M Canada",
       "risk_rating": "High",
@@ -2482,12 +2495,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$2.9",
+        "price": "$3.88",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "needs equity",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$996M DOE loan",
       "risk_rating": "High",
@@ -2551,12 +2565,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$3.4",
+        "price": "$3.36",
         "market_cap": "~$0.83B",
         "revenue": "pre-revenue",
         "cash": "$141M, no debt",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$225M DOE grant + Equinor",
       "risk_rating": "High",
@@ -2621,12 +2636,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$11",
+        "price": "$11.12",
         "market_cap": "~$1.7B",
         "revenue": "pre-revenue",
         "cash": "$200M facility",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "~$825M EXIM LOI; DPA EO",
       "risk_rating": "High",
@@ -2691,12 +2707,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "spiked",
+        "price": "$5.74",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "fully funded 2026",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$43.4M DPA (antimony)",
       "risk_rating": "High",
@@ -2759,12 +2776,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$9 (C$)",
+        "price": "$4.27",
         "market_cap": "~$1.0B",
         "revenue": "Eagle revenue",
         "cash": "n/a",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$135M+ DoD/DOE",
       "risk_rating": "High",
@@ -2827,12 +2845,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$2.2",
+        "price": "$2.23",
         "market_cap": "~$0.24B",
         "revenue": "~nil operating",
         "cash": "~$72.5M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$1.4B DoW (indirect via ReElement)",
       "risk_rating": "High",
@@ -2897,12 +2916,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$0.5",
+        "price": "$0.51",
         "market_cap": "~$0.1B",
         "revenue": "pre-revenue",
         "cash": "~$41.5M",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "EXIM loan (in DD, no close)",
       "risk_rating": "High",
@@ -2967,12 +2987,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$0.76",
+        "price": "$0.72",
         "market_cap": "~$0.16B",
         "revenue": "pre-revenue",
         "cash": "financing-dep.",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "$37.5M DoD + ~$2.07B EXIM LOIs (nonbinding)",
       "risk_rating": "High",
@@ -3052,12 +3073,13 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "~$3.6",
+        "price": "$3.76",
         "market_cap": "~$0.11B",
         "revenue": "pre-production",
         "cash": "~$21M (gap)",
         "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
+        "source": "company filings / press releases (June 2026)",
+        "price_source": "stooq"
       },
       "govt_support": "US-Japan funding (potential)",
       "risk_rating": "High",
@@ -3092,74 +3114,6 @@
         "source": "checked aggregators",
         "confidence": "low",
         "url": "https://stockanalysis.com/stocks/atlx/forecast/"
-      }
-    },
-    {
-      "id": "CYDVF",
-      "ticker": "CYDVF",
-      "aliases": [],
-      "name": "Century Lithium",
-      "domain": "critical-minerals",
-      "category": "Lithium (clay)",
-      "security_type": "equity",
-      "exchange": "OTCQX",
-      "tier": 3,
-      "lifecycle_stage": "Early development (Nevada)",
-      "scores": {
-        "factors": {
-          "criticality": 4,
-          "geo": 3,
-          "govt": 1,
-          "execution": 2,
-          "balance": 1,
-          "valuation": 5,
-          "catalysts": 2
-        },
-        "conviction": 48,
-        "upside": 64,
-        "as_of": "2026-06",
-        "method": "dimensions.composites.equity"
-      },
-      "fundamentals": {
-        "price": "~$0.23",
-        "market_cap": "~$36M",
-        "revenue": "pre-revenue",
-        "cash": "needs financing",
-        "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)"
-      },
-      "govt_support": "None confirmed",
-      "risk_rating": "V.High",
-      "thesis": {
-        "summary": "$36M micro-cap on a US clay deposit with a $4.0B FS NPV; deep financing/permitting risk.",
-        "detail": null
-      },
-      "catalysts": [],
-      "risks": [],
-      "invalidation_triggers": [],
-      "sources": [
-        {
-          "title": "Companion screener & June 2026 research sweep",
-          "url": null,
-          "as_of": "2026-06",
-          "confidence": "medium"
-        }
-      ],
-      "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
-      },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
-      "price_targets": {
-        "low": null,
-        "base": null,
-        "high": null,
-        "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "OTC listing — no published US analyst targets",
-        "source": "checked aggregators",
-        "confidence": "low"
       }
     },
     {
@@ -3232,75 +3186,6 @@
       }
     },
     {
-      "id": "AQMS",
-      "ticker": "AQMS",
-      "aliases": [],
-      "name": "Aqua Metals",
-      "domain": "critical-minerals",
-      "category": "Li battery recycling",
-      "security_type": "equity",
-      "exchange": "Nasdaq",
-      "tier": 3,
-      "lifecycle_stage": "Pre-commercial",
-      "scores": {
-        "factors": {
-          "criticality": 4,
-          "geo": 4,
-          "govt": 1,
-          "execution": 1,
-          "balance": 1,
-          "valuation": 3,
-          "catalysts": 2
-        },
-        "conviction": 44,
-        "upside": 54,
-        "as_of": "2026-06",
-        "method": "dimensions.composites.equity"
-      },
-      "fundamentals": {
-        "price": "$3.24",
-        "market_cap": "~$13M",
-        "revenue": "~nil",
-        "cash": "~$6.8M (going concern)",
-        "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)",
-        "price_source": "stooq"
-      },
-      "govt_support": "None material",
-      "risk_rating": "V.High",
-      "thesis": {
-        "summary": "Differentiated low-emission recycling tech; cheap optionality but going-concern risk.",
-        "detail": null
-      },
-      "catalysts": [],
-      "risks": [],
-      "invalidation_triggers": [],
-      "sources": [
-        {
-          "title": "Companion screener & June 2026 research sweep",
-          "url": null,
-          "as_of": "2026-06",
-          "confidence": "medium"
-        }
-      ],
-      "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
-      },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
-      "price_targets": {
-        "low": null,
-        "base": null,
-        "high": null,
-        "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "thin coverage (1-2 analysts; highly dispersed)",
-        "source": "checked aggregators",
-        "confidence": "low"
-      }
-    },
-    {
       "id": "OKLO",
       "ticker": "OKLO",
       "aliases": [],
@@ -3327,7 +3212,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$58.82",
+        "price": "$58.40",
         "market_cap": "~$10B",
         "revenue": "pre-revenue",
         "cash": "~$2.5B",
@@ -3398,7 +3283,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$10.34",
+        "price": "$11.24",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
@@ -3440,77 +3325,6 @@
         "source": "stockanalysis.com / aggregators",
         "confidence": "medium",
         "url": "https://stockanalysis.com/stocks/smr/forecast/"
-      }
-    },
-    {
-      "id": "LTBR",
-      "ticker": "LTBR",
-      "aliases": [],
-      "name": "Lightbridge",
-      "domain": "critical-minerals",
-      "category": "Nuclear fuel tech",
-      "security_type": "equity",
-      "exchange": "Nasdaq",
-      "tier": 3,
-      "lifecycle_stage": "R&D / pre-revenue",
-      "scores": {
-        "factors": {
-          "criticality": 3,
-          "geo": 3,
-          "govt": 2,
-          "execution": 1,
-          "balance": 3,
-          "valuation": 3,
-          "catalysts": 2
-        },
-        "conviction": 48,
-        "upside": 52,
-        "as_of": "2026-06",
-        "method": "dimensions.composites.equity"
-      },
-      "fundamentals": {
-        "price": "$9.29",
-        "market_cap": "~$0.41B",
-        "revenue": "pre-revenue",
-        "cash": "equity-funded",
-        "as_of": "2026-06",
-        "source": "company filings / press releases (June 2026)",
-        "price_source": "stooq"
-      },
-      "govt_support": "DOE/INL lab collaboration",
-      "risk_rating": "V.High",
-      "thesis": {
-        "summary": "Differentiated next-gen reactor fuel; high-optionality call on fuel innovation.",
-        "detail": null
-      },
-      "catalysts": [],
-      "risks": [],
-      "invalidation_triggers": [],
-      "sources": [
-        {
-          "title": "Companion screener & June 2026 research sweep",
-          "url": null,
-          "as_of": "2026-06",
-          "confidence": "medium"
-        }
-      ],
-      "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
-      },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
-      "price_targets": {
-        "low": 12,
-        "base": 16,
-        "high": 24,
-        "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "sell-side analyst consensus (12-mo)",
-        "n_analysts": 2,
-        "source": "stockanalysis.com / aggregators",
-        "confidence": "low",
-        "url": "https://stockanalysis.com/stocks/ltbr/forecast/"
       }
     },
     {
@@ -3608,7 +3422,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$34.68",
+        "price": "$33.55",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
@@ -3667,7 +3481,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$86.76",
+        "price": "$84.89",
         "aum": "~$7.5B",
         "expense_ratio": "0.65%",
         "return_1y": "~+96%",
@@ -3726,12 +3540,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$45",
+        "price": "$46.80",
         "aum": "~$6.3B",
         "expense_ratio": "0.69%",
         "return_1y": "~+117%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Uranium + nuclear",
       "notes": "Largest/most liquid; Cameco-dominated; some physical via Sprott trust",
@@ -3784,12 +3599,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$145*",
+        "price": "$124.55",
         "aum": "~$4.7B",
         "expense_ratio": "0.56%",
         "return_1y": "~+73%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Uranium + utilities",
       "notes": "Most diversified/least miner-concentrated; ~29% utilities (*price stale)",
@@ -3842,12 +3658,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$95",
+        "price": "$97.29",
         "aum": "~$3.0B",
         "expense_ratio": "0.53-0.58%",
         "return_1y": "~+117%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Rare earths, Li, W, Mo",
       "notes": "Diversified (~32) but China-heavy (~33%, incl. A-shares); very volatile",
@@ -3900,12 +3717,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$54",
+        "price": "$56.18",
         "aum": "~$1.94B",
         "expense_ratio": "0.75%",
         "return_1y": "~+57%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Uranium",
       "notes": "Holds ~17% physical uranium; concentrated (25 holds)",
@@ -3958,12 +3776,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$122",
+        "price": "$115.22",
         "aum": "~$5.3B",
         "expense_ratio": "0.35%",
         "return_1y": "strong",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Steel/Al/coal",
       "notes": "Cheapest; US-only equal-weight but steel/aluminum-heavy, weak critical-minerals proxy",
@@ -4016,12 +3835,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~NAV",
+        "price": "$18.67",
         "aum": "~$6.1B",
         "expense_ratio": "~0.35%",
         "return_1y": "tracks U",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Uranium (physical)",
       "notes": "Pure uranium-price proxy; trades at premium/discount to NAV; no operating leverage",
@@ -4074,12 +3894,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$66",
+        "price": "$62.49",
         "aum": "~$1.8B",
         "expense_ratio": "0.39%",
         "return_1y": "strong",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Diversified base metals",
       "notes": "Mega-cap top-heavy (BHP ~12%); indirect critical-minerals via the majors",
@@ -4132,12 +3953,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$24",
+        "price": "$25.14",
         "aum": "~$358M",
         "expense_ratio": "0.80%",
         "return_1y": "~+68%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Uranium (juniors)",
       "notes": "No majors / no Cameco; highest-beta uranium sleeve",
@@ -4190,12 +4012,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$24",
+        "price": "$21.31",
         "aum": "~$50M",
         "expense_ratio": "~0.65%",
         "return_1y": "new fund",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Rare earths (ex-China)",
       "notes": "Highly concentrated (top 2 ~38%); only ex-China REE fund; small/illiquid",
@@ -4248,12 +4071,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$83",
+        "price": "$82.57",
         "aum": "~$2.1B",
         "expense_ratio": "0.75%",
         "return_1y": "~+88%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Lithium + battery",
       "notes": "Rio-dominated (~21%); heavy battery-maker weight; EV-supply-chain tilt",
@@ -4306,12 +4130,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$68",
+        "price": "$71.09",
         "aum": "~$0.9B",
         "expense_ratio": "0.85%",
         "return_1y": "~+42%",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Nuclear (broad)",
       "notes": "Equipment/SMR tilt; diversified by count (top 10 ~36%); sub-$1B AUM",
@@ -4364,12 +4189,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$17",
+        "price": "$16.61",
         "aum": "~$126M",
         "expense_ratio": "0.59%",
         "return_1y": "positive",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Li/Ni/Co/Cu mix",
       "notes": "Broadest battery-metal mix; smaller/less liquid; cheaper ER",
@@ -4422,12 +4248,13 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "~$39",
+        "price": "$38.79",
         "aum": "~$833M",
         "expense_ratio": "0.97%",
         "return_1y": "tracks Cu",
         "as_of": "2026-06",
-        "source": "issuer fact sheets (June 2026)"
+        "source": "issuer fact sheets (June 2026)",
+        "price_source": "stooq"
       },
       "exposure": "Copper (price)",
       "notes": "Futures fund (issues K-1); roll/contango risk; direct price exposure",
@@ -4452,6 +4279,196 @@
       },
       "updated_by": "claude",
       "updated_at": "2026-06-14"
+    },
+    {
+      "id": "RIO",
+      "ticker": "RIO",
+      "name": "RIO TINTO PLC-SPON ADR",
+      "domain": "critical-minerals",
+      "security_type": "equity",
+      "tier": 1,
+      "lifecycle_stage": null,
+      "scores": {
+        "factors": {},
+        "conviction": 62,
+        "upside": 40,
+        "as_of": "2026-06-22",
+        "method": "provisional/auto (universe-review approve)"
+      },
+      "thesis": {
+        "summary": "Auto-added from the universe review — provisional score pending a manual thesis."
+      },
+      "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +12",
+      "review": {
+        "last_reviewed": "2026-06-22",
+        "next_due": "2026-07-06"
+      },
+      "sources": [
+        {
+          "title": "Universe review (discovery)",
+          "as_of": "2026-06-22",
+          "confidence": "low"
+        }
+      ],
+      "updated_by": "universe-review",
+      "updated_at": "2026-06-22",
+      "fundamentals": {
+        "price": "$99.36",
+        "as_of": "2026-06",
+        "price_source": "stooq"
+      }
+    },
+    {
+      "id": "TSLA",
+      "ticker": "TSLA",
+      "name": "TESLA INC",
+      "domain": "critical-minerals",
+      "security_type": "equity",
+      "tier": 1,
+      "lifecycle_stage": null,
+      "scores": {
+        "factors": {},
+        "conviction": 56,
+        "upside": 40,
+        "as_of": "2026-06-22",
+        "method": "provisional/auto (universe-review approve)"
+      },
+      "thesis": {
+        "summary": "Auto-added from the universe review — provisional score pending a manual thesis."
+      },
+      "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +6",
+      "review": {
+        "last_reviewed": "2026-06-22",
+        "next_due": "2026-07-06"
+      },
+      "sources": [
+        {
+          "title": "Universe review (discovery)",
+          "as_of": "2026-06-22",
+          "confidence": "low"
+        }
+      ],
+      "updated_by": "universe-review",
+      "updated_at": "2026-06-22",
+      "fundamentals": {
+        "price": "$405.05",
+        "as_of": "2026-06",
+        "price_source": "stooq"
+      }
+    },
+    {
+      "id": "ENS",
+      "ticker": "ENS",
+      "name": "ENERSYS",
+      "domain": "critical-minerals",
+      "security_type": "equity",
+      "tier": 1,
+      "lifecycle_stage": null,
+      "scores": {
+        "factors": {},
+        "conviction": 53,
+        "upside": 40,
+        "as_of": "2026-06-22",
+        "method": "provisional/auto (universe-review approve)"
+      },
+      "thesis": {
+        "summary": "Auto-added from the universe review — provisional score pending a manual thesis."
+      },
+      "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +3",
+      "review": {
+        "last_reviewed": "2026-06-22",
+        "next_due": "2026-07-06"
+      },
+      "sources": [
+        {
+          "title": "Universe review (discovery)",
+          "as_of": "2026-06-22",
+          "confidence": "low"
+        }
+      ],
+      "updated_by": "universe-review",
+      "updated_at": "2026-06-22",
+      "fundamentals": {
+        "price": "$232.94",
+        "as_of": "2026-06",
+        "price_source": "stooq"
+      }
+    },
+    {
+      "id": "NNE",
+      "ticker": "NNE",
+      "name": "NANO NUCLEAR ENERGY INC",
+      "domain": "critical-minerals",
+      "security_type": "equity",
+      "tier": 1,
+      "lifecycle_stage": null,
+      "scores": {
+        "factors": {},
+        "conviction": 52,
+        "upside": 40,
+        "as_of": "2026-06-22",
+        "method": "provisional/auto (universe-review approve)"
+      },
+      "thesis": {
+        "summary": "Auto-added from the universe review — provisional score pending a manual thesis."
+      },
+      "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +2",
+      "review": {
+        "last_reviewed": "2026-06-22",
+        "next_due": "2026-07-06"
+      },
+      "sources": [
+        {
+          "title": "Universe review (discovery)",
+          "as_of": "2026-06-22",
+          "confidence": "low"
+        }
+      ],
+      "updated_by": "universe-review",
+      "updated_at": "2026-06-22",
+      "fundamentals": {
+        "price": "$25.64",
+        "as_of": "2026-06",
+        "price_source": "stooq"
+      }
+    },
+    {
+      "id": "LCID",
+      "ticker": "LCID",
+      "name": "LUCID GROUP INC",
+      "domain": "critical-minerals",
+      "security_type": "equity",
+      "tier": 1,
+      "lifecycle_stage": null,
+      "scores": {
+        "factors": {},
+        "conviction": 50,
+        "upside": 40,
+        "as_of": "2026-06-22",
+        "method": "provisional/auto (universe-review approve)"
+      },
+      "thesis": {
+        "summary": "Auto-added from the universe review — provisional score pending a manual thesis."
+      },
+      "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +0",
+      "review": {
+        "last_reviewed": "2026-06-22",
+        "next_due": "2026-07-06"
+      },
+      "sources": [
+        {
+          "title": "Universe review (discovery)",
+          "as_of": "2026-06-22",
+          "confidence": "low"
+        }
+      ],
+      "updated_by": "universe-review",
+      "updated_at": "2026-06-22",
+      "fundamentals": {
+        "price": "$5.16",
+        "as_of": "2026-06",
+        "price_source": "stooq"
+      }
     }
   ]
 }

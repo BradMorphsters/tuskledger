@@ -1,0 +1,9 @@
+# Optional on-device voice for the 'Ask Tusk' assistant (Apple Silicon / MLX only).
+# Kept OUT of requirements.txt on purpose: these pull MLX/Metal + torch wheels that don't exist
+# on the Linux/Railway build, and the assistant degrades to text without them.
+# Install on your Mac, then set VOICE_ENABLED=true in backend/.env and restart:
+#   pip install -r requirements-voice.txt
+parakeet-mlx
+kokoro
+soundfile
+numpy

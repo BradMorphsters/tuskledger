@@ -19,6 +19,7 @@ from app.migrations import run_startup_migrations
 from app.services.auth_service import generate_session_secret
 from app.services.db_backup import run_startup_backup
 from app.routers import (
+    assistant,
     plaid_routes,
     accounts,
     transactions,
@@ -163,6 +164,13 @@ async def lifespan(app: FastAPI):
     # pre-Alembic DBs via baseline-stamp). Schema changes now flow through
     # alembic/versions/ — do NOT call Base.metadata.create_all() here.
     run_startup_migrations()
+    # Seed the curated "common questions per tile" into the Ask Tusk routing-override store so they're
+    # guaranteed to route correctly even if a keyword rule hasn't caught up. Idempotent; never fatal.
+    try:
+        from app.services.assistant_golden import seed_overrides
+        seed_overrides()
+    except Exception:  # noqa: BLE001
+        pass
     # Snapshot the (post-migration) DB to backups/ so a corrupt write or
     # bad migration is recoverable. Idempotent within a day.
     # Skip on the public demo instance — the demo DB is disposable, and
@@ -506,6 +514,7 @@ app.include_router(agent_trading.router, dependencies=protected)
 # + local Ollama narration. Same protection as data routers since the
 # bundles read transactions, snapshots, and account balances.
 app.include_router(chat.router, dependencies=protected)
+app.include_router(assistant.router, dependencies=protected)
 
 
 @app.get("/api/health")

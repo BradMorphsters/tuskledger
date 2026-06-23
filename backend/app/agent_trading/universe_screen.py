@@ -208,6 +208,12 @@ def screen_universe(
             continue  # still in a sector fund → leave it
         weak = (s.get("research_score") or 0.0) < research_floor
         stale = bool(s.get("stale"))
+        # Grace period: a name just auto-added from this review (a provisional/auto score) is
+        # below the floor by construction. Don't immediately re-flag it for drop — that's the
+        # "approve → instantly a drop candidate" churn. Leave it until its review actually comes
+        # due (then `stale` fires and it surfaces normally).
+        if s.get("provisional") and not stale:
+            continue
         if not (weak or stale):
             continue
         reasons = []
@@ -225,6 +231,166 @@ def screen_universe(
         "in_etf_count": len(in_any_etf),
         "universe_count": len(have),
     }
+
+
+# --------------------------------------------------------------------------- approve: provisional score + entity build
+
+def provisional_conviction(
+    *,
+    tier: int = 2,
+    etf_weight: float = 0.0,
+    etf_count: int = 0,
+    signal_score: float = 0.0,
+    momentum: float = 0.0,
+    trend_up: bool = False,
+) -> dict:
+    """Derive a *provisional*, evidence-based conviction/upside (0–100) for a newly approved
+    name from the evidence the discovery layer already gathered — so "run the analyst scorer
+    on approve" produces a real starting score instead of a hand-authored thesis or a flat
+    floor. Transparent and bounded; never fabricates top-tier conviction.
+
+    Evidence (all optional):
+    * ``tier`` — 1 (in a theme ETF: an index committee already vetted it → starts at the buy
+      floor) vs 2 (EDGAR-only filer → starts below the floor, so the Analyst flags it "needs a
+      thesis" until you confirm).
+    * ``etf_weight`` / ``etf_count`` — heavier weight and inclusion in more theme ETFs lift it.
+    * ``signal_score`` — Quiver public-activity composite (0..1).
+    * ``momentum`` / ``trend_up`` — price posture once the name is priced.
+
+    Returns ``{conviction, upside, basis}`` where ``basis`` is the human-readable breakdown.
+    Capped at 80 — a provisional score is never allowed to claim top conviction.
+    """
+    basis: list[str] = []
+    base = 50.0 if tier == 1 else 35.0
+    basis.append(f"tier-{tier} base {base:.0f}")
+    if tier == 1:
+        w = min(12.0, max(0.0, etf_weight) * 1.5)
+        b = min(6.0, max(0, (etf_count or 0) - 1) * 3.0)
+        if w:
+            basis.append(f"ETF weight +{w:.0f}")
+        if b:
+            basis.append(f"in {etf_count} theme ETFs +{b:.0f}")
+        base += w + b
+    # Public-activity (Quiver) signal is the main lever that can lift a Tier-2 (EDGAR-only) name
+    # to the buy floor — weight it enough that a genuinely "heating up" name can clear 0.50, while
+    # an unsignaled filer stays below it and is never suggested.
+    s = 15.0 * max(0.0, min(1.0, signal_score or 0.0))
+    if s:
+        basis.append(f"public-activity +{s:.0f}")
+    base += s
+    if trend_up:
+        base += 4.0
+        basis.append("uptrend +4")
+    m = max(-6.0, min(6.0, (momentum or 0.0) * 20.0))
+    if m:
+        basis.append(f"3-mo momentum {m:+.0f}")
+    base += m
+    conviction = int(round(max(0.0, min(80.0, base))))
+    upside = int(round(max(20.0, min(60.0, 40.0 + 10.0 * max(0.0, min(1.0, signal_score or 0.0))
+                                       + (m if m > 0 else 0.0)))))
+    return {"conviction": conviction, "upside": upside, "basis": basis}
+
+
+def build_provisional_entity(
+    *,
+    ticker: str,
+    domain: str,
+    scores: dict,
+    name: Optional[str] = None,
+    tier: int = 2,
+    security_type: str = "equity",
+    category: Optional[str] = None,
+    price: Optional[float] = None,
+    sources: Optional[list] = None,
+    today: str,
+    next_due: Optional[str] = None,
+) -> dict:
+    """Assemble a schema-valid research entity for an approved add. Pure (no IO). The score is
+    marked ``provisional/auto`` and the thesis is explicitly a stub so the viewer (and the
+    Analyst's quality gate) treat it as "needs a manual thesis" until confirmed."""
+    tk = (ticker or "").strip().upper()
+    ent: dict = {
+        "id": tk,
+        "ticker": tk,
+        "name": name or tk,
+        "domain": domain,
+        "security_type": security_type if security_type in
+        ("equity", "fund", "etf", "trust", "other") else "equity",
+        "tier": tier if tier in (1, 2, 3) else None,
+        "lifecycle_stage": None,
+        "scores": {
+            "factors": {},
+            "conviction": scores["conviction"],
+            "upside": scores["upside"],
+            "as_of": today,
+            "method": "provisional/auto (universe-review approve)",
+        },
+        "thesis": {
+            "summary": "Auto-added from the universe review — provisional score pending a manual thesis.",
+        },
+        "notes": "Provisional, evidence-based score assigned on universe-review approval; author a "
+                 "thesis to confirm. Basis: " + "; ".join(scores.get("basis") or []),
+        "review": {"last_reviewed": today, "next_due": next_due or today},
+        "sources": sources or [],
+    }
+    if category:
+        ent["category"] = category
+    if price is not None:
+        ent["fundamentals"] = {"price": f"${float(price):.2f}", "as_of": today,
+                               "source": "universe-review"}
+    return ent
+
+
+def annotate_add_scores(result: dict, signals: Optional[dict] = None, *, floor: float = 0.50) -> dict:
+    """Attach a *preview* provisional score to every add candidate so the user sees what each
+    would enter at BEFORE approving (and EDGAR noise that lands below the floor is obvious).
+    Tier-1 = ETF, Tier-2 = EDGAR. No price yet, so momentum is omitted — the live approve still
+    prices it. Also sorts the EDGAR list best-first. Pure (signals injected)."""
+    signals = signals or {}
+    floor_conv = floor * 100.0
+    try:
+        from .candidates import _signal_score
+    except Exception:  # noqa: BLE001
+        _signal_score = lambda *_a, **_k: 0.0  # noqa: E731
+
+    def _score(c: dict, tier: int) -> dict:
+        tk = (c.get("ticker") or "").upper()
+        sig = signals.get(tk)
+        sc = provisional_conviction(
+            tier=tier,
+            etf_weight=float(c.get("weight") or 0.0),
+            etf_count=sum(1 for s in (c.get("sources") or []) if str(s).upper().startswith("ETF")),
+            signal_score=_signal_score(sig) if sig else 0.0,
+        )
+        sc["below_floor"] = sc["conviction"] < floor_conv
+        out = dict(c)
+        out["provisional"] = sc
+        return out
+
+    result["add"] = [_score(c, 1) for c in (result.get("add") or [])]
+    result["add_edgar"] = sorted(
+        [_score(c, 2) for c in (result.get("add_edgar") or [])],
+        key=lambda c: c["provisional"]["conviction"], reverse=True,
+    )
+    return result
+
+
+def filter_review_with_decisions(result: dict, decisions: dict) -> dict:
+    """Drop candidates the user already rejected from a review result — ``ignored`` tickers out
+    of ``add``/``add_edgar``, ``kept`` tickers out of ``drop`` — so a rejection is durable
+    (the name doesn't reappear next week). Pure. Also surfaces the two decision lists so the UI
+    can show a "dismissed" section with an undo. ``decisions`` is
+    ``{"ignored": {TICKER: …}, "kept": {TICKER: …}}``."""
+    ignored = {(k or "").upper() for k in (decisions.get("ignored") or {})}
+    kept = {(k or "").upper() for k in (decisions.get("kept") or {})}
+    out = dict(result)
+    out["add"] = [r for r in (result.get("add") or []) if (r.get("ticker") or "").upper() not in ignored]
+    out["add_edgar"] = [r for r in (result.get("add_edgar") or [])
+                        if (r.get("ticker") or "").upper() not in ignored]
+    out["drop"] = [r for r in (result.get("drop") or []) if (r.get("ticker") or "").upper() not in kept]
+    out["ignored"] = sorted(ignored)
+    out["kept"] = sorted(kept)
+    return out
 
 
 # --------------------------------------------------------------------------- live fetch adapters
@@ -327,9 +493,38 @@ def run_universe_review(
             continue
         conv = (e.get("scores") or {}).get("conviction")
         rs = _clamp01(conv / 100.0) if isinstance(conv, (int, float)) else 0.0
-        scored.append({"ticker": tk, "research_score": round(rs, 4), "stale": _is_stale(e, today)})
+        provisional = str((e.get("scores") or {}).get("method", "")).startswith("provisional")
+        scored.append({"ticker": tk, "research_score": round(rs, 4),
+                       "stale": _is_stale(e, today), "provisional": provisional})
 
     result = screen_universe(universe, etf_lists, scored, edgar_candidates)
     result.update({"domain": domain, "as_of": today, "proxies": proxies_for(domain),
                    "sic_codes": sic_for(domain), "errors": fetch_errors})
+
+    # Preview score on each add candidate (so the user sees the score BEFORE approving, and
+    # below-floor EDGAR noise is obvious). Signals are best-effort from the cache.
+    try:
+        sig_cache = store.load_signals(domain) if (domain and hasattr(store, "load_signals")) else {}
+    except Exception:  # noqa: BLE001
+        sig_cache = {}
+    result = annotate_add_scores(result, sig_cache)
+
+    # Suggest ONLY names that score at/above the buy floor. A name we can't justify to 0.50 (most
+    # EDGAR-only filers: no ETF inclusion, no public-activity signal) is never surfaced — that's
+    # what stops the weekly churn of approving/rejecting the same below-floor junk. The count of
+    # what was screened out is kept for transparency.
+    add_below = sum(1 for c in result.get("add", []) if c["provisional"]["below_floor"])
+    edgar_below = sum(1 for c in result.get("add_edgar", []) if c["provisional"]["below_floor"])
+    result["add"] = [c for c in result.get("add", []) if not c["provisional"]["below_floor"]]
+    result["add_edgar"] = [c for c in result.get("add_edgar", []) if not c["provisional"]["below_floor"]]
+    result["below_floor_screened"] = add_below + edgar_below
+
+    # Honor durable rejections: a candidate the user dismissed (ignored add / kept drop) is
+    # filtered out so it doesn't reappear every week. Best-effort — a store without the
+    # decisions sidecar (or a test double) simply yields an unfiltered queue.
+    try:
+        decisions = store.load_universe_decisions(domain) if domain else {}
+    except Exception:  # noqa: BLE001
+        decisions = {}
+    result = filter_review_with_decisions(result, decisions or {})
     return result

@@ -163,6 +163,7 @@ _REVIEW_TOOL = "review_equity_order"   # simulate + pre-trade warnings; does NOT
 _PLACE_TOOL = "place_equity_order"
 _CANCEL_TOOL = "cancel_equity_order"
 _ORDERS_TOOL = "get_equity_orders"     # read back order status (executed vs queued)
+_TRADABILITY_TOOL = "get_equity_tradability"  # is a symbol tradable / agentic-eligible (pre-trade gate)
 
 # Broker order states that mean shares are actually in hand (vs merely accepted/queued).
 _EXECUTED_STATES = {"filled", "partially_filled"}
@@ -233,6 +234,68 @@ def parse_quotes(payload) -> dict:
         if s:
             out[s] = _num(q, "last_trade_price", "last_non_reg_trade_price",
                           "mark_price", "last_price", "price", "ask_price")
+    return out
+
+
+def _truthy(v) -> Optional[bool]:
+    """Coerce a stringy/boolean flag to a real bool, or None when unknown/absent."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("true", "1", "yes", "y", "t"):
+        return True
+    if s in ("false", "0", "no", "n", "f"):
+        return False
+    return None
+
+
+def parse_tradability(payload) -> dict[str, dict]:
+    """Map get_equity_tradability onto ``{SYMBOL: {tradable: bool|None, fractional: bool|None}}``.
+
+    The live response shape for this tool isn't pinned to a captured sample yet (it's one of the
+    newer read tools), so this is deliberately tolerant: it accepts a bare list of rows, a
+    ``{results:[...]}`` / ``{items:[...]}`` envelope, or a symbol-keyed dict, and coerces stringy
+    booleans. ``tradable=None`` means "the tool didn't say" — callers must treat None as
+    not-a-veto so a schema drift can never silently block every order.
+    """
+    body = _unwrap(payload)
+    rows: list = []
+    if isinstance(body, dict):
+        envelope_keys = ("results", "items", "tradability", "instruments", "quotes")
+        if body and all(isinstance(v, dict) for v in body.values()) and not any(
+                k in body for k in envelope_keys):
+            rows = [{**v, "symbol": v.get("symbol", k)} for k, v in body.items()]
+        else:
+            for k in envelope_keys:
+                if isinstance(body.get(k), list):
+                    rows = body[k]
+                    break
+    elif isinstance(body, list):
+        rows = body
+
+    out: dict[str, dict] = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        sym = _sym(r, "symbol", "ticker", "instrument_symbol")
+        if not sym:
+            continue
+        tradable = None
+        for key in ("tradable", "tradeable", "is_tradable", "can_trade",
+                    "agentic_tradable", "agentic_allowed", "marketable"):
+            if key in r:
+                tradable = _truthy(r.get(key))
+                if tradable is not None:
+                    break
+        fractional = None
+        for key in ("fractional", "fractional_tradable", "fractionable"):
+            if key in r:
+                fractional = _truthy(r.get(key))
+                if fractional is not None:
+                    break
+        out[sym] = {"tradable": tradable, "fractional": fractional}
     return out
 
 
@@ -374,6 +437,36 @@ class RobinhoodMCPBroker:
             chunk = syms[i:i + 20]
             out.update(parse_quotes(self._read("get_equity_quotes", {"symbols": chunk})))
         return out
+
+    def tradability(self, symbols: list[str]) -> dict[str, dict]:
+        """Per-symbol tradability flags via get_equity_tradability (read tool, added by Robinhood
+        post-launch). Used as a pre-trade gate so a name Robinhood won't trade — or won't trade in
+        an Agentic account — never reaches the approval queue. Chunked at 20 like quotes; a symbol
+        absent from the result maps to ``{}`` (caller treats unknown as not-a-veto)."""
+        syms = [s.upper().strip() for s in symbols if s]
+        if not syms:
+            return {}
+        out: dict[str, dict] = {}
+        for i in range(0, len(syms), 20):
+            chunk = syms[i:i + 20]
+            out.update(parse_tradability(self._read(_TRADABILITY_TOOL, {"symbols": chunk})))
+        return out
+
+    def portfolio_details(self) -> dict:
+        """Richer get_portfolio read (read tool): cash, buying power, total/market value,
+        withdrawable. snapshot() only needs cash for sizing; this surfaces the rest for the
+        sleeve display/UI. Best-effort field extraction — missing fields come back as 0.0."""
+        p = _unwrap(self._read("get_portfolio", {"account_number": self.account_number})) or {}
+        bp = p.get("buying_power")
+        buying_power = (_num(bp, "buying_power", "unleveraged_buying_power")
+                        if isinstance(bp, dict) else _num(p, "buying_power"))
+        return {
+            "cash": _num(p, "cash"),
+            "buying_power": buying_power,
+            "total_value": _num(p, "total_value", "equity"),
+            "market_value": _num(p, "market_value", "equity_value"),
+            "withdrawable": _num(p, "withdrawable_amount", "withdrawable_cash"),
+        }
 
     def review_order(self, order: ProposedOrder) -> dict:
         """Simulate an order via review_equity_order — returns Robinhood's pre-trade

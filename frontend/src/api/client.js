@@ -242,7 +242,9 @@ export function streamSSE(url, fetchInit, handlers) {
           if (payload.meta) handlers.onMeta?.(payload.meta);
           if (payload.delta) handlers.onDelta?.(payload.delta);
           if (payload.error) { handlers.onError?.(payload.error); return; }
-          if (payload.done) { handlers.onDone?.(); return; }
+          // Pass the full done frame so callers can read trailing data (e.g. assistant
+          // retrieval `rows`/`intent`/`window`). Existing onDone() callers ignore the arg.
+          if (payload.done) { handlers.onDone?.(payload); return; }
         }
       }
     } catch (err) {
@@ -479,6 +481,45 @@ export const getResearchSynthesis = (domain) =>
   request(`/research/${encodeURIComponent(domain)}/synthesis`);
 export const getResearchPoliticalFlow = (domain) =>
   request(`/research/${encodeURIComponent(domain)}/political-flow`);
+
+// 'Ask Tusk' assistant (read-only insight) + on-device voice (Parakeet STT / Kokoro TTS).
+// `history` is the recent [{who:'you'|'tusk', text}] turns, so follow-ups ("and last month?")
+// have context. Kept short server-side (last 6).
+export const assistantAsk = (question, history = null) =>
+  request('/assistant/ask', { method: 'POST', body: JSON.stringify({ question, history }) });
+
+// Streaming variant — calls back as tokens arrive so the panel renders (and the voice layer
+// can speak) sentence by sentence instead of waiting for the whole answer. Same SSE protocol as
+// chat: {meta}, {delta}, {done}, {error}. Returns a cancel() that aborts mid-stream (the Stop button).
+export const streamAssistantAsk = (question, history, handlers) =>
+  streamSSE(`${BASE}/assistant/ask?stream=true`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ question, history: history || null }),
+  }, handlers);
+// Proactive read-only "morning read" — shown as the greeting when the panel opens, spoken on
+// voice-session start. Returns {source, briefing, snapshot}.
+export const getAssistantBriefing = () => request('/assistant/briefing');
+// Feedback loop — thumbs up/down on an answer; a down-thumb is diagnosed and (when fixable) a
+// grounded correction is proposed for approval, which learns a routing override.
+export const submitFeedback = ({ question, answer, rating, intent = null, comment = null }) =>
+  request('/assistant/feedback', { method: 'POST', body: JSON.stringify({ question, answer, rating, intent, comment }) });
+export const getFeedbackIntents = () => request('/assistant/feedback/intents');
+export const feedbackCorrect = (fid, intent) =>
+  request(`/assistant/feedback/${fid}/correct`, { method: 'POST', body: JSON.stringify({ intent }) });
+export const feedbackApprove = (fid) => request(`/assistant/feedback/${fid}/approve`, { method: 'POST' });
+export const feedbackReject = (fid) => request(`/assistant/feedback/${fid}/reject`, { method: 'POST' });
+
+export const getVoiceStatus = () => request('/assistant/voice/status');
+export const voiceTranscribe = (wavBlob) =>
+  fetch('/api/assistant/voice/transcribe', { method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'audio/wav' }, body: wavBlob })
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error('transcribe failed'))));
+export const voiceSpeak = (text) =>
+  fetch('/api/assistant/voice/speak', { method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
+    .then(r => (r.ok ? r.blob() : null));
 export const getResearchEntity = (domain, id) =>
   request(`/research/${encodeURIComponent(domain)}/entity/${encodeURIComponent(id)}`);
 export const getResearchForTicker = (ticker) =>
@@ -567,6 +608,19 @@ export const getAgentTradingOrderStatus = (id) =>
 export const reconcileAgentTradingOrders = () =>
   request('/agent-trading/proposals/reconcile', { method: 'POST' });
 
+// Universe review — keep the candidate LIST fresh (add/drop discovery). The GET is a read-only
+// draft queue; decide() is the explicit per-candidate Approve/Reject/Undo. Approving an add
+// creates the entity, scores it provisionally, and returns its Analyst standing; nothing here
+// touches money or places a trade — it only edits the research candidate list.
+export const getAgentTradingUniverseReview = () =>
+  request('/agent-trading/universe-review');
+export const decideAgentTradingUniverseCandidate = (decision) =>
+  request('/agent-trading/universe-review/decide', { method: 'POST', body: JSON.stringify(decision) });
+// Bulk apply — "approve all adds" / "remove all drops". One batched write; approve-adds here
+// scores provisionally and lets prices fill on the next refresh (single-approve prices live).
+export const decideAgentTradingUniverseBulk = (decision) =>
+  request('/agent-trading/universe-review/decide-bulk', { method: 'POST', body: JSON.stringify(decision) });
+
 // Robinhood agentic-MCP connection (Tusk Ledger as the bound agent). connect runs the OAuth
 // consent in the user's browser; ping is a read-only self-check. None of these arm live trading.
 export const getRobinhoodAgentStatus = () => request('/agent-trading/connect/status');
@@ -616,6 +670,9 @@ export const deleteGoal = (id) =>
 export const getCashFlowForecast = (days = 30, baseline = 'median_3') =>
   request(`/analytics/cash-flow-forecast?days=${days}&baseline=${baseline}`);
 export const getCashFlowHealth = () => request('/analytics/cash-flow-health');
+// Spending pace — MTD cumulative-by-day vs an N-month moving-average baseline.
+export const getSpendingTrend = (months = 4) =>
+  request(`/analytics/spending-trend?months=${months}`);
 export const getDebtPayoff = () => request('/analytics/debt-payoff');
 export const getFirstTimeMerchants = (month, year) =>
   request(`/analytics/first-time-merchants?month=${month}&year=${year}`);

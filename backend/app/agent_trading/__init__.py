@@ -62,8 +62,12 @@ from .strategy import (
 from .candidates import build_candidates, holdings_from_state, make_candidate_provider
 from .themes import load_theme, proxies_for, refresh_theme, theme_features
 from .universe_screen import (
+    annotate_add_scores,
+    build_provisional_entity,
+    filter_review_with_decisions,
     parse_globalx_csv,
     parse_sic_ciks,
+    provisional_conviction,
     run_universe_review,
     screen_universe,
 )

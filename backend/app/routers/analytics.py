@@ -1,6 +1,7 @@
 """Analytics routes — rules, recurring detection, merchant insights, reports, export."""
 from __future__ import annotations
 
+import calendar
 import csv
 import io
 import json
@@ -1865,6 +1866,106 @@ def spending_heatmap(
             "p75": round(p75, 2),
             "p90": round(p90, 2),
         },
+    }
+
+
+@router.get("/spending-trend")
+def spending_trend(
+    months: int = Query(
+        4, ge=1, le=12,
+        description="Number of prior calendar months to average for the baseline "
+                    "line (a trailing moving average).",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Month-to-date spending pace vs a trailing moving-average baseline.
+
+    Powers the "Spending pace" dashboard tile. Returns this month's
+    cumulative spend by day-of-month alongside a baseline curve that is the
+    average of the prior `months` calendar months' cumulative-by-day curves
+    (i.e. a `months`-month moving average). The two share a day-of-month X
+    axis, so the chart answers "is my spending this month ahead of or behind
+    my usual pace?" at a glance.
+
+    Spending definition matches the rest of the app (spending-heatmap,
+    spending-summary): positive amounts, excluding transfers — CC autopay,
+    internal account moves and loan principal aren't real outflow.
+    """
+    today = date.today()
+    cy, cm, cd = today.year, today.month, today.day
+    days_in_month = calendar.monthrange(cy, cm)[1]
+
+    # The prior `months` calendar months, excluding the current partial one.
+    baseline_months: list[tuple[int, int]] = []
+    y, m = cy, cm
+    for _ in range(months):
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+        baseline_months.append((y, m))
+    baseline_months.reverse()  # oldest → newest (cosmetic, for the label list)
+
+    # One query covers the whole window: earliest baseline month → today.
+    earliest = date(baseline_months[0][0], baseline_months[0][1], 1)
+    rows = (
+        db.query(Transaction.date, Transaction.amount)
+        .filter(
+            Transaction.date >= earliest,
+            Transaction.date <= today,
+            Transaction.amount > 0,
+            Transaction.is_transfer == False,  # noqa: E712
+        )
+        .all()
+    )
+    by_day: dict[date, float] = defaultdict(float)
+    for d, amt in rows:
+        by_day[d] += amt
+
+    def month_cum(yy: int, mm: int, upto_day: int) -> float:
+        """Cumulative spend in (yy, mm) through day `upto_day` (inclusive)."""
+        last = calendar.monthrange(yy, mm)[1]
+        return round(sum(
+            by_day.get(date(yy, mm, day), 0.0)
+            for day in range(1, min(upto_day, last) + 1)
+        ), 2)
+
+    # Only average over baseline months that actually have transactions — a
+    # missing month would otherwise contribute 0 and drag the baseline down.
+    present = {(d.year, d.month) for d in by_day}
+    avg_months = [mk for mk in baseline_months if mk in present] or baseline_months
+
+    points = []
+    for day in range(1, days_in_month + 1):
+        base_vals = [month_cum(yy, mm, day) for (yy, mm) in avg_months]
+        row = {"day": day, "baseline": round(sum(base_vals) / len(base_vals), 2)}
+        if day <= cd:
+            row["mtd"] = month_cum(cy, cm, day)
+        points.append(row)
+
+    mtd_total = month_cum(cy, cm, cd)
+    baseline_to_date = points[cd - 1]["baseline"] if 0 < cd <= len(points) else 0.0
+    baseline_full = points[-1]["baseline"] if points else 0.0
+    delta = round(mtd_total - baseline_to_date, 2)
+    pct = round(delta / baseline_to_date * 100, 1) if baseline_to_date else None
+    # Pace-adjusted projection: extend the current pace along the baseline's
+    # typical shape rather than assuming a flat daily rate.
+    projected = round(mtd_total / baseline_to_date * baseline_full, 2) if baseline_to_date else None
+
+    return {
+        "month": cm,
+        "year": cy,
+        "today": cd,
+        "days_in_month": days_in_month,
+        "baseline_window": len(avg_months),
+        "baseline_months": [f"{yy}-{mm:02d}" for (yy, mm) in avg_months],
+        "points": points,
+        "mtd_total": mtd_total,
+        "baseline_to_date": baseline_to_date,
+        "baseline_full": baseline_full,
+        "projected_month_end": projected,
+        "delta": delta,
+        "pct": pct,
+        "ahead": delta > 0,  # True = spending MORE than usual by now
     }
 
 

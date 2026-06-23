@@ -32,6 +32,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Sparkles, X, ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react'
 import { getChatPrompts, streamChatAnswer } from '../api/client'
+import AskTusk from './AskTusk'
 
 
 // ─── Fallback prose when LLM is disabled ──────────────────────────────
@@ -194,6 +195,7 @@ export default function AskPanel() {
             error={catalogError}
             onPick={handlePick}
             onClose={closePanel}
+            panelOpen={open}
           />
         ) : (
           <ChatView active={active} onBack={goBack} onClose={closePanel} />
@@ -231,8 +233,8 @@ function FloatingAskButton({ onClick, hidden }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label="Ask a question about your finances"
-      title="Ask"
+      aria-label="Ask Tusk about your finances"
+      title="Ask Tusk"
       style={{
         position: 'fixed',
         right: 24,
@@ -357,43 +359,50 @@ function PanelOverlay({ open, onClose, children }) {
 
 // ─── List view: header + prompt chips with horizon selectors ───────────
 
-function PromptListView({ catalog, error, onPick, onClose }) {
+function PromptListView({ catalog, error, onPick, onClose, panelOpen }) {
+  // Pinned segmented toggle between the free-form Assistant and the curated Quick questions, so
+  // each gets the FULL panel height (easy to browse) while the assistant's own controls stay pinned.
+  const [tab, setTab] = useState('assistant')   // 'assistant' | 'quick'
+  const tabBtn = (active) => ({
+    flex: 1, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 7,
+    border: `1px solid ${active ? 'var(--accent-purple, #7c6cf0)' : 'var(--border-soft, #2a2a35)'}`,
+    background: active ? 'var(--accent-purple, #7c6cf0)' : 'transparent',
+    color: active ? '#fff' : 'var(--text-secondary, #c0c0d0)',
+  })
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <PanelHeader title="Ask" subtitle="Pick a question" onClose={onClose} />
-      <div style={{ overflowY: 'auto', padding: '8px 16px 16px', flex: 1 }}>
-        {error && (
-          <div style={{
-            margin: '12px 0',
-            padding: '10px 12px',
-            border: '1px solid rgba(251, 146, 60, 0.3)',
-            background: 'rgba(251, 146, 60, 0.06)',
-            borderRadius: 8,
-            color: 'var(--text-secondary, #c0c0d0)',
-            fontSize: 12,
-          }}>
-            Couldn't load questions: {error}
-          </div>
-        )}
-        {!catalog && !error && <PromptListSkeleton />}
-        {catalog && catalog.length === 0 && (
-          <div style={{ color: 'var(--text-muted, #8a8a9a)', fontSize: 13, padding: '24px 0' }}>
-            No questions configured.
-          </div>
-        )}
-        {catalog && catalog.map((p) => (
-          <PromptCard key={p.id} prompt={p} onPick={(h) => onPick(p, h)} />
-        ))}
-        <p style={{
-          marginTop: 20,
-          fontSize: 11,
-          color: 'var(--text-dim, #6a6a7a)',
-          lineHeight: 1.5,
-        }}>
-          Numbers are computed locally from your data, then a local LLM
-          writes the answer. Your data never leaves the machine.
-        </p>
+      <PanelHeader title="Ask Tusk" subtitle="Read-only insight · not financial advice" onClose={onClose} />
+      <div style={{ flexShrink: 0, display: 'flex', gap: 6, padding: '8px 16px', borderBottom: '1px solid var(--border-soft, #2a2a35)' }}>
+        <button onClick={() => setTab('assistant')} style={tabBtn(tab === 'assistant')}>Assistant</button>
+        <button onClick={() => setTab('quick')} style={tabBtn(tab === 'quick')}>Quick questions</button>
       </div>
+      {tab === 'assistant' ? (
+        // Assistant fills the space and owns the only scroll (its transcript); its header + input stay
+        // pinned. Bottom padding keeps the input clear of the panel's bottom edge (was getting clipped).
+        <div style={{ flex: 1, minHeight: 0, padding: '8px 16px 16px' }}>
+          <AskTusk floating panelOpen={panelOpen} />
+        </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
+          {error && (
+            <div style={{ margin: '12px 0', padding: '10px 12px', border: '1px solid rgba(251, 146, 60, 0.3)',
+              background: 'rgba(251, 146, 60, 0.06)', borderRadius: 8, color: 'var(--text-secondary, #c0c0d0)', fontSize: 12 }}>
+              Couldn't load questions: {error}
+            </div>
+          )}
+          {!catalog && !error && <PromptListSkeleton />}
+          {catalog && catalog.length === 0 && (
+            <div style={{ color: 'var(--text-muted, #8a8a9a)', fontSize: 13, padding: '24px 0' }}>No questions configured.</div>
+          )}
+          {catalog && catalog.map((p) => (
+            <PromptCard key={p.id} prompt={p} onPick={(h) => onPick(p, h)} />
+          ))}
+          <p style={{ marginTop: 16, fontSize: 11, color: 'var(--text-dim, #6a6a7a)', lineHeight: 1.5 }}>
+            Numbers are computed locally from your data, then a local LLM
+            writes the answer. Your data never leaves the machine.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

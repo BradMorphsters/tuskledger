@@ -987,7 +987,7 @@ function ThisMonthBreakdown({
                           {subTxns.map(t => {
                             // For income, prefer merchant_name (already clean) over the
                             // backend's concatenated display_name which can read
-                            // "Oliver Healthcar Oliver Healthcar". Then run through the
+                            // "Acme Payroll Acme Payroll". Then run through the
                             // cleaner to strip ACH gunk if it slipped through, and
                             // collapse "Foo Foo" → "Foo".
                             let displayName

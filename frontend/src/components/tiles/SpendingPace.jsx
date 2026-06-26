@@ -126,8 +126,14 @@ export function SpendingPace() {
               labelFormatter={d => `Day ${d}`}
             />
             <ReferenceLine x={today} stroke="var(--text-muted)" strokeDasharray="2 4" strokeOpacity={0.6} />
+            {/* Avg income — the cushion ceiling. Dashed like the spend baseline
+                (both are N-mo averages); blue to read as inflow. */}
             <Line
-              type="monotone" dataKey="baseline" name={`${baseline_window}-mo avg`}
+              type="monotone" dataKey="income_baseline" name={`${baseline_window}-mo avg income`}
+              stroke="var(--accent-blue)" strokeWidth={1.5} strokeDasharray="5 4" dot={false}
+            />
+            <Line
+              type="monotone" dataKey="baseline" name={`${baseline_window}-mo avg spend`}
               stroke="var(--text-muted)" strokeWidth={1.5} strokeDasharray="5 4" dot={false}
             />
             <Line
@@ -152,7 +158,11 @@ export function SpendingPace() {
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 12, height: 0, borderTop: '2px dashed var(--text-muted)', display: 'inline-block' }} />
-            avg
+            avg spend
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 12, height: 0, borderTop: '2px dashed var(--accent-blue)', display: 'inline-block' }} />
+            avg income
           </span>
         </span>
         {projected_month_end != null && (

@@ -5,6 +5,7 @@ import calendar
 import csv
 import io
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import List, Optional
@@ -1869,6 +1870,32 @@ def spending_heatmap(
     }
 
 
+# Generic tokens found in bank deposit memos that don't identify the payer.
+# Used to collapse a description into a coarse payer "signature" at runtime, so
+# the income trend can be filtered by recurrence rather than a hardcoded keyword
+# list. These are bank/transaction-format words, NOT anything household-specific.
+_DEPOSIT_NOISE_TOKENS = frozenset({
+    "DEPOSIT", "ACH", "TYPE", "PAYROLL", "ID", "DIRECT", "PAY", "MOBILE",
+    "CHK", "DEP", "CHECK", "INTERNET", "TRANSFER", "FROM", "ACCOUNT", "ENDING",
+    "REF", "RATE", "APY", "EARNED", "SPLIT", "THE", "AND", "INC", "LLC",
+})
+# Recurring-income detection knobs.
+_RECURRING_INCOME_MIN_MONTHS = 2      # a payer must deposit in >= this many months
+_INCOME_MICRODEPOSIT_FLOOR = 50.0     # ignore sub-$50 credits (interest / cashback)
+
+
+def _payer_key(name) -> str:
+    """Collapse a deposit description to a coarse payer signature — the first two
+    meaningful tokens, uppercased, with digits/IDs and format-noise stripped.
+    Lets us group deposits by source from the data itself, with no hardcoded
+    employer or memo strings."""
+    tokens = [
+        t for t in re.sub(r"[^A-Za-z]+", " ", (name or "").upper()).split()
+        if t not in _DEPOSIT_NOISE_TOKENS and len(t) > 2
+    ]
+    return " ".join(tokens[:2])
+
+
 @router.get("/spending-trend")
 def spending_trend(
     months: int = Query(
@@ -1921,23 +1948,84 @@ def spending_trend(
     for d, amt in rows:
         by_day[d] += amt
 
-    def month_cum(yy: int, mm: int, upto_day: int) -> float:
-        """Cumulative spend in (yy, mm) through day `upto_day` (inclusive)."""
+    # Income trend = recurring paychecks only. Credits (amount < 0), excluding
+    # transfers, restricted to depository accounts (a credit-card refund isn't
+    # income). Stored as a positive magnitude to share the spend axis.
+    dep_account_ids = [
+        a_id for (a_id,) in db.query(Account.id)
+        .filter(Account.type == "depository").all()
+    ]
+    income_rows = (
+        db.query(Transaction.date, Transaction.amount, Transaction.name)
+        .filter(
+            Transaction.date >= earliest,
+            Transaction.date <= today,
+            Transaction.amount < 0,
+            Transaction.is_transfer == False,  # noqa: E712
+            Transaction.account_id.in_(dep_account_ids),
+        )
+        .all()
+    )
+    # Constancy filter: keep only recurring income streams. Derive a payer
+    # signature from each deposit memo and treat a payer that lands in >= N
+    # distinct months as a paycheck-like source. One-offs (a semiannual bonus, a
+    # tax refund) appear in a single month and drop out; sub-floor micro-deposits
+    # (interest) are ignored. This replaces the old keyword list — fully
+    # data-driven, with nothing household-specific hardcoded.
+    payer_months: dict[str, set] = defaultdict(set)
+    for d, amt, name in income_rows:
+        if -amt >= _INCOME_MICRODEPOSIT_FLOOR:
+            key = _payer_key(name)
+            if key:
+                payer_months[key].add((d.year, d.month))
+    recurring_payers = {
+        k for k, seen in payer_months.items()
+        if len(seen) >= _RECURRING_INCOME_MIN_MONTHS
+    }
+    # If the window is too short to judge recurrence, don't filter — showing
+    # everything beats blanking the line.
+    window_months = {(d.year, d.month) for d, _, _ in income_rows}
+    can_judge_recurrence = len(window_months) >= _RECURRING_INCOME_MIN_MONTHS
+
+    income_by_day: dict[date, float] = defaultdict(float)
+    for d, amt, name in income_rows:
+        val = -amt  # flip sign → positive inflow
+        if val < _INCOME_MICRODEPOSIT_FLOOR:
+            continue
+        if can_judge_recurrence and _payer_key(name) not in recurring_payers:
+            continue
+        income_by_day[d] += val
+
+    def _cum(src: dict[date, float], yy: int, mm: int, upto_day: int) -> float:
+        """Cumulative value from `src` in (yy, mm) through `upto_day` (inclusive)."""
         last = calendar.monthrange(yy, mm)[1]
         return round(sum(
-            by_day.get(date(yy, mm, day), 0.0)
+            src.get(date(yy, mm, day), 0.0)
             for day in range(1, min(upto_day, last) + 1)
         ), 2)
 
+    def month_cum(yy: int, mm: int, upto_day: int) -> float:
+        """Cumulative spend in (yy, mm) through day `upto_day` (inclusive)."""
+        return _cum(by_day, yy, mm, upto_day)
+
     # Only average over baseline months that actually have transactions — a
     # missing month would otherwise contribute 0 and drag the baseline down.
+    # Spend and income are filtered independently (a month could plausibly have
+    # one but not the other).
     present = {(d.year, d.month) for d in by_day}
     avg_months = [mk for mk in baseline_months if mk in present] or baseline_months
+    income_present = {(d.year, d.month) for d in income_by_day}
+    income_avg_months = [mk for mk in baseline_months if mk in income_present] or baseline_months
 
     points = []
     for day in range(1, days_in_month + 1):
         base_vals = [month_cum(yy, mm, day) for (yy, mm) in avg_months]
-        row = {"day": day, "baseline": round(sum(base_vals) / len(base_vals), 2)}
+        inc_vals = [_cum(income_by_day, yy, mm, day) for (yy, mm) in income_avg_months]
+        row = {
+            "day": day,
+            "baseline": round(sum(base_vals) / len(base_vals), 2),
+            "income_baseline": round(sum(inc_vals) / len(inc_vals), 2),
+        }
         if day <= cd:
             row["mtd"] = month_cum(cy, cm, day)
         points.append(row)
@@ -1945,6 +2033,8 @@ def spending_trend(
     mtd_total = month_cum(cy, cm, cd)
     baseline_to_date = points[cd - 1]["baseline"] if 0 < cd <= len(points) else 0.0
     baseline_full = points[-1]["baseline"] if points else 0.0
+    income_baseline_to_date = points[cd - 1]["income_baseline"] if 0 < cd <= len(points) else 0.0
+    income_baseline_full = points[-1]["income_baseline"] if points else 0.0
     delta = round(mtd_total - baseline_to_date, 2)
     pct = round(delta / baseline_to_date * 100, 1) if baseline_to_date else None
     # Pace-adjusted projection: extend the current pace along the baseline's
@@ -1958,10 +2048,13 @@ def spending_trend(
         "days_in_month": days_in_month,
         "baseline_window": len(avg_months),
         "baseline_months": [f"{yy}-{mm:02d}" for (yy, mm) in avg_months],
+        "income_baseline_window": len(income_avg_months),
         "points": points,
         "mtd_total": mtd_total,
         "baseline_to_date": baseline_to_date,
         "baseline_full": baseline_full,
+        "income_baseline_to_date": income_baseline_to_date,
+        "income_baseline_full": income_baseline_full,
         "projected_month_end": projected,
         "delta": delta,
         "pct": pct,

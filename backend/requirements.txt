@@ -1,24 +1,24 @@
-fastapi==0.111.0
-uvicorn==0.30.1
+fastapi==0.138.1
+uvicorn==0.49.0
 sqlalchemy==2.0.43
 plaid-python==26.0.0
-python-dotenv==1.0.1
-pydantic==2.7.4
-pydantic-settings==2.5.2
-httpx==0.27.2
-apscheduler==3.10.4
-tzlocal==5.2          # required by apscheduler at import; pin it explicitly so it can't be
+python-dotenv==1.2.2
+pydantic==2.13.4
+pydantic-settings==2.14.2
+httpx==0.28.1
+apscheduler==3.11.3
+tzlocal==5.4.3          # required by apscheduler at import; pin it explicitly so it can't be
                       # dropped from the resolution (an unpinned mcp once did exactly that,
                       # crashing boot with ModuleNotFoundError: tzlocal on the Railway demo)
-alembic==1.13.1
-pyotp==2.9.0
+alembic==1.18.5
+pyotp==2.10.0
 bcrypt==5.0.0
 qrcode[pil]==8.2
 itsdangerous==2.2.0
 cryptography==47.0.0
-pyjwt[crypto]==2.9.0
-zeroconf==0.132.2
-jsonschema==4.25.1
-mcp==1.10.1           # pinned (was >=1.9.1): the floating range let pip resolve a newer mcp whose
+pyjwt[crypto]==2.13.0
+zeroconf==0.150.0
+jsonschema==4.26.0
+mcp==1.28.1           # pinned (was >=1.9.1): the floating range let pip resolve a newer mcp whose
                       # transitive deps reshuffled the install set and dropped tzlocal — pin for
                       # reproducible builds. Only used for live agentic trading (imported lazily).

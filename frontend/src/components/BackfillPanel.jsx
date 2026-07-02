@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { History, Loader2, CheckCircle, AlertCircle, Info } from 'lucide-react'
 import { backfillTransactions } from '../api/client'
+import { toLocalISODate } from '../lib/format'
 
 /**
  * One-off historical backfill UI. Calls POST /api/plaid/backfill with a
@@ -394,7 +395,7 @@ function PresetBtn({ onClick, children }) {
 }
 
 function iso(d) {
-  return d.toISOString().slice(0, 10)
+  return toLocalISODate(d)
 }
 
 function defaultPreviousMonth() {

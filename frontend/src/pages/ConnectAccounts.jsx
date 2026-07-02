@@ -843,7 +843,7 @@ function AccountRow({ account, onUpdated }) {
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={5} style={{ background: 'var(--bg-hover, rgba(255,255,255,0.02))', padding: 16 }}>
+          <td colSpan={6} style={{ background: 'var(--bg-hover, rgba(255,255,255,0.02))', padding: 16 }}>
             {detailLoading && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading detail…</div>}
             {detailError && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{detailError}</div>}
             {!detailLoading && !detailError && detail && account.type === 'loan' && (

@@ -36,6 +36,39 @@ from app.services.tax import STATE_TAX_PRESETS
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
+# SSA benefit-vs-claim-age anchors, expressed relative to the full-
+# retirement-age (67) benefit: ~70% at 62, ~86.7% at 65, 100% at 67,
+# ~124% at 70. The real SSA schedule is piecewise-linear between these,
+# so we linearly interpolate for the in-between ages (63, 64, 66, 68,
+# 69) rather than defaulting them to 1.0.
+_ACTUARIAL_ANCHORS = {62: 0.70, 65: 0.867, 67: 1.0, 70: 1.24}
+
+
+def actuarial_factor(age: int) -> float:
+    """SSA benefit factor (relative to age-67 PIA) for any claim age.
+
+    Linearly interpolates between the anchor ages and clamps outside the
+    62–70 range (you can't claim retirement benefits earlier than 62, and
+    delayed credits stop accruing at 70)."""
+    anchors = sorted(_ACTUARIAL_ANCHORS.items())
+    lo_age, lo_val = anchors[0]
+    hi_age, hi_val = anchors[-1]
+    if age <= lo_age:
+        return lo_val
+    if age >= hi_age:
+        return hi_val
+    if age in _ACTUARIAL_ANCHORS:
+        return _ACTUARIAL_ANCHORS[age]
+    # Find the bracketing anchors and interpolate.
+    for i in range(len(anchors) - 1):
+        a0, v0 = anchors[i]
+        a1, v1 = anchors[i + 1]
+        if a0 <= age <= a1:
+            frac = (age - a0) / (a1 - a0)
+            return v0 + frac * (v1 - v0)
+    return 1.0  # unreachable given the clamps above
+
+
 # Account types we treat as "investable" — these grow at the projection's
 # return rate and contribute toward the retirement number. Cash sitting
 # in checking/savings doesn't grow meaningfully, so we don't include it.
@@ -836,8 +869,14 @@ def retirement_projection(
             # adjustment: ~70% at 62, ~86.7% at 65, 100% at 67, ~124% at 70.
             # The model takes the user's entered amount as their PIA
             # at the entered start age. Re-scale relative to that.
-            actuarial = {62: 0.70, 65: 0.867, 67: 1.0, 70: 1.24}
-            base_ratio = actuarial[claim_age] / actuarial.get(ss_start_age, 1.0)
+            #
+            # ss_start_age may be an age NOT in the anchor table (63, 64,
+            # 66, 68, 69). The old `.get(ss_start_age, 1.0)` silently
+            # fell back to 1.0 — the age-67 factor — for those, badly
+            # skewing base_ratio (e.g. a user claiming at 63 was treated
+            # as if their PIA equalled their full-retirement benefit).
+            # Interpolate between the surrounding anchors instead.
+            base_ratio = actuarial_factor(claim_age) / actuarial_factor(ss_start_age)
             adjusted_ss = ss_annual * (1 - ss_reduction_pct) * base_ratio
             adjusted_ss2 = ss2_annual * (1 - ss_reduction_pct) * base_ratio
             ss_claim_sweep_results.append({
@@ -845,7 +884,7 @@ def retirement_projection(
                 "lifetime_tax": round(lifetime_tax, 2),
                 "end_balance": round(end_balance, 2),
                 "adjusted_annual_ss_combined": round(adjusted_ss + adjusted_ss2, 2),
-                "actuarial_factor_vs_67": actuarial[claim_age],
+                "actuarial_factor_vs_67": actuarial_factor(claim_age),
             })
         # Break-even age per row — purely actuarial (cumulative SS cash
         # received), no additional sim runs needed.

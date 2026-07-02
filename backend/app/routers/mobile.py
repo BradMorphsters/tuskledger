@@ -43,6 +43,8 @@ import datetime
 import hashlib
 import secrets
 import socket
+import time
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -80,6 +82,42 @@ _PAIRING_TTL_SECONDS = 300  # 5 minutes
 def _generate_pairing_code() -> str:
     """Generate a fresh pairing code. Caller must ensure DB uniqueness."""
     return "".join(secrets.choice(_PAIRING_ALPHABET) for _ in range(_PAIRING_CODE_LEN))
+
+
+# ─── Pair-claim brute-force protection ──────────────────────────────────
+# Per-IP failed-claim tracking, modeled on auth.py's _check_lockout. The
+# pairing code is high-entropy (32^8 ≈ 1T) and single-use, but a claim
+# endpoint with NO rate limit still invites unbounded guessing on the LAN;
+# an attacker on the same Wi-Fi could hammer /pair/claim. This caps failed
+# claims per IP the same way the login flow caps failed TOTP attempts.
+# In-memory, resets on restart — fine for a single-user local app.
+_PAIR_MAX_FAILURES = 10
+_PAIR_LOCKOUT_SECONDS = 15 * 60
+_pair_failures: dict[str, list[float]] = defaultdict(list)
+
+
+def _pair_client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _pair_check_lockout(request: Request) -> None:
+    ip = _pair_client_ip(request)
+    now = time.time()
+    recent = [t for t in _pair_failures[ip] if now - t < _PAIR_LOCKOUT_SECONDS]
+    _pair_failures[ip] = recent
+    if len(recent) >= _PAIR_MAX_FAILURES:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed pairing attempts. Try again in 15 minutes.",
+        )
+
+
+def _pair_record_failure(request: Request) -> None:
+    _pair_failures[_pair_client_ip(request)].append(time.time())
+
+
+def _pair_record_success(request: Request) -> None:
+    _pair_failures.pop(_pair_client_ip(request), None)
 
 
 def _hash_token(plaintext: str) -> str:
@@ -458,16 +496,25 @@ def pair_start(
 
 
 @router.post("/pair/claim", response_model=PairClaimResponse)
-def pair_claim(body: PairClaimRequest, db: Session = Depends(get_db)):
+def pair_claim(
+    body: PairClaimRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Trade a pairing code for a long-lived device token.
 
     No auth required by design — the code IS the auth. The code is
     high-entropy (32^8 ≈ 1T values), single-use, and expires in 5
-    minutes. On a LAN, brute force is not a realistic threat.
+    minutes. On a LAN, brute force is not a realistic threat — but we
+    still rate-limit failed claims per IP (see _pair_check_lockout) so a
+    same-network attacker can't hammer the endpoint unbounded.
 
     Single-use is enforced by clearing pairing_code as part of the
     claim. A second claim with the same code will 404.
     """
+    # Throttle first: reject the request before touching the DB if this
+    # IP has already burned through its failed-claim budget.
+    _pair_check_lockout(request)
     code = body.code.strip().upper()
     row = (
         db.query(DeviceToken)
@@ -479,6 +526,7 @@ def pair_claim(body: PairClaimRequest, db: Session = Depends(get_db)):
         # Same 404 for both 'never existed' and 'already claimed' so
         # an attacker can't distinguish "wrong code" from "right code,
         # too late" by the response.
+        _pair_record_failure(request)
         raise HTTPException(404, "Pairing code not found or already claimed.")
     now = utcnow()
     if row.pairing_expires_at and row.pairing_expires_at < now:
@@ -486,6 +534,10 @@ def pair_claim(body: PairClaimRequest, db: Session = Depends(get_db)):
         # block a future code with the same value.
         db.delete(row)
         db.commit()
+        # An expired-but-correct code isn't a brute-force signal, but the
+        # attacker can't tell it apart from a miss anyway; count it toward
+        # the budget to keep the guessing cost uniform.
+        _pair_record_failure(request)
         raise HTTPException(410, "Pairing code expired. Generate a fresh one on the laptop.")
 
     plaintext = secrets.token_urlsafe(_TOKEN_BYTES)
@@ -496,6 +548,8 @@ def pair_claim(body: PairClaimRequest, db: Session = Depends(get_db)):
     row.last_seen_at = now
     db.commit()
 
+    # Successful claim clears this IP's failure counter.
+    _pair_record_success(request)
     return PairClaimResponse(
         token=plaintext,
         label=row.label,

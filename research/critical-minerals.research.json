@@ -4,7 +4,7 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-06-23T03:25:29Z",
+    "last_updated": "2026-07-02T03:23:59Z",
     "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
@@ -265,11 +265,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$60.29",
+        "price": "$54.28",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -353,15 +353,15 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$16.15",
+        "price": "$14.22",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
-      "govt_support": "DPA Title III eligible; AUD80M (Donald)",
+      "govt_support": "DPA Title III eligible; AUD80M (Donald); DoW Office of Strategic Capital $725M conditional loan commitment (signed Jun 18 2026) for RE metals/alloy facility + White Mesa metallization buildout",
       "risk_rating": "Med",
       "thesis": {
         "summary": "Largest US uranium producer AND only US heavy-REE separation; fortress balance sheet.",
@@ -379,6 +379,12 @@
           "description": "White Mesa Phase 2 REE expansion FID",
           "status": "upcoming",
           "impact": "med"
+        },
+        {
+          "due": "2026-2028",
+          "description": "DoW OSC $725M conditional loan → domestic RE metals/alloy (metallization) facility",
+          "status": "in_progress",
+          "impact": "high"
         }
       ],
       "risks": [],
@@ -393,14 +399,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Dept. of War Office of Strategic Capital signs $725M conditional loan commitment with Energy Fuels",
+          "url": "https://www.war.gov/News/Releases/Release/Article/4520819/the-department-of-wars-office-of-strategic-capital-signs-725-million-conditiona/",
+          "as_of": "2026-06-18",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-06-23",
       "price_targets": {
         "low": 15,
         "base": 22,
@@ -441,11 +453,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$156.69",
+        "price": "$136.08",
         "market_cap": "~$20B",
         "revenue": "$5.4B FY25",
         "cash": "~$2.7B liq.",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -512,11 +524,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$8.96",
+        "price": "$8.17",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -583,11 +595,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$12.98",
+        "price": "$12.41",
         "market_cap": "~$1.6B",
         "revenue": "$110M FY25",
         "cash": "~$6M (high debt)",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -654,11 +666,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$78.17",
+        "price": "$66.32",
         "market_cap": "~$1.35B",
         "revenue": "~$86M H1",
         "cash": "n/a",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -725,11 +737,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$78.46",
+        "price": "$74.22",
         "market_cap": "~$23B",
         "revenue": "$4.5B TTM",
         "cash": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -796,11 +808,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$107.36",
+        "price": "$97.39",
         "market_cap": "~$47B",
         "revenue": "C$3.5B FY25",
         "cash": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -884,11 +896,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$11.47",
+        "price": "$10.55",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -971,11 +983,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.53",
+        "price": "$1.36",
         "market_cap": "~$0.6B",
         "revenue": "ramping",
         "cash": "~$112M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1042,11 +1054,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.43",
+        "price": "$1.35",
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1113,11 +1125,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$183.68",
+        "price": "$166.34",
         "market_cap": "~$5B (verify)",
         "revenue": "$450-500M guide",
         "cash": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1201,11 +1213,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$69.21",
+        "price": "$60.53",
         "market_cap": "~$92B",
         "revenue": "$25.9B FY25",
         "cash": "~$3.9B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1272,11 +1284,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$189.91",
+        "price": "$168.80",
         "market_cap": "~$152B",
         "revenue": "$13.4B TTM",
         "cash": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1343,11 +1355,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$30.45",
+        "price": "$25.72",
         "market_cap": "~$2.9B",
         "revenue": "$263M Q1'26",
         "cash": "net debt ~$490M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1414,11 +1426,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$6.96",
+        "price": "$7.00",
         "market_cap": "~$2.2B",
         "revenue": "record FY25",
         "cash": "n/a",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1485,11 +1497,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$27.91",
+        "price": "$22.59",
         "market_cap": "~$8B",
         "revenue": "$757M Q1'26",
         "cash": "~$1.0B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1556,11 +1568,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.80",
+        "price": "$7.70",
         "market_cap": "~$1.3B",
         "revenue": "$125M guide",
         "cash": "~$90M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1644,11 +1656,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$18.65",
+        "price": "$15.95",
         "market_cap": "~$5B",
         "revenue": "$25M Q1'26 (+221%)",
         "cash": "$260M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1732,11 +1744,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.93",
+        "price": "$2.76",
         "market_cap": "~$460M",
         "revenue": "$7.8M Q3'26",
         "cash": "needs capital",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1803,11 +1815,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.09",
+        "price": "$6.27",
         "market_cap": "~$4B",
         "revenue": "has revenue",
         "cash": "n/a",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1872,11 +1884,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$24.12",
+        "price": "$19.98",
         "market_cap": "~$5.6B",
         "revenue": "~$6M Q1'26",
         "cash": "~$1.75B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1966,11 +1978,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.30",
+        "price": "$3.83",
         "market_cap": "~$2.0B",
         "revenue": "pre-revenue",
         "cash": "~$1.21B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2037,11 +2049,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$23.80",
+        "price": "$20.99",
         "market_cap": "~$2.9B",
         "revenue": "pre-revenue",
         "cash": "~$714M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2125,11 +2137,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$5.20",
+        "price": "$4.82",
         "market_cap": "~$0.66B",
         "revenue": "pre-revenue",
         "cash": "~$307M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2213,11 +2225,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.00",
+        "price": "$3.39",
         "market_cap": "~$0.48B",
         "revenue": "pre-revenue",
         "cash": "partly funded",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2282,11 +2294,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.51",
+        "price": "$1.53",
         "market_cap": "~$0.3B",
         "revenue": "pre-commercial",
         "cash": "~CA$74M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2353,11 +2365,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.51",
+        "price": "$0.44",
         "market_cap": "~$0.2-0.3B",
         "revenue": "$5.6M FY25",
         "cash": "capital-intensive",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2424,11 +2436,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.60",
+        "price": "$0.58",
         "market_cap": "micro",
         "revenue": "pre-revenue",
         "cash": "needs capital",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2495,11 +2507,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.88",
+        "price": "$4.41",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "needs equity",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2565,11 +2577,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.36",
+        "price": "$2.75",
         "market_cap": "~$0.83B",
         "revenue": "pre-revenue",
         "cash": "$141M, no debt",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2636,11 +2648,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$11.12",
+        "price": "$9.42",
         "market_cap": "~$1.7B",
         "revenue": "pre-revenue",
         "cash": "$200M facility",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2707,11 +2719,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$5.74",
+        "price": "$4.94",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "fully funded 2026",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2776,11 +2788,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.27",
+        "price": "$4.23",
         "market_cap": "~$1.0B",
         "revenue": "Eagle revenue",
         "cash": "n/a",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2845,11 +2857,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.23",
+        "price": "$1.99",
         "market_cap": "~$0.24B",
         "revenue": "~nil operating",
         "cash": "~$72.5M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2916,11 +2928,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.51",
+        "price": "$0.49",
         "market_cap": "~$0.1B",
         "revenue": "pre-revenue",
         "cash": "~$41.5M",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2987,11 +2999,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.72",
+        "price": "$0.74",
         "market_cap": "~$0.16B",
         "revenue": "pre-revenue",
         "cash": "financing-dep.",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3073,11 +3085,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.76",
+        "price": "$3.77",
         "market_cap": "~$0.11B",
         "revenue": "pre-production",
         "cash": "~$21M (gap)",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3143,11 +3155,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.17",
+        "price": "$0.13",
         "market_cap": "~$64M",
         "revenue": "some concentrate",
         "cash": "financing gap",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3212,11 +3224,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$58.40",
+        "price": "$52.45",
         "market_cap": "~$10B",
         "revenue": "pre-revenue",
         "cash": "~$2.5B",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3283,11 +3295,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$11.24",
+        "price": "$10.15",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3422,11 +3434,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$33.55",
+        "price": "$30.98",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3481,11 +3493,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$84.89",
+        "price": "$75.29",
         "aum": "~$7.5B",
         "expense_ratio": "0.65%",
         "return_1y": "~+96%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3540,11 +3552,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$46.80",
+        "price": "$43.18",
         "aum": "~$6.3B",
         "expense_ratio": "0.69%",
         "return_1y": "~+117%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3599,11 +3611,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$124.55",
+        "price": "$114.87",
         "aum": "~$4.7B",
         "expense_ratio": "0.56%",
         "return_1y": "~+73%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3658,11 +3670,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$97.29",
+        "price": "$87.66",
         "aum": "~$3.0B",
         "expense_ratio": "0.53-0.58%",
         "return_1y": "~+117%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3717,11 +3729,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$56.18",
+        "price": "$52.37",
         "aum": "~$1.94B",
         "expense_ratio": "0.75%",
         "return_1y": "~+57%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3776,11 +3788,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$115.22",
+        "price": "$104.36",
         "aum": "~$5.3B",
         "expense_ratio": "0.35%",
         "return_1y": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3835,11 +3847,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$18.67",
+        "price": "$18.93",
         "aum": "~$6.1B",
         "expense_ratio": "~0.35%",
         "return_1y": "tracks U",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3894,11 +3906,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$62.49",
+        "price": "$57.29",
         "aum": "~$1.8B",
         "expense_ratio": "0.39%",
         "return_1y": "strong",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3953,11 +3965,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$25.14",
+        "price": "$23.38",
         "aum": "~$358M",
         "expense_ratio": "0.80%",
         "return_1y": "~+68%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4012,11 +4024,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$21.31",
+        "price": "$19.45",
         "aum": "~$50M",
         "expense_ratio": "~0.65%",
         "return_1y": "new fund",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4071,11 +4083,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$82.57",
+        "price": "$77.97",
         "aum": "~$2.1B",
         "expense_ratio": "0.75%",
         "return_1y": "~+88%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4130,11 +4142,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$71.09",
+        "price": "$66.84",
         "aum": "~$0.9B",
         "expense_ratio": "0.85%",
         "return_1y": "~+42%",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4189,11 +4201,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$16.61",
+        "price": "$15.33",
         "aum": "~$126M",
         "expense_ratio": "0.59%",
         "return_1y": "positive",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4248,11 +4260,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$38.79",
+        "price": "$37.21",
         "aum": "~$833M",
         "expense_ratio": "0.97%",
         "return_1y": "tracks Cu",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4313,8 +4325,8 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$99.36",
-        "as_of": "2026-06",
+        "price": "$93.35",
+        "as_of": "2026-07",
         "price_source": "stooq"
       }
     },
@@ -4351,8 +4363,8 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$405.05",
-        "as_of": "2026-06",
+        "price": "$425.30",
+        "as_of": "2026-07",
         "price_source": "stooq"
       }
     },
@@ -4389,8 +4401,8 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$232.94",
-        "as_of": "2026-06",
+        "price": "$220.46",
+        "as_of": "2026-07",
         "price_source": "stooq"
       }
     },
@@ -4427,8 +4439,8 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$25.64",
-        "as_of": "2026-06",
+        "price": "$20.75",
+        "as_of": "2026-07",
         "price_source": "stooq"
       }
     },
@@ -4465,8 +4477,8 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$5.16",
-        "as_of": "2026-06",
+        "price": "$6.63",
+        "as_of": "2026-07",
         "price_source": "stooq"
       }
     }

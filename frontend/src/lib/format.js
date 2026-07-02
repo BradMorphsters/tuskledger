@@ -65,6 +65,19 @@ export function formatCompactCurrency(val) {
 export const fmt = formatCurrencyZero
 
 /**
+ * Local-timezone ISO date (YYYY-MM-DD) for a Date object. Unlike
+ * `date.toISOString().slice(0,10)`, which converts to UTC first and
+ * so rolls over to "tomorrow" during US evenings, this reads the
+ * local calendar-day fields. Use this everywhere a date is persisted
+ * to the DB or compared against a local "today". Mirrors the padding
+ * pattern in Dashboard's monthRange().
+ */
+export function toLocalISODate(date = new Date()) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
  * MM/DD/YYYY date formatter. Date strings from the API are ISO
  * (YYYY-MM-DD) so we splice them at noon UTC to avoid timezone-
  * induced day shifts in en-US output.

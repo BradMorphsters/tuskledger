@@ -21,15 +21,34 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+# One process-wide lock guarding every read→modify→write on the proposals file. os.replace makes a
+# single write atomic, but each mutating store method is _read()→mutate→_write(): without this, two
+# concurrent writers (e.g. an approve racing a cycle's supersede/add, or a place racing a reconcile)
+# each read the same list and the last _write wins — silently reverting a `placed` back to
+# `approved` or dropping a supersede. Held across the whole read→write of each mutator.
+_STORE_LOCK = threading.Lock()
+
 PENDING, APPROVED, REJECTED, PLACED, EXPIRED = "pending", "approved", "rejected", "placed", "expired"
+# Two more states for the placement handshake (finding #1/#2):
+#   PLACING — a broker round-trip is IN FLIGHT for this proposal. Set by an atomic approved→placing
+#             compare-and-swap so a double-tap Approve during the multi-second placement is a no-op.
+#   UNKNOWN — placement failed in a way that MIGHT have reached the broker (a timeout), so it can't
+#             be safely retried; needs a get_equity_orders reconcile before it's actionable again.
+PLACING, UNKNOWN = "placing", "unknown"
 TERMINAL = {REJECTED, PLACED, EXPIRED}
 DEFAULT_TTL_MIN = 24 * 60  # a proposal you haven't acted on goes stale after a day
+
+
+class PlacementInFlight(Exception):
+    """Raised when a placement is already in flight (or done) for a proposal — the guard against a
+    double-tap Approve placing the same live order twice."""
 
 
 def resolve_proposals_path(configured: str) -> Path:
@@ -185,63 +204,114 @@ class ProposalStore:
 
     def add(self, proposals: list[Proposal]) -> int:
         """Append new proposals (dedupe by id). Returns the count added."""
-        items = self._read()
-        have = {p.id for p in items}
-        fresh = [p for p in proposals if p.id not in have]
-        if fresh:
-            self._write(items + fresh)
-        return len(fresh)
+        with _STORE_LOCK:                          # read→write under the lock (see _STORE_LOCK)
+            items = self._read()
+            have = {p.id for p in items}
+            fresh = [p for p in proposals if p.id not in have]
+            if fresh:
+                self._write(items + fresh)
+            return len(fresh)
 
     def supersede_pending(self, cycle_id: str) -> int:
         """Expire any still-pending proposals from earlier cycles before queuing a new batch, so
         the user only ever sees the latest cycle's actionable orders. Returns count superseded."""
-        items = self._read()
-        n = 0
-        for i, p in enumerate(items):
-            if p.status == PENDING and p.cycle_id != cycle_id:
-                items[i] = replace(p, status=EXPIRED)
-                n += 1
-        if n:
-            self._write(items)
-        return n
+        with _STORE_LOCK:
+            items = self._read()
+            n = 0
+            for i, p in enumerate(items):
+                if p.status == PENDING and p.cycle_id != cycle_id:
+                    items[i] = replace(p, status=EXPIRED)
+                    n += 1
+            if n:
+                self._write(items)
+            return n
 
     def decide(self, pid: str, action: str, *, by: str = "user", now: Optional[str] = None) -> Proposal:
         """Approve/Reject a pending proposal, persisting the transition. Raises if not actionable."""
-        items = self._read()
-        for i, p in enumerate(items):
-            if p.id == pid:
-                updated = apply_decision(p, action, by=by, now=now)
-                items[i] = updated
-                self._write(items)
-                return updated
-        raise KeyError(f"no proposal {pid!r}")
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid:
+                    updated = apply_decision(p, action, by=by, now=now)
+                    items[i] = updated
+                    self._write(items)
+                    return updated
+            raise KeyError(f"no proposal {pid!r}")
+
+    def begin_placing(self, pid: str, *, now: Optional[str] = None) -> Proposal:
+        """Atomic APPROVED→PLACING compare-and-swap: claim a proposal for placement so the broker
+        round-trip runs exactly once. Held under the store lock, so of two concurrent Approves only
+        the first flips approved→placing; the second sees PLACING (or PLACED) and raises
+        PlacementInFlight — the guard against double-placing the same live order (finding #1)."""
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid:
+                    if p.status == PLACING:
+                        raise PlacementInFlight(f"proposal {pid} is already being placed")
+                    if p.status == PLACED:
+                        raise PlacementInFlight(f"proposal {pid} is already placed")
+                    if p.status != APPROVED:
+                        raise ValueError(f"proposal {pid} is {p.status}, not approved — cannot place")
+                    items[i] = replace(p, status=PLACING, decided_at=now or _now())
+                    self._write(items)
+                    return items[i]
+            raise KeyError(f"no proposal {pid!r}")
+
+    def abort_placing(self, pid: str) -> Optional[Proposal]:
+        """Roll a PLACING proposal back to APPROVED after a placement failure that definitely did
+        NOT reach the broker (a clean reject), so the user can retry. No-op unless it's PLACING."""
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid and p.status == PLACING:
+                    items[i] = replace(p, status=APPROVED)
+                    self._write(items)
+                    return items[i]
+            return None
+
+    def mark_unknown(self, pid: str, reason: str = "") -> Optional[Proposal]:
+        """Park a PLACING proposal in UNKNOWN after a timeout-class failure that MIGHT have reached
+        the broker: it can't be safely retried (could duplicate a filled order) until a
+        get_equity_orders reconcile resolves it. Records the reason in placed_state for the UI."""
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid and p.status == PLACING:
+                    items[i] = replace(p, status=UNKNOWN, placed_state=(reason or "needs reconcile"))
+                    self._write(items)
+                    return items[i]
+            return None
 
     def mark_placed(self, pid: str, placed_ref: str, *, now: Optional[str] = None,
                     state: Optional[str] = None) -> Proposal:
-        """Record that an APPROVED proposal was placed by the backend (the bound agent). This is
-        called by the placement path after the user approved — never to skip approval. ``state`` is
-        the broker order state (filled/queued/unconfirmed) so the queue shows executed vs queued."""
-        items = self._read()
-        for i, p in enumerate(items):
-            if p.id == pid:
-                if p.status != APPROVED:
-                    raise ValueError(f"proposal {pid} is {p.status}, not approved — cannot mark placed")
-                items[i] = replace(p, status=PLACED, placed_ref=placed_ref,
-                                   placed_state=state, decided_at=now or _now())
-                self._write(items)
-                return items[i]
-        raise KeyError(f"no proposal {pid!r}")
+        """Record that an APPROVED/PLACING proposal was placed by the backend (the bound agent).
+        This is called by the placement path after the user approved — never to skip approval.
+        ``state`` is the broker order state (filled/queued/unconfirmed) so the queue shows
+        executed vs queued."""
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid:
+                    if p.status not in (APPROVED, PLACING):
+                        raise ValueError(f"proposal {pid} is {p.status}, not approved — cannot mark placed")
+                    items[i] = replace(p, status=PLACED, placed_ref=placed_ref,
+                                       placed_state=state, decided_at=now or _now())
+                    self._write(items)
+                    return items[i]
+            raise KeyError(f"no proposal {pid!r}")
 
     def update_placed_state(self, pid: str, state: str) -> Optional[Proposal]:
         """Refresh the recorded broker state of an already-PLACED proposal (e.g. queued→filled
         once a market order completes). No-op if the proposal isn't placed."""
-        items = self._read()
-        for i, p in enumerate(items):
-            if p.id == pid and p.status == PLACED:
-                items[i] = replace(p, placed_state=state)
-                self._write(items)
-                return items[i]
-        return None
+        with _STORE_LOCK:
+            items = self._read()
+            for i, p in enumerate(items):
+                if p.id == pid and p.status == PLACED:
+                    items[i] = replace(p, placed_state=state)
+                    self._write(items)
+                    return items[i]
+            return None
 
     def counts(self, *, now: Optional[str] = None) -> dict[str, int]:
         out: dict[str, int] = {}

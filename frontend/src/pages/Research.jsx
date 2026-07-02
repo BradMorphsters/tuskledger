@@ -13,6 +13,7 @@
  * shows no held overlay when the synthetic portfolio doesn't overlap).
  */
 import { useEffect, useMemo, useState } from 'react'
+import { useLatestRequest } from '../hooks/useLatestRequest'
 import {
   Gem, AlertTriangle, Target, Clock, Flag, TrendingUp, X, RefreshCw, Sparkles, Landmark, ChevronDown,
 } from 'lucide-react'
@@ -242,9 +243,16 @@ function SynthesisSpotlights({ spotlights, highlights }) {
 // ── Research AI synthesis (holistic local-AI read across every plane) ────
 function ResearchSynthesisCard({ domain }) {
   const [narr, setNarr] = useState(undefined)  // undefined=loading, null=error
+  const runSynthesis = useLatestRequest()
   const load = () => {
     setNarr(undefined)
-    getResearchSynthesis(domain).then(setNarr).catch(() => setNarr(null))
+    // Synthesis is a 10-25s local-LLM call; if the user switches industry
+    // mid-flight, discard the stale result so it can't overwrite the new one.
+    runSynthesis(token =>
+      getResearchSynthesis(domain)
+        .then(d => { if (token.live) setNarr(d) })
+        .catch(() => { if (token.live) setNarr(null) })
+    )
   }
   useEffect(() => { if (domain) load() }, [domain])
   return (

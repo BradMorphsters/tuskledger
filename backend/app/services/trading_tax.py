@@ -199,10 +199,12 @@ def compute_realized_pnl(
     #     the IRS rule; useful when retirement accounts can't possibly
     #     hold the same individual securities being traded.
     by_account_symbol: dict[tuple, list[dict]] = defaultdict(list)
-    # Buy indexes for wash-sale scanning. We build BOTH variants so
-    # the scope toggle is just a lookup choice rather than a re-pass.
-    buys_by_security: dict[str, list[tuple[datetime.date, dict]]] = defaultdict(list)
-    buys_by_account_security: dict[tuple, list[tuple[datetime.date, dict]]] = defaultdict(list)
+    # NOTE: earlier revisions also built buys_by_security /
+    # buys_by_account_security indexes here for wash-sale scanning, but the
+    # interleaved chronological pass below does wash detection inline off
+    # `open_lots_by_group` and `matches`, so those indexes were never read.
+    # Removed as dead code (they doubled the pre-pass allocation for large
+    # histories with no consumer).
     for t in transactions:
         sec_id = t.get("plaid_security_id")
         if not sec_id:
@@ -211,9 +213,6 @@ def compute_realized_pnl(
         if ttype not in ("buy", "sell"):
             continue
         by_account_symbol[(t.get("account_id"), sec_id)].append(t)
-        if ttype == "buy":
-            buys_by_security[sec_id].append((t["date"], t))
-            buys_by_account_security[(t.get("account_id"), sec_id)].append((t["date"], t))
     for k in by_account_symbol:
         by_account_symbol[k].sort(key=lambda t: (t["date"], t.get("plaid_investment_transaction_id") or ""))
 
@@ -251,6 +250,15 @@ def compute_realized_pnl(
     ))
 
     matches: list[Match] = []
+    # Sells that couldn't be fully matched to a buy lot even after the
+    # cross-account transfer reconciliation pass. Previously these shares
+    # were silently dropped — the sell's proceeds and any gain vanished
+    # from Form 8949, understating realized gains. We now (a) emit a
+    # zero-basis synthetic match for the unmatched shares (the IRS
+    # treatment for unknown basis is $0 → fully taxable proceeds, the
+    # conservative default) and (b) record the shortfall here so the
+    # router/UI can flag "N shares had no matched basis — verify import".
+    unmatched_sells: list[dict] = []
     open_lots_by_group: dict[tuple, deque[Lot]] = {}
     # Symbol label cache, derived from the first txn that has one.
     symbol_labels: dict[str, str] = {}
@@ -408,7 +416,41 @@ def compute_realized_pnl(
                     else:
                         break
                 remaining -= cross_pulled
-                # If STILL remaining → silently dropped (data error).
+
+            # If shares STILL remain unmatched, do NOT silently drop them
+            # (that erases the sale's proceeds/gain from the return).
+            # Record the shortfall and emit a zero-basis match so the
+            # proceeds still land on Form 8949 as fully-taxable gain — the
+            # standard IRS treatment when cost basis is unknown. This
+            # over-taxes rather than under-reports, which is the safe
+            # direction and gives the user a visible flag to fix the data.
+            if remaining > 1e-9:
+                zb_proceeds = round(remaining * proceeds_per_share, 2)
+                zb_match = Match(
+                    symbol=_label(sec_id),
+                    sell_date=date,
+                    buy_date=date,  # unknown acquisition; sell date as placeholder
+                    quantity=remaining,
+                    proceeds=zb_proceeds,
+                    basis=0.0,
+                    gain_loss=zb_proceeds,
+                    holding_period_days=0,
+                    term="ST",  # unknown holding period → conservative ST
+                    sell_txn_id=txn_id,
+                    buy_txn_id=None,
+                    account_id=acct_id,
+                )
+                matches.append(zb_match)
+                new_matches.append(zb_match)
+                unmatched_sells.append({
+                    "symbol": _label(sec_id),
+                    "plaid_security_id": sec_id,
+                    "sell_date": date,
+                    "account_id": acct_id,
+                    "unmatched_quantity": round(remaining, 6),
+                    "proceeds": zb_proceeds,
+                    "sell_txn_id": txn_id,
+                })
 
             # Backward wash: for each loss match created by this sell,
             # look for a buy of the same security within 30 days BEFORE
@@ -543,6 +585,17 @@ def compute_realized_pnl(
             "match_count": len(matches),
             "open_position_count": len(open_positions),
         },
+        # Set of buy-lot txn ids that are still open (not fully consumed).
+        # Exposed so a caller that re-aggregates a FILTERED subset of the
+        # matches (e.g. the router restricting Form 8949 rows to one tax
+        # year) can recompute the locked-vs-captured wash split honestly
+        # against the SAME year's disallowance total rather than carrying
+        # the taxpayer-wide figure. See _summary_from_matches.
+        "open_lot_txn_ids": open_lot_txn_ids,
+        # Sells whose shares had no matched buy lot (see above). Empty in
+        # the normal case; non-empty means the import is missing buys and
+        # those proceeds were reported at zero basis (fully taxable).
+        "unmatched_sells": unmatched_sells,
     }
 
 
@@ -631,36 +684,11 @@ def _consume_from_other_accounts(
     return consumed
 
 
-def _find_replacement_buy(
-    sec_id: str,
-    sell_date: datetime.date,
-    sell_txn_id: Optional[str],
-    matched_buy_txn_id: Optional[str],
-    buys: list[tuple[datetime.date, dict]],
-    open_lots: list[Lot],
-) -> Optional[dict]:
-    """Find any qualifying replacement buy in the wash-sale window
-    (sell_date ± 30 days inclusive). Returns the buy txn dict if found,
-    else None.
-
-    'Qualifying' = a buy of the same symbol within the window that is
-    NOT the originating buy of the loss match (the buy that provided
-    the sold shares is the SOURCE, not a replacement). We exclude:
-      - matched_buy_txn_id (the source of the sold shares)
-      - sell_txn_id (a sell isn't a buy, but defensive)
-    """
-    window_start = sell_date - datetime.timedelta(days=WASH_WINDOW_DAYS)
-    window_end = sell_date + datetime.timedelta(days=WASH_WINDOW_DAYS)
-    for buy_date, buy_txn in buys:
-        if not (window_start <= buy_date <= window_end):
-            continue
-        bid = buy_txn.get("plaid_investment_transaction_id")
-        if bid == matched_buy_txn_id:
-            continue  # this is the originating buy, not a replacement
-        if bid == sell_txn_id:
-            continue
-        return buy_txn
-    return None
+# NOTE: _find_replacement_buy() lived here — an orphaned helper from the
+# earlier pass-1-FIFO-then-pass-2-wash design. The current interleaved pass
+# does forward+backward wash detection inline (see compute_realized_pnl),
+# so nothing called it. Removed along with the dead buys_by_* indexes it
+# relied on.
 
 
 def estimate_tax_owed(

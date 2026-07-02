@@ -10,8 +10,8 @@
  * positions history, so there is nothing honest to compute it from.
  * The unrealized-gain chip carries the "how am I doing" signal instead.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
@@ -25,7 +25,7 @@ import {
   investmentsRollup,
   listHoldings,
 } from '../db/queries';
-import { useSyncStore } from '../sync/manager';
+import { syncNow, useSyncStore } from '../sync/manager';
 import { colors, formatCurrency, formatDelta, layout, space, type } from '../theme';
 
 // Segment palette for the allocation bar — brand gold first, then the
@@ -88,6 +88,7 @@ function buildSegments(holdings: HoldingRow[], rollup: InvestmentsRollup | null)
 
 export default function InvestmentsScreen() {
   const dataVersion = useSyncStore((s) => s.dataVersion);
+  const status = useSyncStore((s) => s.status);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [rollup, setRollup] = useState<InvestmentsRollup | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -118,108 +119,142 @@ export default function InvestmentsScreen() {
       ? (gain / rollup.total_cost_basis) * 100
       : null;
 
-  return (
-    <Screen title="Investments">
-      {/* ── Portfolio hero ──────────────────────────────────────── */}
-      {!loaded ? (
-        <View style={styles.hero}>
-          <SkeletonBlock width={130} height={12} />
-          <SkeletonBlock width={220} height={40} style={{ marginTop: space(2) }} />
-        </View>
-      ) : (
-        <Animated.View entering={FadeInDown.duration(400)} style={styles.hero}>
-          <Text style={type.caption}>Portfolio value</Text>
-          <MoneyText
-            value={rollup?.total_value}
-            size="hero"
-            style={{ marginTop: space(1) }}
-          />
-          <View style={styles.chipRow}>
-            {gain != null && (
-              <Chip
-                label={`${formatDelta(gain)}${gainPct != null ? ` (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%)` : ''}`}
-                tone={gain >= 0 ? 'income' : 'expense'}
-                small
-              />
-            )}
-            {(rollup?.cash_value ?? 0) > 0 && (
-              <Chip
-                label={`${formatCurrency(rollup?.cash_value ?? 0)} cash`}
-                tone="neutral"
-                small
-              />
-            )}
+  // Everything above the holdings list — hero, allocation, and the
+  // "Holdings" section header — rides along as the FlatList header so
+  // the whole screen scrolls as one surface while the holdings rows
+  // (which can run into the hundreds) get FlatList's row virtualization
+  // instead of a mount-everything .map inside a ScrollView.
+  const ListHeader = useCallback(
+    () => (
+      <>
+        {/* ── Portfolio hero ──────────────────────────────────── */}
+        {!loaded ? (
+          <View style={styles.hero}>
+            <SkeletonBlock width={130} height={12} />
+            <SkeletonBlock width={220} height={40} style={{ marginTop: space(2) }} />
           </View>
-          <Text style={[type.small, { marginTop: space(2) }]}>
-            {rollup?.positions ?? 0} positions
-            {rollup && rollup.total_cost_basis === 0 && rollup.positions > 0
-              ? ' · cost basis unavailable for some positions'
-              : ''}
-          </Text>
-        </Animated.View>
-      )}
-
-      {/* ── Allocation ──────────────────────────────────────────── */}
-      {segments.length > 0 && segTotal > 0 && (
-        <>
-          <SectionHeader label="Allocation" />
-          <Card>
-            <View
-              style={styles.allocBar}
-              accessibilityLabel={`Allocation: ${segments
-                .map((s) => `${s.label} ${((s.value / segTotal) * 100).toFixed(0)} percent`)
-                .join(', ')}`}>
-              {segments.map((s) => (
-                <View
-                  key={s.label}
-                  style={{
-                    flex: s.value,
-                    backgroundColor: s.color,
-                  }}
+        ) : (
+          <Animated.View entering={FadeInDown.duration(400)} style={styles.hero}>
+            <Text style={type.caption}>Portfolio value</Text>
+            <MoneyText
+              value={rollup?.total_value}
+              size="hero"
+              style={{ marginTop: space(1) }}
+            />
+            <View style={styles.chipRow}>
+              {gain != null && (
+                <Chip
+                  label={`${formatDelta(gain)}${gainPct != null ? ` (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%)` : ''}`}
+                  tone={gain >= 0 ? 'income' : 'expense'}
+                  small
                 />
-              ))}
+              )}
+              {(rollup?.cash_value ?? 0) > 0 && (
+                <Chip
+                  label={`${formatCurrency(rollup?.cash_value ?? 0)} cash`}
+                  tone="neutral"
+                  small
+                />
+              )}
             </View>
-            <View style={styles.legend}>
-              {segments.map((s) => (
-                <View key={s.label} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: s.color }]} />
-                  <Text style={type.small} numberOfLines={1}>
-                    {s.label}
-                  </Text>
-                  <Text style={styles.legendPct}>
-                    {((s.value / segTotal) * 100).toFixed(0)}%
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        </>
-      )}
+            <Text style={[type.small, { marginTop: space(2) }]}>
+              {rollup?.positions ?? 0} positions
+              {rollup && rollup.total_cost_basis === 0 && rollup.positions > 0
+                ? ' · cost basis unavailable for some positions'
+                : ''}
+            </Text>
+          </Animated.View>
+        )}
 
-      {/* ── Holdings ────────────────────────────────────────────── */}
-      <SectionHeader
-        label="Holdings"
-        right={
+        {/* ── Allocation ──────────────────────────────────────── */}
+        {segments.length > 0 && segTotal > 0 && (
+          <>
+            <SectionHeader label="Allocation" />
+            <Card>
+              <View
+                style={styles.allocBar}
+                accessibilityLabel={`Allocation: ${segments
+                  .map((s) => `${s.label} ${((s.value / segTotal) * 100).toFixed(0)} percent`)
+                  .join(', ')}`}>
+                {segments.map((s) => (
+                  <View
+                    key={s.label}
+                    style={{
+                      flex: s.value,
+                      backgroundColor: s.color,
+                    }}
+                  />
+                ))}
+              </View>
+              <View style={styles.legend}>
+                {segments.map((s) => (
+                  <View key={s.label} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+                    <Text style={type.small} numberOfLines={1}>
+                      {s.label}
+                    </Text>
+                    <Text style={styles.legendPct}>
+                      {((s.value / segTotal) * 100).toFixed(0)}%
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          </>
+        )}
+
+        {/* ── Holdings ────────────────────────────────────────── */}
+        <SectionHeader
+          label="Holdings"
+          right={
+            holdings.length > 0 ? (
+              <Text style={type.small}>{holdings.length}</Text>
+            ) : undefined
+          }
+        />
+        {holdings.length === 0 ? (
+          <Card>
+            <Text style={type.small}>
+              No holdings synced yet. If you have investment accounts
+              connected on the laptop, run "Sync now" — Plaid pulls
+              positions on a slower cadence than transactions.
+            </Text>
+          </Card>
+        ) : null}
+      </>
+    ),
+    [loaded, rollup, gain, gainPct, segments, segTotal, holdings.length],
+  );
+
+  return (
+    <Screen title="Investments" scroll={false}>
+      <FlatList
+        data={holdings}
+        keyExtractor={(h) => String(h.id)}
+        renderItem={({ item, index }) => (
+          <View style={index === 0 ? styles.holdingsCardTop : styles.holdingsCardMid}>
+            <Holding h={item} first={index === 0} />
+          </View>
+        )}
+        // Round off the bottom corners of the last row so the list still
+        // reads as one card, the same way `Card padded={false}` did.
+        ListFooterComponent={
           holdings.length > 0 ? (
-            <Text style={type.small}>{holdings.length}</Text>
-          ) : undefined
+            <View style={styles.holdingsCardBottom} />
+          ) : (
+            <View style={{ height: space(8) }} />
+          )
+        }
+        ListHeaderComponent={ListHeader}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={status === 'syncing'}
+            onRefresh={() => syncNow()}
+            tintColor={colors.textMuted}
+          />
         }
       />
-      {holdings.length === 0 ? (
-        <Card>
-          <Text style={type.small}>
-            No holdings synced yet. If you have investment accounts
-            connected on the laptop, run "Sync now" — Plaid pulls
-            positions on a slower cadence than transactions.
-          </Text>
-        </Card>
-      ) : (
-        <Card padded={false}>
-          {holdings.map((h, i) => (
-            <Holding key={h.id} h={h} first={i === 0} />
-          ))}
-        </Card>
-      )}
     </Screen>
   );
 }
@@ -271,6 +306,38 @@ function Holding({ h, first }: { h: HoldingRow; first: boolean }) {
 }
 
 const styles = StyleSheet.create({
+  listContent: {
+    paddingHorizontal: layout.screenPad,
+    paddingTop: space(2),
+  },
+  // Holdings-list card faces. The FlatList renders individual rows, so
+  // the "one card with hairline dividers" look from `Card padded={false}`
+  // is reconstructed here: side borders on every row, a rounded/topped
+  // border on the first row, and a rounded/bottomed footer to close it.
+  holdingsCardTop: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSubtle,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: layout.cardRadius,
+    borderTopRightRadius: layout.cardRadius,
+  },
+  holdingsCardMid: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSubtle,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+  },
+  holdingsCardBottom: {
+    height: layout.cardRadius,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSubtle,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: layout.cardRadius,
+    borderBottomRightRadius: layout.cardRadius,
+    marginBottom: space(8),
+  },
   hero: {
     paddingTop: space(3),
   },

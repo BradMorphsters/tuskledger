@@ -7,7 +7,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.database import _is_demo_request, get_db
-from app.models import PlaidItem, Account, Transaction
+from app.models import (
+    PlaidItem,
+    Account,
+    Transaction,
+    Holding,
+    InvestmentTransaction,
+    MortgageDetail,
+    CreditCardDetail,
+)
 from app.schemas.schemas import LinkTokenResponse, PublicTokenExchange
 from app.services.plaid_service import get_plaid_client, create_link_token, exchange_public_token
 from app.services.sync_service import sync_single_item
@@ -165,10 +173,25 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    # Delete associated accounts (transactions cascade via relationship)
+    # Delete associated accounts and every row that hangs off them.
+    #
+    # These child tables (holdings, investment_transactions, and the two
+    # liability-detail tables) declare `ondelete="CASCADE"` on their
+    # account_id FK, but SQLite does NOT honor FK cascades unless
+    # `PRAGMA foreign_keys=ON` is set on the connection — and we never
+    # enable it. So the DB won't clean these up for us; deleting only the
+    # transactions + accounts + item leaves orphaned holdings /
+    # investment-transaction / liability rows behind (they later surface
+    # as phantom positions and net-worth math referencing a dead account).
+    # Delete them explicitly here rather than flipping the pragma globally
+    # (which would change delete semantics app-wide).
     accounts = db.query(Account).filter_by(plaid_item_id=item.id).all()
     for acc in accounts:
         db.query(Transaction).filter_by(account_id=acc.id).delete()
+        db.query(Holding).filter_by(account_id=acc.id).delete()
+        db.query(InvestmentTransaction).filter_by(account_id=acc.id).delete()
+        db.query(MortgageDetail).filter_by(account_id=acc.id).delete()
+        db.query(CreditCardDetail).filter_by(account_id=acc.id).delete()
         db.delete(acc)
 
     db.delete(item)

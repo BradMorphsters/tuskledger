@@ -112,7 +112,7 @@ export default function UpcomingBills({ daysAhead = 60 }) {
               const u = urgency(b.days_until)
               const overdue = b.days_until < 0
               return (
-                <tr key={`${b.kind}-${b.account_id}`}>
+                <tr key={billKey(b)}>
                   <td style={{ width: 56, paddingLeft: 0 }}>
                     <div style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'center',

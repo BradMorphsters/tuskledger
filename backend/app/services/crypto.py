@@ -28,14 +28,39 @@ from cryptography.fernet import Fernet, InvalidToken
 PREFIX = "enc:v1:"
 _DEFAULT_KEY_FILENAME = ".encryption_key"
 
+# Backend root = .../backend (this file is backend/app/services/crypto.py).
+# We anchor the key file HERE rather than to Path.cwd(): launching uvicorn
+# from a different working directory used to make cwd-relative resolution
+# generate a BRAND-NEW key, after which every stored Plaid token failed to
+# decrypt (the key that wrote them was in the old cwd). Anchoring to the
+# module location makes the key path stable regardless of where the
+# process is started from.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _key_path() -> Path:
     override = os.environ.get("FINTRACK_ENCRYPTION_KEY_FILE")
     if override:
         return Path(override)
-    # Default: alongside the working directory's DB file.
-    # The backend is launched from the backend/ folder, where tuskledger.db lives.
+    # Default: anchored to the backend root (where tuskledger.db lives),
+    # NOT Path.cwd(). See _BACKEND_ROOT above.
+    return _BACKEND_ROOT / _DEFAULT_KEY_FILENAME
+
+
+def _legacy_cwd_key_path() -> Path:
+    """The pre-fix location: the process's current working directory. Kept
+    so we can MIGRATE an existing key written under the old scheme instead
+    of silently minting a new one and orphaning every encrypted token."""
     return Path.cwd() / _DEFAULT_KEY_FILENAME
+
+
+def _write_key(path: Path, key: bytes) -> None:
+    path.write_bytes(key)
+    try:
+        # chmod 600 — owner-only read/write. No-op on Windows.
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except (OSError, NotImplementedError):
+        pass
 
 
 def _load_or_create_key() -> bytes:
@@ -47,13 +72,25 @@ def _load_or_create_key() -> bytes:
     if path.exists():
         return path.read_bytes().strip()
 
+    # Anchored key is missing. Before generating a fresh one, check the
+    # legacy cwd-relative location: if a key exists there (written before
+    # this anchoring fix, or by a run started from backend/), MIGRATE it to
+    # the anchored path so previously-encrypted tokens keep decrypting.
+    # NEVER silently generate a new key when a legacy key exists — that
+    # would permanently orphan every stored Plaid access token.
+    legacy = _legacy_cwd_key_path()
+    if legacy.exists() and legacy.resolve() != path.resolve():
+        key = legacy.read_bytes().strip()
+        try:
+            _write_key(path, key)  # copy forward to the stable location
+        except OSError:
+            # Couldn't write the anchored copy (read-only mount, etc.) —
+            # still use the legacy key so decryption works this run.
+            pass
+        return key
+
     key = Fernet.generate_key()
-    path.write_bytes(key)
-    try:
-        # chmod 600 — owner-only read/write. No-op on Windows.
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except (OSError, NotImplementedError):
-        pass
+    _write_key(path, key)
     return key
 
 

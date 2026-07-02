@@ -246,7 +246,14 @@ def get_investments_transactions(
             options=InvestmentsTransactionsGetRequestOptions(**options_kwargs),
         )
         response = client.investments_transactions_get(request)
-        all_txns.extend(response["investment_transactions"])
+        page = response["investment_transactions"]
+        # Defensive against an empty page paired with an inflated
+        # `total_investment_transactions`: without this, offset never
+        # advances past the (already-collected) count and we loop forever.
+        # Mirrors the empty-page guard in get_transactions_range above.
+        if not page:
+            break
+        all_txns.extend(page)
         # Securities are returned alongside; merge and de-dupe by plaid_security_id.
         for sec in response["securities"]:
             securities.append(sec)

@@ -13,6 +13,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Plus, X, Search, ArrowRight } from 'lucide-react'
 import { createManualTransaction, globalSearch } from '../api/client'
+import { toLocalISODate } from '../lib/format'
 import { useToast } from './Toast'
 import { useNearCorner } from './AskPanel'
 import { useAccounts } from '../hooks/useAccounts'
@@ -121,7 +122,7 @@ function QuickAddModal({ onClose, onSaved }) {
     amount: '',
     name: '',
     account_id: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: toLocalISODate(),
     category: '',
     notes: '',
   }))

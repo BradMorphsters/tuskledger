@@ -38,6 +38,7 @@ import {
   setDemoMode,
 } from '../sync/storage';
 import type { PairedHost } from '../sync/types';
+import { clearSnapshot } from '../widget/snapshot';
 import { colors, formatRelative, layout, space, type } from '../theme';
 
 interface Props {
@@ -153,6 +154,9 @@ export default function SettingsScreen({ onUnpaired }: Props) {
           onPress: async () => {
             await clearAllPairing();
             await resetMirror();
+            // Also clear the home-screen widget's snapshot so it stops
+            // showing real balances after unpair.
+            await clearSnapshot();
             onUnpaired();
           },
         },

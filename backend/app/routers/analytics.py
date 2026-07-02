@@ -210,6 +210,18 @@ def _classify_kind(merchant: str, median_amount: float, frequency: str, category
     return "bill" if frequency == "monthly" else "other"
 
 
+# TODO(consolidation): this file carries ~4 drifted copies of the
+# recurring-detection heuristic (here in detect_recurring, plus the two
+# loops in cash_flow_forecast and the spending-patterns forecast) and
+# several inline month-range closures (shift_month/month_start/month_end
+# around lines 721 and 1047). The specific bugs found in the audit have
+# been fixed in place (abs-median sign handling, avg_amount key), but the
+# copies still differ in tolerance/seasonal logic. Consolidating the
+# recurring detector into one shared function is a larger, higher-risk
+# refactor deferred to a dedicated pass. The month-range math now has a
+# canonical home in app.utils (shift_month / month_start /
+# month_end_exclusive); migrate the closures to those when touching this
+# file next.
 @router.get("/recurring")
 def detect_recurring(db: Session = Depends(get_db)):
     """Detect recurring transactions by finding merchants with regular intervals.
@@ -555,11 +567,17 @@ def monthly_report(
     def summarize(txns):
         spending = sum(t.amount for t in txns if t.amount > 0)
         income = sum(abs(t.amount) for t in txns if t.amount < 0)
+        # Category attribution must honor splits: a $100 Costco charge
+        # split into $60 Groceries / $40 Household should credit each
+        # category, not dump $100 into the parent's original category.
+        # Totals above use the parent amount (splits sum to it) so they
+        # stay correct; only the per-category breakdown routes through
+        # expand().
         by_cat = defaultdict(float)
-        for t in txns:
-            if t.amount > 0:
-                cat = t.custom_category or t.category or "Uncategorized"
-                by_cat[cat] += t.amount
+        for line in expand(txns):
+            if line.amount > 0:
+                cat = line.category or "Uncategorized"
+                by_cat[cat] += line.amount
         top_cats = sorted(by_cat.items(), key=lambda x: x[1], reverse=True)
         top_merchants = defaultdict(float)
         for t in txns:
@@ -618,21 +636,20 @@ def monthly_report(
             Transaction.date >= m_start,
             Transaction.date < m_end,
             Transaction.is_transfer.is_(False),
-            Transaction.amount > 0,
         ).all()
         m_by_cat: dict = defaultdict(float)
-        for t in m_txns:
-            cat = t.custom_category or t.category or "Uncategorized"
-            m_by_cat[cat] += t.amount
+        # Split-aware category totals (matches summarize()).
+        for line in expand(m_txns):
+            if line.amount > 0:
+                m_by_cat[line.category or "Uncategorized"] += line.amount
         for cat, amt in m_by_cat.items():
             by_cat_3mo[cat].append(amt)
 
-    # Current-month per-category totals
+    # Current-month per-category totals (split-aware)
     cur_by_cat: dict = defaultdict(float)
-    for t in cur_txns:
-        if t.amount > 0:
-            cat = t.custom_category or t.category or "Uncategorized"
-            cur_by_cat[cat] += t.amount
+    for line in expand(cur_txns):
+        if line.amount > 0:
+            cur_by_cat[line.category or "Uncategorized"] += line.amount
 
     for cat, cur_amt in cur_by_cat.items():
         history = by_cat_3mo.get(cat, [])
@@ -735,13 +752,18 @@ def category_trends(
         Transaction.date >= earliest,
         Transaction.date < latest,
         Transaction.is_transfer.is_(False),
-        Transaction.amount > 0,
     ).all()
 
+    # Split-aware per-(year,month) category totals: each split lands in
+    # its own category (line.date is the parent txn's date). Without this
+    # a split transaction credits its full amount to the parent category
+    # in every trend/sparkline.
     by_yc: dict[tuple[int, int], dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    for t in txns:
-        cat = t.custom_category or t.category or "Uncategorized"
-        by_yc[(t.date.year, t.date.month)][cat] += t.amount
+    for line in expand(txns):
+        if line.amount <= 0:
+            continue
+        cat = line.category or "Uncategorized"
+        by_yc[(line.date.year, line.date.month)][cat] += line.amount
 
     cur_cats = by_yc.get((year, month), {})
 
@@ -955,15 +977,37 @@ def cash_flow_forecast(
     # day_index → list of {kind, source, amount}
     events: dict[date, list[dict]] = defaultdict(list)
 
+    # Recurring INCOME that we project as dated events (below). We record
+    # each such source's steady-state monthly amount so we can net it out
+    # of the flat salary-source daily rate later — otherwise a paycheck is
+    # counted twice: once as a dated inflow event, once amortized into
+    # variable_income_per_day. Keyed by the raw merchant string here and
+    # re-keyed via _clean_source once that helper is in scope.
+    recurring_income_monthly_by_raw: dict[str, float] = defaultdict(float)
+
     for merchant, lst in by_merchant.items():
         if len(lst) < 2:
             continue
         sorted_txns = sorted(lst, key=lambda x: x.date)
         amounts = [t.amount for t in sorted_txns]
-        median = sorted(amounts)[len(amounts) // 2]
+        # Sign handling mirrors detect_recurring (:261-266): a merchant
+        # that mixes debits and credits (purchases + refunds) isn't a
+        # clean recurring pattern — skip it. Otherwise take the median of
+        # ABSOLUTE amounts so all-inflow merchants (paychecks are stored
+        # as negative amounts) survive. The old `median <= 0: continue`
+        # dropped every income stream, which made the inflow branch below
+        # unreachable and meant paychecks were never modeled.
+        if any(a > 0 for a in amounts) and any(a < 0 for a in amounts):
+            continue
+        is_income = amounts[0] < 0
+        abs_amounts = [abs(a) for a in amounts]
+        median = sorted(abs_amounts)[len(abs_amounts) // 2]
         if median <= 0:
             continue
-        if not all(abs(a - median) / median < 0.25 for a in amounts):
+        # Income is lumpier than bills (overtime, PTO) — allow 60% variance
+        # on inflows vs 25% on outflows, matching detect_recurring.
+        tolerance = 0.60 if is_income else 0.25
+        if not all(abs(a - median) / median < tolerance for a in abs_amounts):
             continue
         intervals = [(sorted_txns[i + 1].date - sorted_txns[i].date).days for i in range(len(sorted_txns) - 1)]
         if not intervals:
@@ -978,6 +1022,18 @@ def cash_flow_forecast(
         # off-season events when projecting forward.
         active_months = {d.date.month for d in sorted_txns}
         is_seasonal = 3 <= len(active_months) <= 10
+
+        # If this is a recurring income stream, record its steady-state
+        # monthly amount so we can avoid double-counting it against the
+        # flat salary rate. per_year from the frequency band; seasonal
+        # monthly streams contribute only during their active months.
+        if is_income:
+            _band_per_year = next(
+                (py for _, lo, hi, py in FREQUENCY_BANDS if lo <= median_int <= hi),
+                12,
+            )
+            _mult = len(active_months) if (is_seasonal and _band_per_year == 12) else _band_per_year
+            recurring_income_monthly_by_raw[merchant] += median * _mult / 12
 
         # Walk forward from last_date
         next_date = sorted_txns[-1].date + timedelta(days=int(median_int))
@@ -1234,7 +1290,23 @@ def cash_flow_forecast(
     # and never enter the projection. Only merchants that pay you
     # regularly (paychecks from a primary employer, etc.) feed the
     # daily inflow rate.
-    variable_income_per_day = monthly_salary_income / 30 if monthly_salary_income else 0.0
+    #
+    # DOUBLE-COUNT FIX: recurring paychecks are now projected as dated
+    # inflow events (events[] above). Any salary source whose cadence we
+    # already emit as events must NOT also be amortized into the flat
+    # daily rate, or income lands twice. Re-key the recurring-income
+    # monthly totals via the same _clean_source used for salary_sources
+    # and subtract the overlap from monthly_salary_income before deriving
+    # the flat rate. Salary that has NO clean recurring cadence (irregular
+    # employers) still flows through the flat rate as before.
+    recurring_income_monthly_by_source: dict[str, float] = defaultdict(float)
+    for raw_merchant, monthly_amt in recurring_income_monthly_by_raw.items():
+        recurring_income_monthly_by_source[_clean_source(raw_merchant, raw_merchant)] += monthly_amt
+    flat_salary_income = 0.0
+    for s in salary_sources:
+        already_evented = recurring_income_monthly_by_source.get(s["source"], 0.0)
+        flat_salary_income += max(s["median_monthly"] - already_evented, 0.0)
+    variable_income_per_day = flat_salary_income / 30 if flat_salary_income else 0.0
 
     # Today's actual cash balance — used to translate cumulative_delta
     # into a projected balance ($X today + $Y delta = balance at day N).
@@ -1300,6 +1372,14 @@ def cash_flow_forecast(
             "label": baseline_label,
             "monthly_variable_spend": round(monthly_variable_spend, 2),
             "monthly_salary_income": round(monthly_salary_income, 2),
+            # Of the detected salary, how much is already projected as
+            # dated recurring events vs. amortized into the flat daily
+            # rate. Sum reconciles to monthly_salary_income (modulo the
+            # max(0) floor). Prevents the paycheck-double-count.
+            "monthly_salary_income_evented": round(
+                sum(recurring_income_monthly_by_source.values()), 2
+            ),
+            "monthly_salary_income_flat": round(flat_salary_income, 2),
             "salary_sources": salary_sources,
             "excluded_sources": excluded_sources,
             "presence_floor": presence_floor,
@@ -2331,10 +2411,12 @@ def get_insights(
         Transaction.is_transfer.is_(False),
     ).all()
 
+    # Split-aware: attribute each split to its own category so the
+    # anomaly signal doesn't over-credit the parent's category.
     cur_by_cat: dict[str, float] = defaultdict(float)
-    for t in cur_txns:
-        cat = t.custom_category or t.category or "Uncategorized"
-        cur_by_cat[cat] += t.amount
+    for line in expand(cur_txns):
+        if line.amount > 0:
+            cur_by_cat[line.category or "Uncategorized"] += line.amount
 
     # Gather the same fraction of the last 3 calendar months for baseline
     baseline_by_cat: dict[str, list[float]] = defaultdict(list)
@@ -2359,9 +2441,9 @@ def get_insights(
         ).all()
 
         m_by_cat: dict[str, float] = defaultdict(float)
-        for t in m_txns:
-            cat = t.custom_category or t.category or "Uncategorized"
-            m_by_cat[cat] += t.amount
+        for line in expand(m_txns):
+            if line.amount > 0:
+                m_by_cat[line.category or "Uncategorized"] += line.amount
 
         for cat, amt in m_by_cat.items():
             baseline_by_cat[cat].append(amt)
@@ -2389,14 +2471,23 @@ def get_insights(
     # Check merchants whose first transaction is within last 14 days
     cutoff_14d = today - timedelta(days=14)
 
-    # Get all merchants before cutoff (baseline)
-    prior_txns = db.query(Transaction).filter(
+    # Get all merchants before cutoff (baseline). We only need the set of
+    # DISTINCT merchant identities, so select just the two name columns
+    # (not full ORM rows) — a "first time at X" check doesn't care about
+    # amounts, dates, or categories. Two years of lookback is plenty to
+    # decide whether a merchant is genuinely new; older history doesn't
+    # change the answer and hydrating it all was the bulk of this scan.
+    prior_cutoff = today - timedelta(days=730)
+    prior_rows = db.query(
+        Transaction.merchant_name, Transaction.name,
+    ).filter(
         Transaction.date < cutoff_14d,
+        Transaction.date >= prior_cutoff,
         Transaction.is_transfer.is_(False),
-    ).all()
+    ).distinct().all()
     seen_merchants: set[str] = set()
-    for t in prior_txns:
-        norm = normalize_merchant(t.merchant_name or t.name or "")
+    for merchant_name, name in prior_rows:
+        norm = normalize_merchant(merchant_name or name or "")
         if norm:
             seen_merchants.add(norm.lower())
 
@@ -2431,17 +2522,25 @@ def get_insights(
     # Signal 3: Unusually large transaction at a merchant
     # Last 14 days: if single txn > 2x median historical at that merchant
     # (must have >=3 prior txns to qualify)
-    # Group all historical transactions by normalized merchant
-    all_txns = db.query(Transaction).filter(
+    # Group historical transactions by normalized merchant. Select only
+    # the columns we need (amount + the two name fields), and bound to the
+    # last ~1 year: an "unusually large vs typical" signal wants the
+    # RECENT spending baseline, and dragging in years-old amounts both
+    # bloats the scan and skews the median toward stale prices.
+    hist_cutoff = today - timedelta(days=365)
+    hist_rows = db.query(
+        Transaction.amount, Transaction.merchant_name, Transaction.name,
+    ).filter(
         Transaction.amount > 0,
+        Transaction.date >= hist_cutoff,
         Transaction.is_transfer.is_(False),
     ).all()
 
     merchant_history: dict[str, list[float]] = defaultdict(list)
-    for t in all_txns:
-        norm = normalize_merchant(t.merchant_name or t.name or "")
+    for amount, merchant_name, name in hist_rows:
+        norm = normalize_merchant(merchant_name or name or "")
         if norm:
-            merchant_history[norm.lower()].append(t.amount)
+            merchant_history[norm.lower()].append(amount)
 
     # Check recent transactions for unusual amounts
     large_txn_cards: list[InsightCard] = []
@@ -2477,14 +2576,22 @@ def get_insights(
     try:
         recurring_detail = detect_recurring(db=db)  # returns full payload
         recurring_items = recurring_detail.get("recurring", []) if isinstance(recurring_detail, dict) else []
-    except Exception:
+    except (KeyError, ValueError, TypeError):
+        # Narrow: only swallow shape/parse errors from the detector's
+        # payload. A broad `except Exception` here previously hid the fact
+        # that this signal was reading the wrong key (median_amount) and
+        # silently produced zero cards forever — the feature was dead.
         recurring_items = []
     recurring_anomaly_cards: list[InsightCard] = []
     for r in recurring_items:
         if not r.get("is_anomalous"):
             continue
         latest = r.get("latest_amount") or 0
-        median = r.get("median_amount") or 0
+        # detect_recurring emits the typical charge as `avg_amount`
+        # (:353), NOT `median_amount`. Reading the wrong key returned 0,
+        # which the `median <= 0` guard below then dropped — so no
+        # recurring-anomaly card ever fired.
+        median = r.get("avg_amount") or 0
         if latest <= 0 or median <= 0:
             continue
         delta_pct = round(((latest - median) / median) * 100, 0)
@@ -3102,7 +3209,11 @@ def networth_projection(
 
 @router.get("/hsa-status")
 def hsa_status(
-    year: int = Query(default=date.today().year, ge=2024, le=2030),
+    # Default is resolved INSIDE the handler, not here: a Query default is
+    # evaluated once at import time, so `date.today().year` would freeze to
+    # whatever year the process started in and a long-running backend would
+    # serve last year's limits after New Year. None → resolve per-request.
+    year: Optional[int] = Query(default=None, ge=2024, le=2030),
     db: Session = Depends(get_db),
 ):
     """Return HSA accounts in the system + IRS contribution limits for
@@ -3114,6 +3225,7 @@ def hsa_status(
     'HSA' (case-insensitive) so it catches both Plaid-synced accounts
     and manual entries. Tighten if false positives become a problem.
     """
+    year = year or date.today().year
     hsas = (
         db.query(Account)
         .filter(

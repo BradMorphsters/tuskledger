@@ -16,7 +16,7 @@
  * accented scan frame, styled manual form).
  */
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +90,14 @@ export default function PairingScreen({ onPaired }: Props) {
   const [busy, setBusy] = useState(false);
   const [manualHost, setManualHost] = useState('');
   const [manualCode, setManualCode] = useState('');
+  // Synchronous guard for the camera scanner. `onBarcodeScanned` fires
+  // many times per second; the async `busy` state hasn't flushed before
+  // the next frame arrives, so a state-only guard lets duplicate scans
+  // through — each one calls pairClaim and burns the one-time code,
+  // which then surfaces a spurious "code not recognized" over an
+  // already-successful pairing. A ref flips synchronously, before the
+  // first await, so only the first frame gets through.
+  const scanClaimed = useRef(false);
 
   async function complete(host: string, port: number, code: string) {
     setBusy(true);
@@ -130,6 +138,9 @@ export default function PairingScreen({ onPaired }: Props) {
       await syncNow(true);
       onPaired();
     } catch (e) {
+      // Release the scan guard so the user can retry (a fresh QR, or the
+      // same one if the failure was transient) without leaving the screen.
+      scanClaimed.current = false;
       Alert.alert('Pairing failed', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -137,15 +148,20 @@ export default function PairingScreen({ onPaired }: Props) {
   }
 
   function onScan(data: string) {
-    if (busy) return;
+    // Synchronous single-shot guard — see `scanClaimed` above. Set it
+    // before any async work so a burst of scan frames can't double-fire.
+    if (scanClaimed.current || busy) return;
     const parsed = parseDeepLink(data);
     if (!parsed) {
+      // Not our QR — don't consume the guard so the user can keep the
+      // camera pointed at the right code.
       Alert.alert(
         'Not a Tusk Ledger code',
         'That QR code did not match the pairing format. Try again, or pair manually.',
       );
       return;
     }
+    scanClaimed.current = true;
     complete(parsed.host, parsed.port, parsed.code);
   }
 

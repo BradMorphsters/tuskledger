@@ -53,6 +53,11 @@ def sync_all_items(db: Session):
             result = sync_single_item(db, client, item)
             results.append({"item_id": item.item_id, "status": "ok", **result})
         except Exception as e:
+            # Roll back this item's partial writes. Without this, the
+            # uncommitted rows added before the failure stay pending in the
+            # session and get committed by the NEXT item's sync_single_item
+            # commit — silently persisting a half-synced item.
+            db.rollback()
             results.append({"item_id": item.item_id, "status": "error", "error": str(e)})
 
     # Re-detect transfers across the full transaction set. Cheap against a
@@ -159,10 +164,21 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
     # (The backfill path already does this.)
     category_rules = db.query(CategoryRule).all()
     business_rules = db.query(BusinessRule).order_by(BusinessRule.priority).all()
+    # Pre-load the plaid_transaction_ids Plaid handed us in this batch so
+    # the dedupe check is a hash hit rather than a per-row SELECT — the
+    # backfill path already does this. A single "added" page can carry
+    # hundreds of rows, and querying each one individually was O(N) round
+    # trips against the DB.
+    incoming_ids = {str(t["transaction_id"]) for t in sync_result["added"]}
+    existing_txn_ids = {
+        t.plaid_transaction_id
+        for t in db.query(Transaction.plaid_transaction_id)
+        .filter(Transaction.plaid_transaction_id.in_(incoming_ids))
+        .all()
+    } if incoming_ids else set()
     for txn in sync_result["added"]:
         txn_id = str(txn["transaction_id"])
-        existing = db.query(Transaction).filter_by(plaid_transaction_id=txn_id).first()
-        if existing:
+        if txn_id in existing_txn_ids:
             continue
         account = db.query(Account).filter_by(plaid_account_id=str(txn["account_id"])).first()
         if not account:
@@ -171,10 +187,6 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
         cat_primary = categories.get("primary")
         cat_detailed = categories.get("detailed")
         txn_date = txn["date"]
-        if hasattr(txn_date, "isoformat"):
-            txn_date = txn_date  # already a date object
-        else:
-            txn_date = str(txn_date)
         # Auto-map Plaid category to friendly name
         friendly_cat = map_plaid_category(str(cat_primary)) if cat_primary else None
         new_txn = Transaction(
@@ -201,6 +213,7 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
                 new_txn.business_id = rule.business_id
                 break
         db.add(new_txn)
+        existing_txn_ids.add(txn_id)  # guard against Plaid duplicates within a single response
         added_count += 1
 
     for txn in sync_result["modified"]:
@@ -211,6 +224,13 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
             merchant = txn.get("merchant_name")
             existing.merchant_name = str(merchant) if merchant else existing.merchant_name
             existing.pending = bool(txn.get("pending", existing.pending))
+            # Plaid can move a transaction's date on modification (e.g. a
+            # pending charge posts on a different day). The other mutable
+            # fields were being updated but `date` was silently dropped,
+            # leaving a stale date on the row.
+            mod_date = txn.get("date")
+            if mod_date is not None:
+                existing.date = mod_date if hasattr(mod_date, "isoformat") else str(mod_date)
             categories = txn.get("personal_finance_category") or {}
             cat_primary = categories.get("primary")
             cat_detailed = categories.get("detailed")
@@ -505,7 +525,35 @@ def _sync_investments(db: Session, client, access_token: str, item: PlaidItem) -
     # removed until the next sync where Plaid returns at least one OTHER
     # holding for that same account (which is the common case — even
     # after selling all positions you'll have a cash sweep entry).
+    #
+    # Additionally skip accounts that look like a PARTIAL Plaid response:
+    # a previously-active brokerage (>5 stored holdings) that comes back
+    # with only a single holding is almost always a cash-sweep-only
+    # truncated response, not a real "sold everything" event. Deleting on
+    # that response wipes every real position. We must decide this BEFORE
+    # the deletion loop — the earlier version evaluated the same intent
+    # AFTER deleting (and its .count() autoflushed the pending deletes, so
+    # the warning almost never fired and never actually protected anything).
+    #
+    # `existing_before` is captured now, before any delete is flushed, so
+    # the counts reflect the pre-sync state.
+    accounts_to_delete: set[int] = set()
     for acct_id in accounts_with_holdings:
+        returned_count = holding_counts_per_account.get(acct_id, 0)
+        existing_before = db.query(Holding).filter_by(account_id=acct_id).count()
+        if returned_count <= 1 and existing_before > 5:
+            # Looks like a partial Plaid response — leave this account's
+            # holdings untouched and log loudly so it's visible.
+            log.warning(
+                "Holdings sync for account %s returned only %d holding(s); "
+                "previously had %d. Possible partial Plaid response — "
+                "leaving existing holdings in place (skipping stale-delete).",
+                acct_id, returned_count, existing_before,
+            )
+            continue
+        accounts_to_delete.add(acct_id)
+
+    for acct_id in accounts_to_delete:
         stale = (
             db.query(Holding)
             .filter(Holding.account_id == acct_id)
@@ -514,21 +562,6 @@ def _sync_investments(db: Session, client, access_token: str, item: PlaidItem) -
         for h in stale:
             if (h.account_id, h.plaid_security_id) not in seen_holding_keys:
                 db.delete(h)
-
-    # Warn loudly when a previously-active account suddenly has very
-    # few holdings — strong signal of a partial Plaid response that's
-    # about to wipe the user's view of their portfolio.
-    for acct_id, returned_count in holding_counts_per_account.items():
-        if returned_count <= 1:
-            # Count what's currently stored for context in the log.
-            existing = db.query(Holding).filter_by(account_id=acct_id).count()
-            if existing > 5:
-                log.warning(
-                    "Holdings sync for account %s returned only %d holding(s); "
-                    "previously had %d. Possible partial Plaid response — "
-                    "leaving existing holdings in place.",
-                    acct_id, returned_count, existing,
-                )
 
     db.flush()
     holdings_count = len(seen_holding_keys)

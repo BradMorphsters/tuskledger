@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Loader2, AlertTriangle, Clock, TrendingUp, FileText, Calendar, DollarSign, Zap, Wallet, TrendingDown, Trophy, Download, AlertCircle, Scissors } from 'lucide-react'
 import { getTradingTax, getHoldings, tradingTaxForm8949Url } from '../api/client'
 import { formatCurrency, formatCurrencyZero, formatDate } from '../lib/format'
+import { useLatestRequest } from '../hooks/useLatestRequest'
 import PreflightSellModal from './PreflightSellModal'
 
 const STORAGE_KEY = 'tuskledger.tradingTaxRates.v1'
@@ -106,6 +107,7 @@ export default function TradingTax({ accountFilter }) {
     localStorage.setItem(SCOPE_STORAGE_KEY, washScope)
   }, [washScope])
 
+  const runTax = useLatestRequest()
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -117,13 +119,18 @@ export default function TradingTax({ accountFilter }) {
       wash_sale_scope: washScope,
     }
     if (accountFilter) params.account_id = accountFilter
-    const t = setTimeout(() => {
-      getTradingTax(params)
-        .then(setData)
-        .catch(e => setError(e.message || 'Failed to load trading-tax data'))
-        .finally(() => setLoading(false))
-    }, 200)
-    return () => clearTimeout(t)
+    // Debounce cleared the timer on rapid input changes, but an already-
+    // dispatched request would still resolve; guard it with a liveness
+    // token so a stale computation can't overwrite the current one.
+    return runTax(token => {
+      const t = setTimeout(() => {
+        getTradingTax(params)
+          .then(d => { if (token.live) setData(d) })
+          .catch(e => { if (token.live) setError(e.message || 'Failed to load trading-tax data') })
+          .finally(() => { if (token.live) setLoading(false) })
+      }, 200)
+      return () => clearTimeout(t)
+    })
   }, [year, rates, accountFilter, washScope])
 
   if (loading && !data) {

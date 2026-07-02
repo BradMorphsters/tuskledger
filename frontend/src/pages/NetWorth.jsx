@@ -16,6 +16,7 @@ import Pill from '../components/Pill'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
 import { useAccounts } from '../hooks/useAccounts'
+import { useLatestRequest } from '../hooks/useLatestRequest'
 
 function daysSince(isoDate) {
   if (!isoDate) return null
@@ -70,9 +71,14 @@ export default function NetWorth() {
     getManualAssets().then(setManualAssets).catch(() => [])
   }
 
+  const runHistory = useLatestRequest()
   useEffect(() => {
-    getNetWorthHistory(days).then(setHistory).catch(() => [])
-    getManualAssets().then(setManualAssets).catch(() => [])
+    // Guard against a slow response for a previously-selected range
+    // (e.g. rapid 30d→1y→90d clicks) rendering under the new range.
+    runHistory(token => {
+      getNetWorthHistory(days).then(d => { if (token.live) setHistory(d) }).catch(() => [])
+      getManualAssets().then(d => { if (token.live) setManualAssets(d) }).catch(() => [])
+    })
   }, [days])
 
   useEffect(() => {

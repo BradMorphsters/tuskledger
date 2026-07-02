@@ -199,6 +199,10 @@ export default function Dashboard() {
   const [monthlyTrend, setMonthlyTrend] = useState([])
   const [businesses, setBusinesses] = useState([])
   const [loading, setLoading] = useState(true)
+  // True when the accounts fetch itself failed (vs. a genuinely empty
+  // account list). Without this, an API outage was indistinguishable from
+  // a fresh install and rendered the "Connect Accounts" onboarding CTA.
+  const [accountsError, setAccountsError] = useState(false)
 
   // Range driving the trend section + the Income vs Spending chart.
   // 'ytd' is computed to current-month-of-year so backend (which expects
@@ -219,8 +223,11 @@ export default function Dashboard() {
   const [expandedThisMonth, setExpandedThisMonth] = useState(null)
 
   const loadDashboard = () => {
+    setAccountsError(false)
     Promise.all([
-      getAccounts().catch(() => []),
+      // Track a real failure separately from an empty list, so an outage
+      // doesn't masquerade as a fresh install (see accountsError below).
+      getAccounts().catch(() => { setAccountsError(true); return [] }),
       getCategoryBreakdown(thisMonth, thisYear).catch(() => null),
       getLatestNetWorth().catch(() => null),
       getTransactions({ limit: 8 }).catch(() => []),
@@ -328,16 +335,31 @@ export default function Dashboard() {
           <h1 className="page-title">Dashboard</h1>
         </div>
         <div className="card">
-          <EmptyState
-            icon={<Wallet size={24} />}
-            title="Welcome to Tusk Ledger"
-            description="Connect your bank accounts and credit cards to start tracking your spending, budgets, investments, and net worth in one place."
-            action={
-              <a href="/connect" className="btn btn-primary" style={{ display: 'inline-flex' }}>
-                Connect Accounts
-              </a>
-            }
-          />
+          {accountsError ? (
+            // The accounts request failed — don't imply the user has no
+            // accounts (which would wrongly show onboarding). Offer a retry.
+            <EmptyState
+              icon={<Wallet size={24} />}
+              title="Couldn't load your accounts"
+              description="We hit an error reaching the server. Your accounts are safe — this is just a connection hiccup."
+              action={
+                <button onClick={() => { setLoading(true); loadDashboard() }} className="btn btn-primary" style={{ display: 'inline-flex' }}>
+                  Retry
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={<Wallet size={24} />}
+              title="Welcome to Tusk Ledger"
+              description="Connect your bank accounts and credit cards to start tracking your spending, budgets, investments, and net worth in one place."
+              action={
+                <a href="/connect" className="btn btn-primary" style={{ display: 'inline-flex' }}>
+                  Connect Accounts
+                </a>
+              }
+            />
+          )}
         </div>
       </div>
     )

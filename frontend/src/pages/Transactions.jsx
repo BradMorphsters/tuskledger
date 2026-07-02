@@ -6,15 +6,11 @@ import {
 } from '../api/client'
 import { useAccounts } from '../hooks/useAccounts'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useLatestRequest } from '../hooks/useLatestRequest'
 import BusinessBadge from '../components/BusinessBadge'
 import Pill from '../components/Pill'
 import MerchantDrawer from '../components/MerchantDrawer'
-import { formatCurrency } from '../lib/format'
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+import { formatCurrency, formatDate, toLocalISODate } from '../lib/format'
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState([])
@@ -35,7 +31,6 @@ export default function Transactions() {
     limit: 50,
     offset: 0,
   })
-  const debounceTimeoutRef = useRef(null)
   const [businesses, setBusinesses] = useState([])
   const [editingId, setEditingId] = useState(null)
   const [editCategory, setEditCategory] = useState('')
@@ -70,6 +65,7 @@ export default function Transactions() {
     })
   }
 
+  const runLoad = useLatestRequest()
   const load = () => {
     const params = {}
     if (filters.account_id) params.account_id = filters.account_id
@@ -80,26 +76,37 @@ export default function Transactions() {
     if (filters.end_date) params.end_date = filters.end_date
     params.limit = filters.limit
     params.offset = filters.offset
-    getTransactions(params).then(setTransactions).catch(() => {})
-    // Totals are computed across the full filter scope on the server —
-    // limit/offset are stripped by getTransactionsTotals so paginating
-    // doesn't change the summary line.
-    getTransactionsTotals(params)
-      .then(setScopeTotals)
-      .catch(() => setScopeTotals(null))
+    // Guard both fetches so a slow response for a previous filter/page
+    // can't render under the current one.
+    runLoad(token => {
+      getTransactions(params).then(d => { if (token.live) setTransactions(d) }).catch(() => {})
+      // Totals are computed across the full filter scope on the server —
+      // limit/offset are stripped by getTransactionsTotals so paginating
+      // doesn't change the summary line.
+      getTransactionsTotals(params)
+        .then(d => { if (token.live) setScopeTotals(d) })
+        .catch(() => { if (token.live) setScopeTotals(null) })
+    })
   }
 
   useEffect(() => {
     getCategories().then(setCategories).catch(() => {})
     getBusinesses().then(setBusinesses).catch(() => {})
-    load()
+    // Note: the initial transaction load is owned by the [filters] effect
+    // below, which runs on mount too. Calling load() here as well fired a
+    // duplicate request (plus a duplicate totals request) on every open.
   }, [])
 
   useEffect(() => {
-    // Debounce the load based on filter changes
+    // Debounce the load based on filter changes. Runs on mount as well,
+    // so it owns the initial load.
     const timeoutId = setTimeout(() => {
       load()
     }, 250)
+    // A filter change invalidates the current selection: selected ids can
+    // reference rows that are no longer on the page, and bulk actions
+    // would then either throw or silently mutate invisible rows. Clear it.
+    setSelectedIds(new Set())
     return () => clearTimeout(timeoutId)
   }, [filters])
 
@@ -153,10 +160,13 @@ export default function Transactions() {
 
   const bulkCategorize = async () => {
     if (!bulkCategory) return
+    // Only act on selected rows still present on the current page —
+    // selection can outlive a filter/page change, and mutating rows the
+    // user can no longer see is surprising.
     await Promise.all(
-      Array.from(selectedIds).map(id =>
-        updateTransaction(id, { custom_category: bulkCategory })
-      )
+      Array.from(selectedIds)
+        .filter(id => transactions.some(t => t.id === id))
+        .map(id => updateTransaction(id, { custom_category: bulkCategory }))
     )
     setBulkCategory('')
     setBulkCategoryOpen(false)
@@ -168,6 +178,9 @@ export default function Transactions() {
     await Promise.all(
       Array.from(selectedIds).map(id => {
         const txn = transactions.find(t => t.id === id)
+        // Guard: the selected row may have left the page after a filter
+        // or pagination change, in which case find() returns undefined.
+        if (!txn) return null
         return updateTransaction(id, { is_transfer: !txn.is_transfer })
       })
     )
@@ -183,16 +196,16 @@ export default function Transactions() {
   const setDatePreset = (preset) => {
     const now = new Date()
     let start = ''
-    const end = now.toISOString().split('T')[0]
+    const end = toLocalISODate(now)
     if (preset === '7d') {
       const d = new Date(now); d.setDate(d.getDate() - 7)
-      start = d.toISOString().split('T')[0]
+      start = toLocalISODate(d)
     } else if (preset === '30d') {
       const d = new Date(now); d.setDate(d.getDate() - 30)
-      start = d.toISOString().split('T')[0]
+      start = toLocalISODate(d)
     } else if (preset === '90d') {
       const d = new Date(now); d.setDate(d.getDate() - 90)
-      start = d.toISOString().split('T')[0]
+      start = toLocalISODate(d)
     } else if (preset === 'month') {
       start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
     } else if (preset === 'all') {
@@ -201,13 +214,10 @@ export default function Transactions() {
     setFilters(f => ({ ...f, start_date: start, end_date: preset === 'all' ? '' : end, offset: 0 }))
   }
 
-  // Handle search input with 250ms debounce
+  // Update the search filter. The actual debounced load is owned by the
+  // [filters] effect, so there's no separate timer to manage here.
   const handleSearchChange = (value) => {
     setFilters(f => ({ ...f, q: value, offset: 0 }))
-    clearTimeout(debounceTimeoutRef.current)
-    debounceTimeoutRef.current = setTimeout(() => {
-      // load() will be called via useEffect(filters)
-    }, 250)
   }
 
   // Displayed transactions (server already filtered by q). Pinned-only
@@ -768,7 +778,7 @@ export default function Transactions() {
                 )
               })}
               {displayed.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No transactions found</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No transactions found</td></tr>
               )}
             </tbody>
           </table>
@@ -1156,11 +1166,11 @@ function SplitModal({ transaction, categories, onClose, onSaved }) {
  * date pickers + dropdowns above still cover everything else.
  */
 function QuickFilterChips({ filters, setFilters, businesses, extra }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = toLocalISODate()
   const ago = (days) => {
     const d = new Date()
     d.setDate(d.getDate() - days)
-    return d.toISOString().slice(0, 10)
+    return toLocalISODate(d)
   }
 
   // Each chip describes a filter delta. matches() returns true if the

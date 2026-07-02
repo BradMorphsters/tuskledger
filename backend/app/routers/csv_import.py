@@ -112,7 +112,17 @@ async def import_csv(
                 date_val = parse_date(row.get('Date', ''))
                 amount_val = parse_amount(row.get('Amount', ''), fmt)
                 description = row.get('Description', '').strip()
-                merchant = row.get('Merchant', '').strip() or description.split()[0] if description else "Unknown"
+                # Precedence fix: the old expression parsed as
+                #   (Merchant or description.split()[0]) if description else "Unknown"
+                # so when Description was empty it returned "Unknown" even
+                # if the Merchant column HAD a value. Resolve each source
+                # explicitly: Merchant column → first word of description →
+                # "Unknown".
+                merchant = (
+                    row.get('Merchant', '').strip()
+                    or (description.split()[0] if description else "")
+                    or "Unknown"
+                )
             elif fmt == 'chase':
                 date_val = parse_date(row.get('Transaction Date') or row.get('Post Date', ''))
                 amount_val = parse_amount(row.get('Amount', ''), fmt)

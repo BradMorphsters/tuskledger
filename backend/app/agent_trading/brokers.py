@@ -197,14 +197,26 @@ def _unwrap(payload):
     return payload
 
 
+def _place_log_path():
+    """Where place_equity_order requests/responses are captured. Anchored to the backend root
+    (…/backend/var/agent_trading/place_log.jsonl) via __file__ so it's the SAME file regardless of
+    the process's cwd — a place log written by a run started elsewhere is still read by acquired_at.
+    Backward compat: if the old cwd-relative file already exists, keep appending to that one."""
+    from pathlib import Path as _Path
+    legacy = _Path("var/agent_trading/place_log.jsonl")
+    if legacy.exists():
+        return legacy
+    # brokers.py → agent_trading → app → backend
+    return _Path(__file__).resolve().parents[2] / "var" / "agent_trading" / "place_log.jsonl"
+
+
 def _log_place(args: dict, raw) -> None:
     """Best-effort capture of every place_equity_order request + response, so a placement can be
     verified against what Robinhood actually returned (var/agent_trading/place_log.jsonl)."""
     try:
         import json as _json
         import time as _time
-        from pathlib import Path as _Path
-        p = _Path("var/agent_trading/place_log.jsonl")
+        p = _place_log_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         with p.open("a") as fh:
             fh.write(_json.dumps({"ts": _time.time(), "args": args, "raw": raw}, default=str) + "\n")
@@ -319,7 +331,10 @@ def parse_account_state(
     p = _unwrap(portfolio) or {}
     quotes = quotes or {}
     bp = p.get("buying_power")
-    cash = _num(p, "cash", "total_value")
+    # NEVER fall back to total_value for spendable cash: on a schema drift that would make the whole
+    # portfolio (positions included) look like free cash and blow past sizing/cash-floor checks. Fall
+    # back only to buying_power (settled/withdrawable-ish), which is the correct spendable proxy.
+    cash = _num(p, "cash")
     if cash == 0:
         cash = (_num(bp, "buying_power", "unleveraged_buying_power")
                 if isinstance(bp, dict) else _num(p, "buying_power"))
@@ -473,6 +488,12 @@ class RobinhoodMCPBroker:
         warnings WITHOUT placing. Allowed in read_only; this is the live dry-run."""
         return _unwrap(self._read(_REVIEW_TOOL, self._order_args(order))) or {}
 
+    def recent_orders(self) -> list[dict]:
+        """The recent-orders feed (get_equity_orders, read tool) as a list of raw order dicts.
+        Used after a placement TIMEOUT to check whether the order actually reached the broker
+        before allowing a retry (finding #2) — a blind retry could duplicate a filled order."""
+        return _as_list(self._read(_ORDERS_TOOL, {"account_number": self.account_number}))
+
     def order_status(self, order_id: str) -> dict:
         """Read back ONE order's live status (read tool) so we can tell executed from queued
         after placing. A market order is "unconfirmed" the instant it's placed and flips to
@@ -516,6 +537,10 @@ class RobinhoodMCPBroker:
         whole shares (Robinhood limit orders aren't fractional). Live only."""
         self._require_live()
         args = dict(order_args)
+        # Our idempotency key rides ALONGSIDE the call (captured in the place log for verification /
+        # timeout reconcile), but is NOT sent to place_equity_order — the agentic tool has no such
+        # field and would reject an unknown arg. Pop it before building the MCP request.
+        coid = args.pop("client_order_id", None)
         args["account_number"] = self.account_number        # the real agentic account, not a placeholder
         if args.get("type") == "limit" and args.get("quantity") is not None:
             args["quantity"] = max(1, int(float(args["quantity"])))  # limit orders are whole-share
@@ -524,7 +549,7 @@ class RobinhoodMCPBroker:
             if args.get(k) is not None:
                 args[k] = str(args[k])
         raw = self._mcp_client(_PLACE_TOOL, args)
-        _log_place(args, raw)                          # capture the exact response for verification
+        _log_place({**args, "client_order_id": coid}, raw)  # capture the request (+ idempotency key) & response
         result = _unwrap(raw) or {}
         # Surface a rejection reason if the tool returned an error message (not a real order).
         if isinstance(result, dict) and result.get("_error"):

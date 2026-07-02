@@ -216,11 +216,18 @@ def setup_verify(
     user = auth_service.get_user(db)
     if user is None:
         raise HTTPException(status_code=400, detail="Setup has not been started.")
-    if not auth_service.verify_totp(auth_service.get_totp_secret(user), body.code):
+    # Apply the same replay guard as /login: reject reuse of the last
+    # successfully-used code so a code captured here can't be replayed
+    # within its 30s window (and can't be reused at /login either, since
+    # both paths share _last_used_totp).
+    if _last_used_totp.get(user.id) == body.code or not auth_service.verify_totp(
+        auth_service.get_totp_secret(user), body.code
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid code. Check your authenticator app and try again.",
         )
+    _last_used_totp[user.id] = body.code
     user.totp_verified = True
     user.last_login_at = utcnow()
     db.commit()

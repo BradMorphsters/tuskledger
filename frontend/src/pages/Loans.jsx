@@ -9,6 +9,7 @@ import {
   getLoanBiweekly, getLoanRefinance, getLoanPmiDropoff,
   getLoanHeloc,
 } from '../api/client'
+import { useLatestRequest } from '../hooks/useLatestRequest'
 
 /**
  * Loans page — amortization timeline + extra-payment what-if calculator
@@ -178,6 +179,7 @@ function LoanDetail({ loan, override, setOverride }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [extraPrincipal, setExtraPrincipal] = useState(0)
+  const runAmort = useLatestRequest()
 
   // Fetch debounced when extra changes.
   useEffect(() => {
@@ -186,13 +188,18 @@ function LoanDetail({ loan, override, setOverride }) {
     const params = { extra_principal: extraPrincipal }
     if (override.rate) params.rate_override = override.rate
     if (override.payment) params.payment_override = override.payment
-    const t = setTimeout(() => {
-      getLoanAmortization(loan.id, params)
-        .then(setData)
-        .catch(e => setError(e.message || 'Failed to load amortization'))
-        .finally(() => setLoading(false))
-    }, 250)
-    return () => clearTimeout(t)
+    // The debounce cleared the *timer* on rapid slider drags, but a
+    // request already dispatched would still resolve and clobber the
+    // current schedule. Guard the resolution with a liveness token.
+    return runAmort(token => {
+      const t = setTimeout(() => {
+        getLoanAmortization(loan.id, params)
+          .then(d => { if (token.live) setData(d) })
+          .catch(e => { if (token.live) setError(e.message || 'Failed to load amortization') })
+          .finally(() => { if (token.live) setLoading(false) })
+      }, 250)
+      return () => clearTimeout(t)
+    })
   }, [loan.id, extraPrincipal, override.rate, override.payment])
 
   // Build chart data — sample to <= 360 points so 50-yr loans don't

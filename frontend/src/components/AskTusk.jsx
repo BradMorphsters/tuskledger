@@ -243,10 +243,13 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
     return new Promise((resolve) => {
       const el = audioEl.current
       if (!blob || !el) return resolve()
-      el.src = URL.createObjectURL(blob)
-      const done = () => { el.onended = null; el.onerror = null; resolve() }
+      // One object URL is minted per TTS sentence; revoke it once playback
+      // ends (or errors) so we don't leak a blob URL per spoken sentence.
+      const url = URL.createObjectURL(blob)
+      el.src = url
+      const done = () => { el.onended = null; el.onerror = null; try { URL.revokeObjectURL(url) } catch { /* */ } resolve() }
       el.onended = done; el.onerror = done
-      el.play().catch(() => resolve())
+      el.play().catch(() => done())
     })
   }
   async function drainTts() {
@@ -288,8 +291,17 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
 
   async function runTurn(question) {
     if (!question || !question.trim()) return
+    // Abort any in-flight stream from a prior question so two SSE streams
+    // don't interleave into one bubble and double-feed TTS. Mirrors
+    // AskPanel.run() (and stopAll below), minus the "resume listening"
+    // side effects — a new turn is starting, not a barge-in stop.
+    try { cancelRef.current && cancelRef.current() } catch { /* */ }
+    cancelRef.current = null
+    // Reset the speech queue/buffer and clear any in-progress playback flag
+    // so leftover sentences from the aborted turn can't play under the new one.
+    try { if (audioEl.current) { audioEl.current.pause(); audioEl.current.currentTime = 0 } } catch { /* */ }
+    ttsQueueRef.current = []; ttsBufRef.current = ''; ttsPlayingRef.current = false
     stoppedRef.current = false
-    ttsBufRef.current = ''; ttsQueueRef.current = []
     const history = (turnsRef.current || []).slice(-6)
     addTurn('you', question)
     addTurn('tusk', '')                       // placeholder we stream into
@@ -510,10 +522,10 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
         ))}
       </div>
 
-      <form onSubmit={e => { e.preventDefault(); const q = text; setText(''); runTurn(q) }} style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="Type a question…"
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13 }} />
-        <button type="submit" disabled={!text.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', opacity: text.trim() ? 1 : 0.5 }}>
+      <form onSubmit={e => { e.preventDefault(); if (busy) return; const q = text; setText(''); runTurn(q) }} style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <input value={text} onChange={e => setText(e.target.value)} disabled={busy} placeholder={busy ? 'Tusk is answering…' : 'Type a question…'}
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13, opacity: busy ? 0.6 : 1 }} />
+        <button type="submit" disabled={busy || !text.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', cursor: (busy || !text.trim()) ? 'default' : 'pointer', opacity: (busy || !text.trim()) ? 0.5 : 1 }}>
           <Send size={14} /> Ask
         </button>
       </form>

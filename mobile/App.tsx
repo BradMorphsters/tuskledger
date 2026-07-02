@@ -29,6 +29,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
 import { hydrateDemoMode } from './src/state/appStore';
 import {
+  hydrateLastSyncedAt,
   startPeriodicSync,
   stopPeriodicSync,
   syncNow,
@@ -74,6 +75,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       hydrateDemoMode();
+      // Restore the last-synced timestamp from SQLite so the staleness
+      // banner works across cold launches instead of always showing
+      // "Not synced yet" until the first sync of the session lands.
+      hydrateLastSyncedAt();
       const [host, token] = await Promise.all([loadPairedHost(), loadToken()]);
       const isPaired = !!(host && token);
       setPaired(isPaired);

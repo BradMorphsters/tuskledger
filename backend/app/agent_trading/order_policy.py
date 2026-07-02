@@ -34,6 +34,16 @@ class OrderPolicy:
             raise ValueError("limit_offset_bps must be ≥ 0")
 
 
+def is_sub_share_limit(order: ProposedOrder, policy: OrderPolicy | None) -> bool:
+    """True when this is a LIMIT order whose sized quantity is < 1 whole share. Robinhood limit
+    orders are whole-share only, so such an order can't be placed as sized — build_order_args would
+    otherwise floor it UP to 1 share (a $50 buy of a $400 name becomes a $400 order, and can oversell
+    a fractional position). The generation path uses this to SKIP the order rather than inflate it."""
+    if policy is None or policy.order_type != "limit":
+        return False
+    return order.resolved_qty() < 1.0
+
+
 def limit_price(side: str, ref_price: float, policy: OrderPolicy) -> float:
     """Marketable-limit price: a buy sits slightly ABOVE the last (to fill), a sell slightly
     BELOW — each capping how far the fill can drift from the reference."""

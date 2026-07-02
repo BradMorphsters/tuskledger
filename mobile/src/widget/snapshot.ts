@@ -109,3 +109,24 @@ export async function publishSnapshot(): Promise<void> {
     if (__DEV__) console.warn('[widget] publishSnapshot failed:', e);
   }
 }
+
+/**
+ * Clear the App Group snapshot so the home-screen widget stops showing
+ * real balances after an unpair or a 401 token-revoke wipe. Without
+ * this the widget keeps rendering the last-published snapshot — real
+ * cash totals — indefinitely, because the snapshot is only ever
+ * overwritten on a *successful* sync (which no longer happens once
+ * we're unpaired).
+ *
+ * Writing an empty string makes the Swift side fall back to its baked-in
+ * placeholder (same path as a fresh, never-paired install). Best-effort:
+ * any failure is swallowed for the same reasons publishSnapshot swallows.
+ */
+export async function clearSnapshot(): Promise<void> {
+  try {
+    await WidgetBridge.writeSnapshot('');
+    await WidgetBridge.reloadAll();
+  } catch (e) {
+    if (__DEV__) console.warn('[widget] clearSnapshot failed:', e);
+  }
+}

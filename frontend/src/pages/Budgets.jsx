@@ -205,9 +205,20 @@ export default function Budgets() {
 
   const handleSave = async () => {
     setSaving(true)
-    await saveBudget({ month, year, categories })
-    setSaving(false)
-    setCopyMessage(null)  // user has explicitly committed; banner no longer needed
+    try {
+      await saveBudget({ month, year, categories })
+      setCopyMessage(null)  // user has explicitly committed; banner no longer needed
+    } catch (e) {
+      // Without this, a failed save left saving=true forever (button stuck
+      // on "Saving…") with no feedback. Surface it via the same warn banner
+      // the auto-save flow uses.
+      setCopyMessage({
+        tone: 'warn',
+        text: 'Save failed. Check your connection and try again.',
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Copy categories + base limits from the prior month into the current

@@ -343,7 +343,11 @@ def _business_to_dict(biz: Business) -> dict:
 @router.get("/{business_id}/schedule-c-summary")
 def schedule_c_summary(
     business_id: int,
-    year: int = Query(default=date.today().year, ge=2020, le=2030),
+    # Resolve the default INSIDE the handler: a Query default is evaluated
+    # once at import, so date.today().year would freeze to the process's
+    # start year and serve last year after a New-Year rollover. None →
+    # resolve per-request.
+    year: Optional[int] = Query(default=None, ge=2020, le=2030),
     db: Session = Depends(get_db),
 ):
     """Roll up a year's worth of business transactions for Schedule C
@@ -352,6 +356,7 @@ def schedule_c_summary(
     by Tusk Ledger category so the UI can map each category onto an IRS
     Schedule C expense line.
     """
+    year = year or date.today().year
     biz = db.query(Business).filter_by(id=business_id).first()
     if not biz:
         raise HTTPException(404, "Business not found")

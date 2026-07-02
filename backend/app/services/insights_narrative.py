@@ -50,6 +50,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models import Transaction
+from app.services.transaction_view import expand
 
 
 SYSTEM_PROMPT = """You are a concise financial analyst writing a short
@@ -208,14 +209,18 @@ def _query_period_spending(db: Session, period_start: date, period_end: date):
 
 
 def _aggregate_by_category(txns) -> tuple[dict, dict]:
-    """Group txns into (by_cat, by_cat_merchant) dicts. Pure helper."""
+    """Group txns into (by_cat, by_cat_merchant) dicts. Pure helper.
+
+    Routed through transaction_view.expand so split transactions are
+    attributed to each split's category rather than the parent's
+    (audit fix — this was the last aggregation ignoring splits).
+    """
     by_cat: dict[str, float] = defaultdict(float)
     by_cat_merch: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    for t in txns:
-        cat = t.custom_category or t.category or "Uncategorized"
-        by_cat[cat] += t.amount
-        merch = (t.merchant_name or t.name or "Unknown").strip()
-        by_cat_merch[cat][merch] += t.amount
+    for line in expand(txns):
+        by_cat[line.category] += line.amount
+        merch = (line.merchant or "Unknown").strip()
+        by_cat_merch[line.category][merch] += line.amount
     return by_cat, by_cat_merch
 
 

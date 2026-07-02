@@ -17,6 +17,7 @@ Strategy:
 from __future__ import annotations
 
 import datetime
+import os
 import sqlite3
 from pathlib import Path
 
@@ -59,20 +60,44 @@ def _today_backup_path(db_path: Path) -> Path:
 
 
 def _online_backup(src: Path, dst: Path) -> None:
-    """Copy a SQLite DB file using the online backup API.
+    """Copy a SQLite DB file using the online backup API, atomically.
 
     Safer than shutil.copy() because SQLite serializes pages through its
     own backup pipeline — no risk of grabbing the file mid-WAL-write and
     ending up with a torn DB on disk. Slower than file copy but for a few-MB
     personal finance DB it's instant.
+
+    Atomicity: we write to a temp file in the same directory, fsync it, and
+    then os.replace() it onto `dst`. os.replace is atomic on POSIX and
+    Windows, so a crash mid-backup can never leave a partial file at `dst`.
+    This matters because run_startup_backup treats an existing dst as
+    "already backed up today" and skips — a torn file there would poison
+    every future run until manually deleted.
     """
+    # Same-directory temp so the final os.replace stays on one filesystem
+    # (cross-device replace would fail / fall back to a non-atomic copy).
+    tmp = dst.with_name(f"{dst.name}.tmp-{os.getpid()}")
     src_conn = sqlite3.connect(str(src))
     try:
-        dst_conn = sqlite3.connect(str(dst))
+        dst_conn = sqlite3.connect(str(tmp))
         try:
             src_conn.backup(dst_conn)
+            # Flush SQLite's own buffers, then fsync the file descriptor so
+            # the bytes are durably on disk before we publish via rename.
+            dst_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            dst_conn.commit()
         finally:
             dst_conn.close()
+        with open(tmp, "rb") as f:
+            os.fsync(f.fileno())
+        os.replace(tmp, dst)  # atomic publish
+    except BaseException:
+        # Clean up the partial temp on any failure so it doesn't accumulate.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     finally:
         src_conn.close()
 

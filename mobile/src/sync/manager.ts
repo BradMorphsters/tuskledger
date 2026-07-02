@@ -17,7 +17,7 @@
  * just calls back into the store on transitions.
  */
 import { create } from 'zustand';
-import { applySync, resetMirror } from '../db/sqlite';
+import { applySync, getMeta, resetMirror, setMeta } from '../db/sqlite';
 import {
   AuthError,
   fetchSync,
@@ -30,7 +30,7 @@ import {
   loadToken,
   saveCursor,
 } from './storage';
-import { publishSnapshot } from '../widget/snapshot';
+import { clearSnapshot, publishSnapshot } from '../widget/snapshot';
 
 export type SyncStatus =
   | 'idle'
@@ -71,6 +71,31 @@ let periodicHandle: ReturnType<typeof setInterval> | null = null;
 
 const PERIODIC_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const MAX_PAGES_PER_SYNC = 10; // safety stop on runaway has_more loops
+const META_LAST_SYNCED_AT = 'last_synced_at';
+
+/** Persist the last successful sync time to the SQLite meta table so it
+ *  survives cold launches (Zustand state is memory-only). */
+async function saveLastSyncedAt(iso: string): Promise<void> {
+  try {
+    await setMeta(META_LAST_SYNCED_AT, iso);
+  } catch {
+    // Non-fatal — the in-memory store still has it for this session.
+  }
+}
+
+/**
+ * Hydrate `lastSyncedAt` from the SQLite meta table at boot so the
+ * staleness banner and Settings "Last synced" reflect prior sessions
+ * instead of always showing "Not synced yet" on a cold launch.
+ */
+export async function hydrateLastSyncedAt(): Promise<void> {
+  try {
+    const iso = await getMeta(META_LAST_SYNCED_AT);
+    if (iso) useSyncStore.getState().setLastSynced(iso);
+  } catch {
+    // Non-fatal — first launch or read failure leaves it null.
+  }
+}
 
 /**
  * Sync now. Returns the same promise across overlapping calls.
@@ -80,7 +105,19 @@ const MAX_PAGES_PER_SYNC = 10; // safety stop on runaway has_more loops
  * does an incremental delta from the persisted cursor.
  */
 export async function syncNow(force = false): Promise<void> {
-  if (inflight) return inflight;
+  if (inflight) {
+    // A non-forced call can safely piggyback on whatever is already
+    // running. But a forced "Resync from scratch" / demo toggle just
+    // wiped the mirror and MUST do a full pull — returning the inflight
+    // incremental sync would leave the wiped mirror holding only a
+    // delta. Chain a forced sync after the current one settles so it
+    // runs against a clean single-flight slot.
+    if (!force) return inflight;
+    return inflight.then(
+      () => syncNow(true),
+      () => syncNow(true),
+    );
+  }
   inflight = (async () => {
     const store = useSyncStore.getState();
     const [host, token] = await Promise.all([loadPairedHost(), loadToken()]);
@@ -94,6 +131,8 @@ export async function syncNow(force = false): Promise<void> {
       let since = force ? null : await loadCursor();
       let isFirstPage = true;
       let highwater: string | null = null;
+      let lastRowUpdatedAt: string | null = null;
+      let drained = false;
       for (let page = 0; page < MAX_PAGES_PER_SYNC; page++) {
         const resp = await fetchSync({
           since,
@@ -116,13 +155,22 @@ export async function syncNow(force = false): Promise<void> {
           },
         );
         highwater = resp.server_time;
+        // Track the last processed row's updated_at so that, if we bail
+        // out on MAX_PAGES_PER_SYNC with a backlog still pending, we can
+        // resume from where we stopped instead of jumping to server_time.
+        const last = resp.transactions[resp.transactions.length - 1];
+        if (last?.updated_at != null) {
+          lastRowUpdatedAt = last.updated_at;
+        }
         store.bumpVersion();
         isFirstPage = false;
-        if (!resp.has_more) break;
+        if (!resp.has_more) {
+          drained = true;
+          break;
+        }
         // Advance the page cursor only when updated_at is present.
         // If updated_at is null, leave `since` unchanged — re-serving
         // the same page is safe because applySync upserts.
-        const last = resp.transactions[resp.transactions.length - 1];
         if (last?.updated_at != null) {
           since = last.updated_at;
         }
@@ -130,10 +178,23 @@ export async function syncNow(force = false): Promise<void> {
       // Persist the cursor once, after all pages land successfully.
       // Saving mid-loop means a failure on a later page permanently
       // skips unsynced pages because the cursor already advanced.
-      if (highwater !== null) {
-        await saveCursor(highwater);
+      //
+      // Only advance to server_time when the backlog is fully drained
+      // (loop ended with has_more === false). If we bailed at
+      // MAX_PAGES_PER_SYNC with has_more still true, persisting
+      // server_time would skip every unfetched page forever — instead
+      // resume from the last processed row's updated_at so the next
+      // sync picks up the remaining backlog.
+      if (drained) {
+        if (highwater !== null) {
+          await saveCursor(highwater);
+        }
+      } else if (lastRowUpdatedAt !== null) {
+        await saveCursor(lastRowUpdatedAt);
       }
-      store.setLastSynced(new Date().toISOString());
+      const syncedAt = new Date().toISOString();
+      await saveLastSyncedAt(syncedAt);
+      store.setLastSynced(syncedAt);
       store.setStatus('idle');
       // Best-effort widget update — publishSnapshot already swallows
       // all errors internally, so this never fails a successful sync.
@@ -146,6 +207,10 @@ export async function syncNow(force = false): Promise<void> {
         // when the laptop says I'm not paired?").
         await clearAllPairing();
         await resetMirror();
+        // Clear the widget's App Group snapshot too — otherwise the
+        // home-screen widget keeps rendering the last real balances
+        // after the token was revoked and the mirror wiped.
+        await clearSnapshot();
         store.setStatus('unauthed');
         store.setError(e.message);
         store.bumpVersion();

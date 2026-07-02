@@ -57,9 +57,22 @@ function ForecastView() {
   const [health, setHealth] = useState(null)
   const [days, setDays] = useState(30)
   const [baseline, setBaseline] = useState('median_3')
-  useEffect(() => { getCashFlowForecast(days, baseline).then(setData).catch(() => {}) }, [days, baseline])
+  // Distinguish "still loading" from "load failed" so a swallowed error
+  // doesn't leave the page stuck on "Loading…" forever.
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  useEffect(() => {
+    setError(false)
+    getCashFlowForecast(days, baseline).then(setData).catch(() => setError(true))
+  }, [days, baseline, reloadKey])
   useEffect(() => { getCashFlowHealth().then(setHealth).catch(() => {}) }, [])
 
+  if (error && !data) return (
+    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+      <p style={{ marginBottom: 12 }}>Couldn't load the cash-flow forecast.</p>
+      <button onClick={() => setReloadKey(k => k + 1)} className="btn btn-secondary" style={{ fontSize: 12 }}>Retry</button>
+    </div>
+  )
   if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
 
   const series = data.series ?? []
@@ -341,7 +354,14 @@ function ForecastView() {
 function SubscriptionsView() {
   const [data, setData] = useState(null)
   const [cutSubscriptions, setCutSubscriptions] = useState(new Set())
-  useEffect(() => { getRecurring().then(setData).catch(() => {}) }, [])
+  // See ForecastView: track a real failure so we can offer a retry instead
+  // of an indefinite "Loading..." after a swallowed error.
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  useEffect(() => {
+    setError(false)
+    getRecurring().then(setData).catch(() => setError(true))
+  }, [reloadKey])
 
   const toggleCut = (merchantKey) => {
     setCutSubscriptions(prev => {
@@ -357,6 +377,12 @@ function SubscriptionsView() {
     .reduce((sum, r) => sum + (r.avg_amount || 0), 0) : 0
   const cutAnnualSavings = cutMonthlySavings * 12
 
+  if (error && !data) return (
+    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+      <p style={{ marginBottom: 12 }}>Couldn't load your recurring subscriptions.</p>
+      <button onClick={() => setReloadKey(k => k + 1)} className="btn btn-secondary" style={{ fontSize: 12 }}>Retry</button>
+    </div>
+  )
   if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading...</p>
 
   return (

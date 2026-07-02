@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,12 @@ from typing import Optional
 from .guardrails import AccountState
 
 STATE_SCHEMA = 1
+
+# One process-wide lock guarding the state file's read→modify→write. os.replace makes each WRITE
+# atomic, but a transition like mark_halted()/rearm() is load()→replace()→save(): without this,
+# two concurrent transitions can each read the same base and the last save wins, silently dropping
+# the other's change (e.g. a halt flag clobbered by a peak update). Held across the whole sequence.
+_STATE_LOCK = threading.Lock()
 
 
 def resolve_state_path(configured: str) -> Path:
@@ -147,16 +154,28 @@ class StateStore:
                 os.unlink(tmp)
 
     # convenience policy transitions ---------------------------------------
+    # Each holds _STATE_LOCK across load→replace→save so a concurrent transition can't read a stale
+    # base and clobber this one on save. Prefer these over an ad-hoc save(replace(load())) elsewhere.
     def mark_halted(self) -> AgentState:
-        s = replace(self.load(), halted=True)
-        self.save(s)
-        return s
+        with _STATE_LOCK:
+            s = replace(self.load(), halted=True)
+            self.save(s)
+            return s
 
     def rearm(self) -> AgentState:
         """Human re-arm: clear halt/pause so the loop can run again."""
-        s = replace(self.load(), halted=False, paused=False)
-        self.save(s)
-        return s
+        with _STATE_LOCK:
+            s = replace(self.load(), halted=False, paused=False)
+            self.save(s)
+            return s
+
+    def update(self, **changes) -> AgentState:
+        """Apply field changes to the persisted state under the lock (load→replace→save), so a
+        pause/resume/strategy change can't race a peak/halt update. Returns the new state."""
+        with _STATE_LOCK:
+            s = replace(self.load(), **changes)
+            self.save(s)
+            return s
 
 
 def control_status(state: AgentState) -> str:

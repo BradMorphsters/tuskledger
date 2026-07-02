@@ -398,11 +398,20 @@ def trading_tax(
     # The account_id filter is applied to the OUTPUT (matches +
     # open_positions) so the user sees per-account numbers without
     # the calculator losing visibility into cross-account washes.
+    #
+    # LOT-BASIS FIX: we must load the FULL buy history (no lower date
+    # bound), not just the selected year's buys. FIFO lot matching needs
+    # every open lot — a share bought in 2021 and sold in 2025 has its
+    # basis and its long-term holding clock in 2021, and clipping the
+    # window to Jan 1 of the tax year both loses that basis (the sell
+    # gets silently dropped) and resets every holding period to short-
+    # term. We cap the UPPER bound at end-of-year so a later year's
+    # activity can't leak into this year's report, then filter the
+    # resulting MATCHES down to sells that settled in the tax year.
     rows = (
         db.query(InvestmentTransaction)
         .options(joinedload(InvestmentTransaction.security))
         .filter(
-            InvestmentTransaction.date >= start,
             InvestmentTransaction.date <= end,
         )
         .order_by(InvestmentTransaction.date.asc(), InvestmentTransaction.id.asc())
@@ -430,10 +439,17 @@ def trading_tax(
 
     pnl = compute_realized_pnl(txns, as_of=today, wash_sale_scope=wash_sale_scope)
 
-    # Per-account display: scope matches + open_positions to the
-    # selected account if requested. Wash-sale flags survive because
-    # the calculator already saw cross-account history above.
-    matches_full = pnl["matches"]
+    # LOT-BASIS FIX: the calculator now sees full history, so restrict
+    # the reported matches (Form 8949 rows + headline gains) to sells
+    # that actually settled inside the requested tax year. Open lots are
+    # a point-in-time snapshot as of `today`, so they don't need a year
+    # filter. Prior-year sells stay in the calculation (they consumed
+    # lots and can still trigger wash-sale interactions) but drop out of
+    # this year's reported numbers.
+    matches_full = [
+        m for m in pnl["matches"]
+        if start <= m.sell_date <= end
+    ]
     open_full = pnl["open_positions"]
     if account_id is not None:
         matches_view = [m for m in matches_full if m.account_id == account_id]
@@ -445,19 +461,16 @@ def trading_tax(
     # Recompute summary on the visible matches so the headline numbers
     # match what the user can see (otherwise filtering to one account
     # could show "$5k ST gain" while the matches table only shows $2k).
-    summary_view = _summary_from_matches(matches_view, len(open_view))
-    # Carry the locked-vs-captured wash split from the calculator's
-    # own per-lot tracking (more accurate than re-deriving it at this
-    # layer, since the calculator knows which buy txn ids are still
-    # open). For the unfiltered case this is exact. For the per-account
-    # filtered case, it shows the TAXPAYER-WIDE numbers — which is the
-    # right framing since wash-sale rules apply per taxpayer regardless
-    # of which account you're scoping to display.
-    summary_view["wash_sale_disallowed_locked"] = pnl["summary"].get(
-        "wash_sale_disallowed_locked", 0.0
-    )
-    summary_view["wash_sale_disallowed_captured"] = pnl["summary"].get(
-        "wash_sale_disallowed_captured", 0.0
+    # We pass the calculator's own open-lot txn-id set so the locked-vs-
+    # captured wash split is derived against the SAME (year-filtered)
+    # matches used for the headline totals — carrying the taxpayer-wide,
+    # all-year split from pnl["summary"] would no longer reconcile with
+    # the year-scoped wash_sale_disallowed total now that lot matching
+    # sees full history.
+    summary_view = _summary_from_matches(
+        matches_view,
+        len(open_view),
+        open_position_txn_ids=pnl.get("open_lot_txn_ids"),
     )
     tax = estimate_tax_owed(
         summary_view,
@@ -653,6 +666,17 @@ def trading_tax(
         "cross_account_wash_count": cross_account_wash_count,
         "is_account_filtered": account_id is not None,
         "wash_sale_scope": wash_sale_scope,
+        # Data-quality flag: sells the calculator couldn't match to a buy
+        # lot (missing imported buys). Their proceeds are reported at zero
+        # basis (fully taxable) rather than silently dropped. Scoped to
+        # the selected tax year + account so it lines up with the matches
+        # table the user is viewing.
+        "unmatched_sells": [
+            {**u, "sell_date": u["sell_date"].isoformat()}
+            for u in pnl.get("unmatched_sells", [])
+            if start <= u["sell_date"] <= end
+            and (account_id is None or u["account_id"] == account_id)
+        ],
     }
 
 
@@ -746,14 +770,18 @@ def trading_tax_preflight(
     """
     today = datetime.date.today()
     year_filter = body.year if body.year is not None else today.year
-    start = datetime.date(year_filter, 1, 1)
     end = datetime.date(year_filter, 12, 31)
 
+    # LOT-BASIS FIX: load the FULL buy history (no lower date bound) so
+    # FIFO lot matching can find the real basis and holding period of
+    # every open lot, not just lots bought since Jan 1. The hypothetical
+    # sell settles "today"; without prior-year buys its shares would
+    # match no lot and the pre-flight would understate basis / mis-flag
+    # the holding period. Upper bound stays at end-of-year for symmetry.
     q = (
         db.query(InvestmentTransaction)
         .options(joinedload(InvestmentTransaction.security))
         .filter(
-            InvestmentTransaction.date >= start,
             InvestmentTransaction.date <= end,
         )
         .order_by(InvestmentTransaction.date.asc(), InvestmentTransaction.id.asc())
@@ -819,11 +847,16 @@ def trading_tax_form_8949(
     start = datetime.date(year_filter, 1, 1)
     end = datetime.date(year_filter, 12, 31)
 
+    # LOT-BASIS FIX: full history (no lower bound) so every sold lot's
+    # basis and holding period comes from its real buy date. We then
+    # restrict the emitted Form 8949 rows to sells that settled inside
+    # the requested tax year — a sell of a 2021 lot in 2025 belongs on
+    # the 2025 return, and clipping the query to Jan 1 would have
+    # dropped the sell entirely (no in-year buy to match against).
     rows = (
         db.query(InvestmentTransaction)
         .options(joinedload(InvestmentTransaction.security))
         .filter(
-            InvestmentTransaction.date >= start,
             InvestmentTransaction.date <= end,
         )
         .order_by(InvestmentTransaction.date.asc(), InvestmentTransaction.id.asc())
@@ -845,7 +878,7 @@ def trading_tax_form_8949(
         })
     pnl = compute_realized_pnl(txns, as_of=today, wash_sale_scope=wash_sale_scope)
 
-    matches = pnl["matches"]
+    matches = [m for m in pnl["matches"] if start <= m.sell_date <= end]
     if account_id is not None:
         matches = [m for m in matches if m.account_id == account_id]
 

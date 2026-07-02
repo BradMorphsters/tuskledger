@@ -8,6 +8,24 @@
  */
 import { getDb } from './sqlite';
 
+/**
+ * First day of the current month as a LOCAL YYYY-MM-DD string.
+ *
+ * `new Date(y, m, 1).toISOString()` converts to UTC first, so for any
+ * user west of UTC (all of the Americas) the month-start rolls back to
+ * the last day of the *previous* month — pulling an extra day of the
+ * prior month into "this month" totals. Formatting the local Y/M/D
+ * parts directly keeps the boundary in the user's own timezone, which
+ * is how transaction `date` values (plain YYYY-MM-DD) are meant to be
+ * compared.
+ */
+function localMonthStart(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
 export interface AccountRow {
   id: number;
   name: string;
@@ -102,10 +120,7 @@ export interface MonthSummary {
 
 export async function currentMonthSummary(): Promise<MonthSummary> {
   const db = await getDb();
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
+  const start = localMonthStart();
   const row = await db.getFirstAsync<{
     income: number | null;
     spending: number | null;
@@ -138,10 +153,7 @@ export async function topCategoriesThisMonth(
   limit = 5,
 ): Promise<CategoryTotal[]> {
   const db = await getDb();
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
+  const start = localMonthStart();
   return db.getAllAsync<CategoryTotal>(
     `SELECT
         COALESCE(custom_category, category, 'Uncategorized') AS category,

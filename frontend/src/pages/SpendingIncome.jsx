@@ -42,14 +42,11 @@ import Pill from '../components/Pill'
 import EmptyState from '../components/EmptyState'
 import TrendStat from '../components/TrendStat'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { yearOptions, cleanMerchantName } from '../lib/format'
+import { useLatestRequest } from '../hooks/useLatestRequest'
+import { yearOptions, cleanMerchantName, formatCurrencyZero as fmt } from '../lib/format'
 import { SpendingHeatmap } from '../components/SpendingExtras'
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6', '#22d3ee', '#c084fc']
-
-function fmt(val) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0)
-}
 
 function fmtCompact(val) {
   const n = val || 0
@@ -686,18 +683,24 @@ export default function SpendingIncome() {
   const [yoyData, setYoyData] = useState(null)
   const [drawer, setDrawer] = useState({ open: false, title: '', subtitle: '', filters: {} })
   const [merchantDrawerName, setMerchantDrawerName] = useState(null)
+  const runMonth = useLatestRequest()
 
   useEffect(() => {
     getIncomeVsSpending(timeRange).then(setMonthlyData).catch(() => {})
   }, [timeRange])
 
   useEffect(() => {
-    getCategoryBreakdown(selectedMonth, selectedYear).then(setBreakdown).catch(() => setBreakdown(null))
-    getCategoryTrends(selectedMonth, selectedYear, 6).then(setTrends).catch(() => setTrends(null))
-    getSpendingPatterns(selectedMonth, selectedYear).then(setPatterns).catch(() => setPatterns(null))
-    if (showYoY) {
-      getYearOverYear(selectedMonth, selectedYear).then(setYoyData).catch(() => setYoyData(null))
-    }
+    // Fast month-arrow clicks fire several parallel fetches; guard each so
+    // a slow response for a previous month can't render under the new
+    // month's label.
+    runMonth(token => {
+      getCategoryBreakdown(selectedMonth, selectedYear).then(d => { if (token.live) setBreakdown(d) }).catch(() => { if (token.live) setBreakdown(null) })
+      getCategoryTrends(selectedMonth, selectedYear, 6).then(d => { if (token.live) setTrends(d) }).catch(() => { if (token.live) setTrends(null) })
+      getSpendingPatterns(selectedMonth, selectedYear).then(d => { if (token.live) setPatterns(d) }).catch(() => { if (token.live) setPatterns(null) })
+      if (showYoY) {
+        getYearOverYear(selectedMonth, selectedYear).then(d => { if (token.live) setYoyData(d) }).catch(() => { if (token.live) setYoyData(null) })
+      }
+    })
   }, [selectedMonth, selectedYear, showYoY])
 
   useEffect(() => {

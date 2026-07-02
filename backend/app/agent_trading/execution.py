@@ -25,11 +25,28 @@ from typing import Optional
 from . import alerts
 from .brokers import BrokerError
 from .guardrails import GuardrailConfig, ProposedOrder
-from .proposals import APPROVED, ProposalStore, generate_proposals
+from .lifecycle import client_order_id, find_duplicates
+from .proposals import APPROVED, PlacementInFlight, ProposalStore, generate_proposals
 from .sizing import SizingConfig, size_decisions
 from .state import AgentState, StateStore
 from .strategy import StrategyConfig
 from .strategy import propose as propose_strategy
+
+
+# Exception types that mean the broker round-trip MIGHT have reached the venue (the request could
+# have been received and even filled while we timed out). A blind retry on one of these can
+# duplicate a live order, so we reconcile against get_equity_orders instead of retrying (finding #2).
+_TIMEOUT_MARKERS = ("timeout", "timed out", "read timeout", "connect timeout",
+                    "deadline", "connection reset", "connection aborted")
+
+
+def _is_timeout_class(e: BaseException) -> bool:
+    """True if the failure looks like a network timeout / interrupted round-trip (vs a clean
+    broker reject). Checks the exception type name and the flattened message."""
+    if isinstance(e, TimeoutError):
+        return True
+    blob = (type(e).__name__ + " " + _format_exc(e)).lower()
+    return any(m in blob for m in _TIMEOUT_MARKERS)
 
 
 @dataclass
@@ -129,17 +146,58 @@ def place_approved_proposal(
                 alert_log.emit(alerts.stale_proposal(proposal.ticker, msg))
             return ExecutionResult(ok=False, status="refused", proposal_id=proposal.id, reason=msg)
 
+    # Atomic claim (finding #1): flip approved→placing under the store lock BEFORE the multi-second
+    # broker round-trip. A concurrent double-tap Approve loses the race and raises PlacementInFlight,
+    # so the same live order can never be placed twice. Done after the refusal checks above so we
+    # never claim a proposal we'd have refused anyway.
+    try:
+        proposal_store.begin_placing(proposal.id, now=now)
+    except PlacementInFlight as e:
+        return ExecutionResult(ok=False, status="in_flight", proposal_id=proposal.id, reason=str(e))
+
+    # Idempotency key (finding #2): a deterministic client order id, attached to the placement (it
+    # rides in the place log, not the MCP args) so a placement is traceable and a timeout can be
+    # reconciled instead of blindly retried.
+    coid = client_order_id(proposal.cycle_id or "cycle", proposal.ticker, proposal.side, 0)
+
     try:
         # Faithful replay: place EXACTLY the approved order_args when the broker supports it
         # (the live broker), so the limit price/type the user approved is what's sent. The sim
         # broker fills from the reconstructed ProposedOrder.
         if hasattr(broker, "place_raw"):
-            fill = broker.place_raw(proposal.order_args)
+            fill = broker.place_raw({**proposal.order_args, "client_order_id": coid})
         else:
             fill = broker.place_order(_order_from_proposal(proposal))
-    except Exception as e:  # noqa: BLE001 — ANY placement failure (broker, network, MCP) becomes a
-        # clean failed-result + alert, never a 500. The proposal stays approved so it can be retried.
+    except Exception as e:  # noqa: BLE001 — ANY placement failure (broker, network, MCP) is handled here.
         msg = _format_exc(e)
+        if _is_timeout_class(e):
+            # The round-trip may have reached the venue. Do NOT retry blind — check the recent-orders
+            # feed for a matching order first. Found → the order is real: mark placed (needs a
+            # later fill reconcile). Not found (or the read fails) → park in UNKNOWN so it can't be
+            # re-placed until a human/reconcile resolves it — never silently back to 'approved'.
+            matched = False
+            if hasattr(broker, "recent_orders"):
+                try:
+                    recent = broker.recent_orders()
+                    planned = [{"symbol": proposal.ticker, "side": proposal.side}]
+                    matched = 0 in find_duplicates(planned, recent)
+                except Exception:  # noqa: BLE001 — a failed reconcile read is treated as "unknown"
+                    matched = False
+            if matched:
+                proposal_store.mark_placed(proposal.id, f"unknown:{coid}", now=now, state="unknown")
+                if alert_log:
+                    alert_log.emit(alerts.placement_failed(
+                        proposal.ticker, f"timeout, but a matching order exists — marked placed/needs-reconcile: {msg}"))
+                return ExecutionResult(ok=False, status="unknown", proposal_id=proposal.id,
+                                       reason=f"placement timed out but the order appears to exist; reconcile: {msg}")
+            proposal_store.mark_unknown(proposal.id, reason="placement timeout — needs reconcile")
+            if alert_log:
+                alert_log.emit(alerts.placement_failed(proposal.ticker, f"timeout, no matching order — needs reconcile: {msg}"))
+            return ExecutionResult(ok=False, status="unknown", proposal_id=proposal.id,
+                                   reason=f"placement timed out; needs reconcile before retry: {msg}")
+        # Clean broker/MCP reject that definitely did NOT place: roll back to approved so it can be
+        # retried, and alert — same behaviour as before for the non-timeout case.
+        proposal_store.abort_placing(proposal.id)
         if alert_log:
             alert_log.emit(alerts.placement_failed(proposal.ticker, msg))
         return ExecutionResult(ok=False, status="failed", proposal_id=proposal.id, reason=msg)

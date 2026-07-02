@@ -937,6 +937,12 @@ def get_merchant_details(merchant_name: str, db: Session = Depends(get_db)):
     # hydrating full ORM objects) and normalizing once per row keeps this
     # fast even with years of history.
     target = merchant_name.lower()
+    # NOTE: Transaction.display_name is a Python @property (it calls the
+    # merchant_normalizer), NOT a mapped column — passing it into
+    # db.query() raised an InvalidRequestError and 500'd this endpoint
+    # unconditionally. We select only real columns here and compute the
+    # display name in the Python loop below (line where we build the
+    # recent-transactions payload), where the normalizer is available.
     all_txns = db.query(
         Transaction.id,
         Transaction.date,
@@ -944,7 +950,6 @@ def get_merchant_details(merchant_name: str, db: Session = Depends(get_db)):
         Transaction.is_transfer,
         Transaction.merchant_name,
         Transaction.name,
-        Transaction.display_name,
         Transaction.account_id,
     ).all()
     matching_txns = []
@@ -1008,12 +1013,18 @@ def get_merchant_details(merchant_name: str, db: Session = Depends(get_db)):
     # Recent transactions (all types, including transfers, for visibility)
     # Sort by date descending, limit to 50
     recent = sorted(matching_txns, key=lambda t: t.date, reverse=True)[:50]
+    # display_name is no longer selected (it's a property); recompute the
+    # normalized name here from the raw columns, mirroring the property's
+    # merchant_name → name fallback chain.
     transactions_out = [
         {
             "id": t.id,
             "date": t.date.isoformat(),
             "amount": t.amount,
-            "name": t.display_name or t.merchant_name or t.name,
+            "name": (
+                normalize(t.merchant_name or t.name)
+                or t.merchant_name or t.name
+            ),
             "account_id": t.account_id,
             "is_transfer": t.is_transfer,
         }

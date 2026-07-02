@@ -166,6 +166,29 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 }
 
+/**
+ * Read a value from the meta key/value table. Returns null when the
+ * key is absent. Used for small scalars that must survive cold launch
+ * (schema version, last-synced timestamp).
+ */
+export async function getMeta(key: string): Promise<string | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM meta WHERE key = ?',
+    [key],
+  );
+  return row ? row.value : null;
+}
+
+/** Upsert a value into the meta key/value table. */
+export async function setMeta(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)',
+    [key, value],
+  );
+}
+
 /** Wipe finance data. Used by /api/mobile/sync `full=true` path
  *  and the "Resync from scratch" button. */
 export async function resetMirror(): Promise<void> {
@@ -178,6 +201,12 @@ export async function resetMirror(): Promise<void> {
     DELETE FROM net_worth_snapshots;
     DELETE FROM manual_assets;
   `);
+  // Bump the data version so any UI subscribed to the mirror re-queries
+  // and clears immediately, rather than stranding pre-wipe rows on
+  // screen if the follow-up sync fails or is slow to land.
+  // Lazy import avoids a circular dependency: sqlite ← manager ← sqlite.
+  const { useSyncStore } = await import('../sync/manager');
+  useSyncStore.getState().bumpVersion();
 }
 
 export async function applySync(

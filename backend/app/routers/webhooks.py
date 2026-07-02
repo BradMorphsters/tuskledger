@@ -18,9 +18,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -32,6 +33,28 @@ from app.services.sync_service import sync_single_item
 log = logging.getLogger("fintrack.webhooks")
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
+
+
+# ─── Per-item sync serialization ────────────────────────────────
+# Plaid can fire two webhooks for the same item within milliseconds
+# (e.g. DEFAULT_UPDATE immediately followed by SYNC_UPDATES_AVAILABLE).
+# sync_single_item reads and then advances the item's cursor; running two
+# concurrently races the cursor and can drop or double-process a page.
+# We serialize syncs PER ITEM with a lock so concurrent webhooks for the
+# same item queue up instead of racing, while different items still sync
+# in parallel. `_item_locks_guard` protects the lock registry itself.
+_item_sync_locks: dict[str, threading.Lock] = {}
+_item_locks_guard = threading.Lock()
+
+
+def _get_item_sync_lock(item_id: str) -> threading.Lock:
+    """Return the per-item sync lock, creating it on first use."""
+    with _item_locks_guard:
+        lock = _item_sync_locks.get(item_id)
+        if lock is None:
+            lock = threading.Lock()
+            _item_sync_locks[item_id] = lock
+        return lock
 
 
 # ─── Signature verification ─────────────────────────────────────
@@ -149,9 +172,18 @@ def _fetch_plaid_public_key(kid: str) -> str:
 
 # ─── Event dispatch ─────────────────────────────────────────────
 @router.post("/plaid")
-async def plaid_webhook(request: Request, db: Session = Depends(get_db)):
-    body_bytes = await request.body()
-
+def plaid_webhook(
+    request: Request,
+    body_bytes: bytes = Body(default=b"", media_type="application/json"),
+    db: Session = Depends(get_db),
+):
+    # This handler is intentionally a plain `def`, not `async def`. It calls
+    # the synchronous, seconds-long sync_single_item; on the event loop that
+    # would freeze every other request until the Plaid round-trips finish.
+    # As a sync endpoint FastAPI runs it in its threadpool instead, so the
+    # loop stays responsive. We take the raw body via `Body(bytes)` (rather
+    # than `await request.body()`, which isn't available in a sync handler)
+    # so signature verification still hashes the exact bytes Plaid sent.
     if settings.PLAID_WEBHOOK_VERIFY:
         _verify_plaid_signature(body_bytes, request.headers.get("Plaid-Verification"))
 
@@ -187,7 +219,12 @@ async def plaid_webhook(request: Request, db: Session = Depends(get_db)):
     if webhook_type == "TRANSACTIONS" and webhook_code in sync_trigger_codes:
         try:
             client = get_plaid_client()
-            result = sync_single_item(db, client, item)
+            # Serialize concurrent syncs of the SAME item so two near-
+            # simultaneous webhooks don't race the item cursor. Different
+            # items still sync in parallel (separate locks). This runs in
+            # FastAPI's threadpool, so blocking on the lock is fine.
+            with _get_item_sync_lock(str(item_id)):
+                result = sync_single_item(db, client, item)
             return {"status": "synced", "item_id": item_id, "result": result}
         except Exception as e:
             log.exception("Sync-on-webhook failed for item_id=%s", item_id)

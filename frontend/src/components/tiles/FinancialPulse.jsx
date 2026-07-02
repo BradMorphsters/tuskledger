@@ -61,9 +61,18 @@ export function FinancialPulse() {
     } catch { return 0 }
   })
   const [editingDeferral, setEditingDeferral] = useState(false)
+  // Raw input value, updated on every keystroke. `payrollDeferral` (the
+  // committed value that drives the fetch + localStorage) only follows it
+  // after a debounce, so typing "1500" doesn't fire four refetches.
+  const [deferralInput, setDeferralInput] = useState(payrollDeferral)
 
-  // Re-fetch whenever the deferral changes (debounced via the input
-  // field's onChange that only writes to state).
+  // Debounce keystrokes → committed deferral.
+  useEffect(() => {
+    const t = setTimeout(() => setPayrollDeferral(deferralInput), 400)
+    return () => clearTimeout(t)
+  }, [deferralInput])
+
+  // Re-fetch whenever the committed deferral changes.
   useEffect(() => {
     setLoading(true)
     getFinancialPulse(payrollDeferral)
@@ -76,7 +85,11 @@ export function FinancialPulse() {
     try { localStorage.setItem(PAYROLL_DEFERRAL_KEY, String(payrollDeferral)) } catch {}
   }, [payrollDeferral])
 
-  if (loading) return <SkeletonCard titleWidth="35%" rows={5} />
+  // Only show the skeleton on the *initial* load (no data yet). Once we
+  // have data, keep the card mounted during a refetch — swapping it for a
+  // skeleton unmounted the deferral input and killed focus after the first
+  // keystroke. An inline dimmed state signals the refresh instead.
+  if (loading && !data) return <SkeletonCard titleWidth="35%" rows={5} />
 
   if (!data) return null
   const score = data.score
@@ -91,10 +104,11 @@ export function FinancialPulse() {
     budget:    { score: 0, value: 0, label: 'budget adherence %', weight: 0.2 },
   }
   return (
-    <div className="card" style={tileCardStyle}>
+    <div className="card" style={{ ...tileCardStyle, opacity: loading ? 0.6 : 1, transition: 'opacity 0.15s' }}>
       <div className="card-header">
         <span className="card-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Activity size={14} style={{ color }} /> Financial pulse
+          {loading && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>updating…</span>}
         </span>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>composite 0–100</span>
       </div>
@@ -178,8 +192,8 @@ export function FinancialPulse() {
             </span>
             <input
               type="number" min={0} step={50}
-              value={payrollDeferral}
-              onChange={e => setPayrollDeferral(Number(e.target.value) || 0)}
+              value={deferralInput}
+              onChange={e => setDeferralInput(Number(e.target.value) || 0)}
               autoFocus
               style={{
                 width: 100, padding: '3px 8px', fontSize: 12,

@@ -20,8 +20,6 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from dataclasses import replace
-
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -654,9 +652,39 @@ def agent_trading_generate_proposals(
     if coupling.skips():
         skips = {**skips, **coupling.skips()}
 
+    # Sub-1-share limit skip: Robinhood limit orders are whole-share only, so a sized buy that
+    # comes out to < 1 share can't place as sized — inflating it up to 1 share would turn a $50
+    # order into a whole-share order (and could oversell a fractional position). Skip these at
+    # generation with a reason rather than queueing an order that doesn't match what would place.
+    if order_policy is not None:
+        from app.agent_trading.guardrails import ProposedOrder
+        from app.agent_trading.order_policy import is_sub_share_limit
+        _kept = []
+        for d in decisions:
+            if d.action.lower().strip() != "hold" and d.target_notional is not None:
+                po = ProposedOrder(ticker=d.ticker, side=d.action, ref_price=d.ref_price,
+                                   notional=d.target_notional)
+                if is_sub_share_limit(po, order_policy):
+                    skips[d.ticker.upper()] = (
+                        f"sized to {po.resolved_qty():.2f} sh (< 1) — a whole-share limit order "
+                        f"can't place this without inflating it; raise the sleeve/cap to buy ≥1 share")
+                    continue
+            _kept.append(d)
+        decisions = _kept
+
+    # Gate against the REAL persisted state (not a blank AgentState), so the drawdown breaker,
+    # the daily trade cap, and a halt/pause flag actually constrain this primary proposal path —
+    # mirroring run_live_cycle. executed_today is derived from the decision log (same rule the
+    # executor uses); plan.state is persisted back so a drawdown trip here survives.
+    state_store = _store()
+    persisted = state_store.load()
+    _log_rows = log.load_rows(_path())
+    executed_today = sum(1 for r in _log_rows
+                         if r.get("status") == "executed" and r.get("as_of") == today)
     plan = plan_cycle(account_number=(live_account if live else "approval-queue"), snapshot=snapshot,
-                      decisions=decisions, config=grc, persisted=AgentState(),
-                      order_policy=order_policy, as_of=today)
+                      decisions=decisions, config=grc, persisted=persisted,
+                      executed_today=executed_today, order_policy=order_policy, as_of=today)
+    state_store.save(plan.state)
 
     cycle_id, queued = generate_proposals(_proposal_store(), plan)
     # Stream the cycle to the live activity timeline (cycle_started → read → per-order gate → done).
@@ -705,12 +733,19 @@ def agent_trading_approve_proposal(pid: str):
     p = store.get(pid)
     if p is None:
         raise HTTPException(status_code=404, detail=f"no proposal {pid}")
-    # pending → mark approved; already-approved (e.g. a prior placement errored) → retry placement.
+    # pending → mark approved; already-approved (e.g. a prior placement cleanly errored) → retry.
+    # A proposal mid-placement or parked as UNKNOWN is NOT re-placeable here: a double-tap while a
+    # placement is in flight, or a retry of a timed-out order, could double-place a live order.
     if p.status == "pending":
         try:
             p = store.decide(pid, "approve", by="user")
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
+    elif p.status == "placing":
+        raise HTTPException(status_code=409, detail="proposal is already being placed")
+    elif p.status == "unknown":
+        raise HTTPException(status_code=409,
+                            detail="proposal's placement is unresolved (timeout) — reconcile it before retrying")
     elif p.status != "approved":
         raise HTTPException(status_code=409, detail=f"proposal is {p.status}, not actionable")
 
@@ -727,6 +762,9 @@ def agent_trading_approve_proposal(pid: str):
                                       state_store=_store(), log_path=_path(), alert_log=_alert_log())
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Placement error: {type(e).__name__}: {e}")
+    # Lost the placement race (a concurrent double-tap already claimed it) → 409, no second order.
+    if res.status == "in_flight":
+        raise HTTPException(status_code=409, detail=res.reason or "placement already in flight")
     # Reflect the placement on the live activity timeline. Three outcomes, three colours:
     #   • executed (filled/partially_filled) → "placed"/ok (green): shares are in hand.
     #   • accepted-but-queued (unconfirmed/queued/new) → "queued"/warn (amber): the order is live
@@ -1235,7 +1273,7 @@ def agent_trading_pause():
     """Manually stop the loop from trading (distinct from Robinhood's kill switch, which
     disconnects the agent). Persists ``paused`` so it survives restarts."""
     store = _store()
-    store.save(replace(store.load(), paused=True))
+    store.update(paused=True)   # lock-guarded load→replace→save (see StateStore.update)
     return _control_payload(store)
 
 
@@ -1243,7 +1281,7 @@ def agent_trading_pause():
 def agent_trading_resume():
     """Clear a manual pause. Does NOT clear a drawdown halt — that needs re-arm."""
     store = _store()
-    store.save(replace(store.load(), paused=False))
+    store.update(paused=False)   # lock-guarded (see StateStore.update)
     return _control_payload(store)
 
 
@@ -1254,7 +1292,7 @@ def agent_trading_set_strategy(profile: str = Query(..., description="Analyst pr
     if profile not in PROFILES:
         raise HTTPException(status_code=400, detail=f"unknown profile {profile!r}; pick one of {list(PROFILES)}")
     store = _store()
-    store.save(replace(store.load(), strategy=profile))
+    store.update(strategy=profile)   # lock-guarded (see StateStore.update)
     return _control_payload(store)
 
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Calendar, AlertCircle, RotateCcw } from 'lucide-react'
 import { getCashflowCalendar } from '../api/client'
+import { formatCurrency, toLocalISODate } from '../lib/format'
 
 /**
  * Bills calendar with drag-to-reschedule.
@@ -133,7 +134,7 @@ export default function CashFlowCalendar() {
     weeks.push(week)
   }
 
-  const dateKey = (d) => d.toISOString().split('T')[0]
+  const dateKey = (d) => toLocalISODate(d)
 
   const handleDragStart = (e, event) => {
     // Encode the stable original key — we identify the bill by its
@@ -562,7 +563,7 @@ export default function CashFlowCalendar() {
                   Expected Income
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 600, color: '#28a745' }}>
-                  ${summary.total_expected_income.toFixed(2)}
+                  {formatCurrency(summary.total_expected_income)}
                 </div>
               </div>
               <div style={{
@@ -575,7 +576,7 @@ export default function CashFlowCalendar() {
                   Expected Expenses
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 600, color: '#dc3545' }}>
-                  ${summary.total_expected_expenses.toFixed(2)}
+                  {formatCurrency(summary.total_expected_expenses)}
                 </div>
               </div>
               <div style={{
@@ -592,7 +593,7 @@ export default function CashFlowCalendar() {
                   fontWeight: 600,
                   color: summary.net >= 0 ? '#28a745' : '#dc3545',
                 }}>
-                  ${summary.net.toFixed(2)}
+                  {formatCurrency(summary.net)}
                 </div>
               </div>
             </div>

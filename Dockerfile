@@ -65,6 +65,21 @@ WORKDIR /app
 # are already installed; we don't need gcc anymore.
 RUN apt-get purge -y --auto-remove build-essential libffi-dev || true
 
+# ─── Drop root ────────────────────────────────────────────────────
+# The demo binds to a non-privileged port (8000) and needs no root
+# capabilities at runtime, so run uvicorn as an unprivileged user.
+#
+# NEEDS-TESTING-ON-RAILWAY: SQLite opens the demo DB read-WRITE (the
+# engine is created without mode=ro), so at runtime it writes -journal
+# /-wal sidecar files next to the DB and the real engine may create an
+# empty tuskledger.db in the same dir. The non-root user therefore needs
+# write access to BOTH the seeded DB and its containing directory
+# (/app/backend). We chown /app so those writes succeed; verify the demo
+# still boots and serves after this change on Railway.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 # Healthcheck-friendly env. Railway maps $PORT into the container.
 ENV PYTHONUNBUFFERED=1
 ENV HOST=0.0.0.0

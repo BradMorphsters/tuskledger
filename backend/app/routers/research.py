@@ -320,9 +320,6 @@ def research_prices(
     refresh: bool = Query(False),
     debug: bool = Query(False),
 ):
-    if debug:
-        # Bypass cache; report exactly what the Stooq fetch did.
-        return md.diagnose(ticker, months=months)
     """Real monthly close history + current price for one ticker (Stooq).
 
     On-demand: serves the cache if fresh (<12h), else fetches from Stooq and
@@ -333,14 +330,23 @@ def research_prices(
     key = ticker.strip().upper()
     cache = store.load_prices(domain)
     entry = cache.get(key)
-    fresh = bool(entry and entry.get("history") and (time.time() - entry.get("fetched_at", 0) < PRICE_TTL_SECONDS))
-    if entry and fresh and not refresh:
-        return {**entry, "ticker": key, "cached": True}
-    # Don't make outbound calls from the locked public demo.
+    # Don't make outbound calls from the locked public demo. This guard
+    # MUST sit above the debug branch below: md.diagnose() hits Stooq, and
+    # the public demo could otherwise fire outbound market-data calls via
+    # ?debug=true, defeating the lock. Serve cache (marked stale) or a
+    # disabled sentinel instead.
     if settings.DEMO_LOCKED:
         if entry and entry.get("history"):
             return {**entry, "ticker": key, "cached": True, "stale": True}
         return {"ticker": key, "available": False, "reason": "price fetch disabled on demo"}
+
+    if debug:
+        # Bypass cache; report exactly what the Stooq fetch did.
+        return md.diagnose(ticker, months=months)
+
+    fresh = bool(entry and entry.get("history") and (time.time() - entry.get("fetched_at", 0) < PRICE_TTL_SECONDS))
+    if entry and fresh and not refresh:
+        return {**entry, "ticker": key, "cached": True}
 
     fetched = md.fetch_prices(ticker, months=months)
     if not fetched:

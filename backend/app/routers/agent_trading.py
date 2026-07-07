@@ -1196,6 +1196,8 @@ def agent_trading_ranking(profile: str = Query(None, description="profile to ran
     # Rank trend: compare each name to the most recent prior-day snapshot (+N climbed, −N fell),
     # then record today's snapshot (one per day, so reloads don't pile up). Best-effort — a
     # history hiccup must never break the ranking.
+    baseline_date = None       # the date the +/- deltas are measured against
+    last_change_date = None    # the last day the ordering actually moved (so a run of "–" reads as stable)
     try:
         from app.agent_trading import rank_history as rh
         hpath = _events_path().parent / "rank_history.json"
@@ -1207,7 +1209,10 @@ def agent_trading_ranking(profile: str = Query(None, description="profile to ran
         dl = rh.deltas(hist, profile=sel, domain=dom, today=today, ranks=ranks)
         for r in rows:
             r["rank_delta"] = dl.get(r["ticker"])   # +N climbed / −N fell / 0 flat / None = new
-        rh.save(hpath, rh.record(hist, profile=sel, domain=dom, today=today, ranks=ranks))
+        baseline_date = rh.baseline_date(hist, profile=sel, domain=dom, today=today)
+        saved = rh.record(hist, profile=sel, domain=dom, today=today, ranks=ranks)
+        last_change_date = rh.last_change_date(saved, profile=sel, domain=dom)
+        rh.save(hpath, saved)
     except Exception:  # noqa: BLE001
         for r in rows:
             r.setdefault("rank_delta", None)
@@ -1217,6 +1222,15 @@ def agent_trading_ranking(profile: str = Query(None, description="profile to ran
         "top_n": cfg.rotation_top_n, "exit_n": cfg.rotation_exit_n,
         "max_new_positions": cfg.max_new_positions, "ranking": rows,
         "connected": connected, "held_count": len(held_rows),
+        # Context for the trend column so a wall of "–" reads as "stable", not "broken":
+        "baseline_date": baseline_date, "last_change_date": last_change_date,
+        # What the rank is ordered by, per profile — so the UI can explain WHY the order moves
+        # (or doesn't). rotation = research thesis (conviction·upside·conviction-momentum), NOT
+        # daily price; the trigger profiles rank by their own metric.
+        "rank_basis": {
+            "rotation": "thesis", "momentum": "momentum",
+            "mean_reversion": "pullback", "signal_event": "signal",
+        }.get(sel, "thesis"),
     }
 
 

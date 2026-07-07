@@ -28,7 +28,7 @@ from app.services.llm_ollama import LLMUnavailable, OllamaClient
 from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.tax import HSA_LIMITS, hsa_limit
 from app.services.transaction_view import expand
-from app.utils import utcnow
+from app.utils import month_end_exclusive, month_start, shift_month, utcnow
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -670,23 +670,15 @@ def category_trends(
     change, YoY change, and a list of the prior `months_back` months of spend
     suitable for a small sparkline."""
 
-    def shift_month(y: int, m: int, by: int) -> tuple[int, int]:
-        idx = (y * 12 + (m - 1)) + by
-        return idx // 12, (idx % 12) + 1
-
-    def month_start(y: int, m: int) -> date:
-        return date(y, m, 1)
-
-    def month_end_excl(y: int, m: int) -> date:
-        return date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-
-    cur_start, cur_end = month_start(year, month), month_end_excl(year, month)
+    # Month math: the canonical app.utils helpers (the inline closures that
+    # used to live here were one of several drifted reimplementations).
+    cur_start, cur_end = month_start(year, month), month_end_exclusive(year, month)
     prev_y, prev_m = shift_month(year, month, -1)
     yoy_y, yoy_m = shift_month(year, month, -12)
     hist_start_y, hist_start_m = shift_month(year, month, -(months_back - 1))
 
     earliest = min(month_start(hist_start_y, hist_start_m), month_start(yoy_y, yoy_m))
-    latest = max(cur_end, month_end_excl(yoy_y, yoy_m))
+    latest = max(cur_end, month_end_exclusive(yoy_y, yoy_m))
 
     txns = db.query(Transaction).filter(
         Transaction.date >= earliest,
@@ -912,22 +904,31 @@ def cash_flow_forecast(
     # day_index → list of {kind, source, amount}
     events: dict[date, list[dict]] = defaultdict(list)
 
-    # Recurring INCOME that we project as dated events (below). We record
-    # each such source's steady-state monthly amount so we can net it out
-    # of the flat salary-source daily rate later — otherwise a paycheck is
+    # Recurring INCOME that we project as dated events (below). We keep the
+    # whole stream so its steady-state monthly amount can be netted out of
+    # the flat salary-source daily rate later — otherwise a paycheck is
     # counted twice: once as a dated inflow event, once amortized into
-    # variable_income_per_day. Keyed by the raw merchant string here and
-    # re-keyed via _clean_source once that helper is in scope.
-    recurring_income_monthly_by_raw: dict[str, float] = defaultdict(float)
+    # variable_income_per_day. Streams (not a name-keyed dict) because the
+    # netting must re-key through _clean_source on a RAW transaction: the
+    # stream's merchant label is now normalize_merchant output, which is not
+    # what _clean_source(salary txn) produces.
+    recurring_income_streams: list = []
 
-    # Detection is the shared services/recurring pipeline. Grouping stays by
-    # RAW merchant string on this path (parity with pre-consolidation
-    # behavior — switching the forecast to normalized grouping changes its
-    # numbers and needs its own pass). The SAME streams list also powers the
-    # variable-spend baseline netting below, so the events detector and the
-    # netting can never drift apart again (the old inline copies disagreed
-    # on income tolerance, which double-counted lumpy paychecks).
-    forecast_streams = detect_streams(txns)
+    # Detection is the shared services/recurring pipeline. Grouping is by
+    # NORMALIZED merchant (Pass 6, Eduardo-approved number change): raw bank
+    # descriptors for one logical merchant ('WITHDRAWAL WF HOME MTG TYPE:...'
+    # vs 'Wf Home Mtg Pay Id:...') used to fragment into sub-groups too small
+    # to detect, so big recurring bills like the mortgage were invisible to
+    # the forecast while the Recurring page (which always normalized) showed
+    # them. The SAME streams list also powers the variable-spend baseline
+    # netting below, so the events detector and the netting can never drift
+    # apart again (the old inline copies disagreed on income tolerance, which
+    # double-counted lumpy paychecks).
+    def _forecast_key(t):
+        raw = (t.merchant_name or t.name or "Unknown").strip()
+        return normalize_merchant(raw) or raw
+
+    forecast_streams = detect_streams(txns, merchant_key=_forecast_key)
 
     for stream in forecast_streams:
         merchant = stream.merchant
@@ -938,7 +939,7 @@ def cash_flow_forecast(
         active_months = set(stream.active_months)
 
         if stream.is_income:
-            recurring_income_monthly_by_raw[merchant] += stream.monthly_rate
+            recurring_income_streams.append(stream)
 
         # Walk forward from last_date
         next_date = sorted_txns[-1].date + timedelta(days=int(median_int))
@@ -961,10 +962,6 @@ def cash_flow_forecast(
     # calendar months (not including today's partial month). Variable =
     # total spending minus what the recurring detector already covers, so
     # we don't double-count.
-    def _shift_month(y: int, m: int, by: int) -> tuple[int, int]:
-        idx = y * 12 + (m - 1) + by
-        return idx // 12, (idx % 12) + 1
-
     # Monthly recurring estimate (used to net out from per-month spend).
     # Derived from the SAME `forecast_streams` the events detector produced
     # above — identical window, identical semantics by construction. The two
@@ -985,9 +982,9 @@ def cash_flow_forecast(
     monthly_variable: list[float] = []
     monthly_labels: list[str] = []
     for back in range(1, 7):  # months 1..6 ago
-        y, m = _shift_month(today.year, today.month, -back)
-        m_start = date(y, m, 1)
-        m_end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        y, m = shift_month(today.year, today.month, -back)
+        m_start = month_start(y, m)
+        m_end = month_end_exclusive(y, m)
         m_spend_txns = [t for t in txns if m_start <= t.date < m_end and t.amount > 0]
         m_income_txns = [t for t in txns if m_start <= t.date < m_end and t.amount < 0]
         m_spend = sum(t.amount for t in m_spend_txns)
@@ -1030,9 +1027,9 @@ def cash_flow_forecast(
     income_category_hits: dict[str, int] = defaultdict(int)
     months_observed_in_data: set[tuple[int, int]] = set()
     for back in range(0, 7):  # current + last 6 months
-        y, m = _shift_month(today.year, today.month, -back)
-        m_start = date(y, m, 1)
-        m_end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        y, m = shift_month(today.year, today.month, -back)
+        m_start = month_start(y, m)
+        m_end = month_end_exclusive(y, m)
         for t in txns:
             if t.amount >= 0 or t.is_transfer:
                 continue
@@ -1153,9 +1150,15 @@ def cash_flow_forecast(
     # and subtract the overlap from monthly_salary_income before deriving
     # the flat rate. Salary that has NO clean recurring cadence (irregular
     # employers) still flows through the flat rate as before.
+    # Key each recurring-income stream by _clean_source of a REPRESENTATIVE
+    # raw transaction (the latest one) — the same derivation salary_sources
+    # uses — so the overlap subtraction below actually matches. Cleaning the
+    # stream's normalized label instead would silently miss (normalized and
+    # cleaned-raw spellings differ), leaving paychecks double-counted.
     recurring_income_monthly_by_source: dict[str, float] = defaultdict(float)
-    for raw_merchant, monthly_amt in recurring_income_monthly_by_raw.items():
-        recurring_income_monthly_by_source[_clean_source(raw_merchant, raw_merchant)] += monthly_amt
+    for s in recurring_income_streams:
+        rep = s.txns[-1]
+        recurring_income_monthly_by_source[_clean_source(rep.merchant_name, rep.name)] += s.monthly_rate
     flat_salary_income = 0.0
     for s in salary_sources:
         already_evented = recurring_income_monthly_by_source.get(s["source"], 0.0)
@@ -1573,16 +1576,24 @@ def cash_flow_health(db: Session = Depends(get_db)):
     runway_months = round(liquid_total / avg_monthly_spend, 2) if avg_monthly_spend > 0 else None
 
     # Recurring outflows — the shared services/recurring detector over the
-    # last year of spend (outflow-only query, raw-merchant grouping; same
-    # semantics the inline copy here had before the Pass-5 consolidation).
+    # last year of spend (outflow-only query). Normalized-merchant grouping
+    # (Pass 6): fragmented raw descriptors for one biller no longer hide
+    # from the bill-stress number, matching the Recurring page.
     cutoff365 = today - timedelta(days=365)
     rt = db.query(Transaction).filter(
         Transaction.date >= cutoff365,
         Transaction.is_transfer.is_(False),
         Transaction.amount > 0,
     ).all()
+
+    def _pulse_key(t):
+        raw = (t.merchant_name or t.name or "Unknown").strip()
+        return normalize_merchant(raw) or raw
+
     monthly_recurring_outflow = sum(
-        s.monthly_rate for s in detect_streams(rt) if not s.is_income
+        s.monthly_rate
+        for s in detect_streams(rt, merchant_key=_pulse_key)
+        if not s.is_income
     )
 
     bill_stress_pct = round((monthly_recurring_outflow / avg_monthly_income) * 100, 1) if avg_monthly_income > 0 else None

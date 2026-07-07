@@ -1,5 +1,41 @@
 # Audit Log
 
+## 2026-07-07 — Pass 6 (remaining deferrals)
+
+**Scope:** the last actionable deferrals. Eduardo approved all 3. Resolved
+without action: weekly-security-sweep .SKILL.md.patched no longer exists
+anywhere in the project folder — deferral dropped. Still not actionable from
+the sandbox: Dockerfile/Railway (no docker here), widget App-Group (Apple
+portal), the 35 env-drift failures (his macOS venv).
+
+### Built (3/3 approved)
+1. **Normalized-merchant forecast grouping** (number-changing; parked since the
+   Pass-5 consolidation): cash_flow_forecast and financial-pulse detection now
+   group by normalize_merchant — fragmented raw bank descriptors (mortgage
+   etc.) are detectable as recurring in the forecast and bill-stress numbers,
+   matching the Recurring page. Required a real fix to land safely: the
+   salary double-count netting re-keyed via _clean_source(stream label) — with
+   normalized labels that silently stops matching salary_sources keys. Netting
+   now keeps the income STREAMS and re-keys via _clean_source of each stream's
+   latest RAW transaction (the exact derivation salary_sources uses).
+2. **Month-math closures → app.utils**: analytics.py's three inline
+   shift-month/month-start/month-end reimplementations replaced with the
+   canonical shift_month / month_start / month_end_exclusive helpers.
+3. **Mobile polish**: account filter chips in Transactions (accountsWithActivity
+   query, top 8 by txn count, hidden with <2 accounts; listTransactions gained
+   accountId); initial-load skeleton rows in Transactions (no more "No
+   transactions yet" flash); Dashboard "This month" + "Top categories" cards
+   now skeleton until loaded.
+
+### Verification
+- Backend: 720 passed / same 35 pre-existing env-drift failures (forecast
+  13/13; pulse/recurring/spending failures byte-identical to baseline).
+- Mobile: tsc --noEmit clean. New EAS build still pending from Passes 4-5.
+
+### Still deferred (all need Eduardo / his machines)
+- Dockerfile non-root demo boot on Railway; widget App-Group registration;
+  run pytest in the macOS venv to confirm the 35 are env-only.
+
 ## 2026-07-07 — Pass 5 (deferred backlog)
 
 **Scope:** the four actionable deferrals. Eduardo approved all 4. (Not actionable

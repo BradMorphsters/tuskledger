@@ -4,7 +4,7 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-07-02T03:23:59Z",
+    "last_updated": "2026-07-07T03:05:01Z",
     "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
@@ -265,7 +265,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$54.28",
+        "price": "$53.31",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
@@ -293,7 +293,12 @@
           "impact": "med"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "Added to China's export-control list late June 2026 — indirect input exposure (suppliers reselling Chinese products); stock -13.4% in June",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "China permanently lifts rare-earth export curbs and NdPr prices collapse below the DoD floor",
         "Loss of the DoD price floor / government support",
@@ -305,14 +310,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Why MP Materials declined in June: China export-control listing (Motley Fool, Jul 3 2026)",
+          "url": "https://www.fool.com/investing/2026/07/03/heres-why-shares-in-mp-materials-declined-in-june/",
+          "as_of": "2026-07",
+          "confidence": "medium"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-07-05",
       "price_targets": {
         "low": 65,
         "base": 79,
@@ -353,7 +364,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$14.22",
+        "price": "$13.77",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
@@ -385,9 +396,20 @@
           "description": "DoW OSC $725M conditional loan → domestic RE metals/alloy (metallization) facility",
           "status": "in_progress",
           "impact": "high"
+        },
+        {
+          "due": "2027-Q1",
+          "description": "Close $1.9B VAC (Vacuumschmelze) acquisition — mine-to-magnet integration; $718M cash + 65.85M new shares; subject to regulatory/foreign-investment approvals",
+          "status": "upcoming",
+          "impact": "high"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "VAC deal: ~$1.9B cash+stock commitment (incl. 65.85M new shares) adds integration and dilution risk to the fortress-balance-sheet thesis; close expected early 2027",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "REE separation fails to reach commercial economics",
         "Monazite feedstock supply disrupted",
@@ -405,6 +427,12 @@
           "url": "https://www.war.gov/News/Releases/Release/Article/4520819/the-department-of-wars-office-of-strategic-capital-signs-725-million-conditiona/",
           "as_of": "2026-06-18",
           "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels announces definitive agreement to acquire VAC for $1.9B equity value (Jun 23, 2026)",
+          "url": "https://investors.energyfuels.com/2026-06-23-Energy-Fuels-Announces-Definitive-Agreement-to-Acquire-VAC-for-1-9-Billion-Equity-Value",
+          "as_of": "2026-07",
+          "confidence": "high"
         }
       ],
       "review": {
@@ -412,7 +440,7 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-06-23",
+      "updated_at": "2026-07-05",
       "price_targets": {
         "low": 15,
         "base": 22,
@@ -453,7 +481,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$136.08",
+        "price": "$133.72",
         "market_cap": "~$20B",
         "revenue": "$5.4B FY25",
         "cash": "~$2.7B liq.",
@@ -524,7 +552,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$8.17",
+        "price": "$7.94",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
@@ -595,7 +623,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$12.41",
+        "price": "$12.37",
         "market_cap": "~$1.6B",
         "revenue": "$110M FY25",
         "cash": "~$6M (high debt)",
@@ -666,7 +694,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$66.32",
+        "price": "$70.19",
         "market_cap": "~$1.35B",
         "revenue": "~$86M H1",
         "cash": "n/a",
@@ -737,7 +765,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$74.22",
+        "price": "$73.52",
         "market_cap": "~$23B",
         "revenue": "$4.5B TTM",
         "cash": "strong",
@@ -808,7 +836,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$97.39",
+        "price": "$97.50",
         "market_cap": "~$47B",
         "revenue": "C$3.5B FY25",
         "cash": "strong",
@@ -896,7 +924,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$10.55",
+        "price": "$10.59",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
@@ -983,7 +1011,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.36",
+        "price": "$1.32",
         "market_cap": "~$0.6B",
         "revenue": "ramping",
         "cash": "~$112M",
@@ -1054,7 +1082,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.35",
+        "price": "$1.40",
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
@@ -1125,7 +1153,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$166.34",
+        "price": "$162.13",
         "market_cap": "~$5B (verify)",
         "revenue": "$450-500M guide",
         "cash": "strong",
@@ -1149,7 +1177,7 @@
         {
           "due": "2026",
           "description": "Additional DOE / utility enrichment contracts",
-          "status": "upcoming",
+          "status": "hit",
           "impact": "high"
         }
       ],
@@ -1165,14 +1193,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Centrus July 1, 2026 8-K/PR: signed $900M DOE HALEU task-order contract ($1.07B incl. options); final 900 kg HALEU delivered ahead of schedule; cascade transitioning to commercial operation",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026046801/ex991_haleu900mpr.htm",
+          "as_of": "2026-07",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-07-03",
       "price_targets": {
         "low": 137,
         "base": 270,
@@ -1184,6 +1218,12 @@
         "source": "stockanalysis.com / aggregators",
         "confidence": "medium",
         "url": "https://stockanalysis.com/stocks/leu/forecast/"
+      },
+      "sources[-]": {
+        "title": "Centrus July 1, 2026 8-K/PR: signed $900M DOE HALEU task-order contract ($1.07B incl. options); final 900 kg HALEU delivered ahead of schedule; cascade transitioning to commercial operation",
+        "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026046801/ex991_haleu900mpr.htm",
+        "as_of": "2026-07",
+        "confidence": "high"
       }
     },
     {
@@ -1213,7 +1253,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$60.53",
+        "price": "$61.00",
         "market_cap": "~$92B",
         "revenue": "$25.9B FY25",
         "cash": "~$3.9B",
@@ -1284,7 +1324,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$168.80",
+        "price": "$173.87",
         "market_cap": "~$152B",
         "revenue": "$13.4B TTM",
         "cash": "strong",
@@ -1355,7 +1395,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$25.72",
+        "price": "$26.21",
         "market_cap": "~$2.9B",
         "revenue": "$263M Q1'26",
         "cash": "net debt ~$490M",
@@ -1426,7 +1466,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.00",
+        "price": "$6.97",
         "market_cap": "~$2.2B",
         "revenue": "record FY25",
         "cash": "n/a",
@@ -1497,7 +1537,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$22.59",
+        "price": "$23.34",
         "market_cap": "~$8B",
         "revenue": "$757M Q1'26",
         "cash": "~$1.0B",
@@ -1568,7 +1608,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.70",
+        "price": "$7.43",
         "market_cap": "~$1.3B",
         "revenue": "$125M guide",
         "cash": "~$90M",
@@ -1586,7 +1626,7 @@
         {
           "due": "2026-Q2",
           "description": "New 9-furnace smelter commissioning",
-          "status": "in_progress",
+          "status": "hit",
           "impact": "high"
         },
         {
@@ -1608,14 +1648,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "USAC July 1, 2026 PR: expanded Thompson Falls smelter furnaces commissioned; first DLA deliveries (~82,000 lb, ~$2.6M June invoices); $57.3M cumulative DLA orders",
+          "url": "https://www.accessnewswire.com/newsroom/en/metals-and-mining/united-states-antimony-corporation-provides-update-on-antimony-shipments-to-the-d-1184955",
+          "as_of": "2026-07",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-07-03",
       "price_targets": {
         "low": 10,
         "base": 13,
@@ -1627,6 +1673,12 @@
         "source": "stockanalysis.com / aggregators",
         "confidence": "medium",
         "url": "https://stockanalysis.com/stocks/uamy/forecast/"
+      },
+      "sources[-]": {
+        "title": "USAC July 1, 2026 PR: expanded Thompson Falls smelter furnaces commissioned; first DLA deliveries (~82,000 lb, ~$2.6M June invoices); $57.3M cumulative DLA orders",
+        "url": "https://www.accessnewswire.com/newsroom/en/metals-and-mining/united-states-antimony-corporation-provides-update-on-antimony-shipments-to-the-d-1184955",
+        "as_of": "2026-07",
+        "confidence": "high"
       }
     },
     {
@@ -1656,7 +1708,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$15.95",
+        "price": "$16.21",
         "market_cap": "~$5B",
         "revenue": "$25M Q1'26 (+221%)",
         "cash": "$260M",
@@ -1744,7 +1796,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.76",
+        "price": "$2.88",
         "market_cap": "~$460M",
         "revenue": "$7.8M Q3'26",
         "cash": "needs capital",
@@ -1815,7 +1867,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$6.27",
+        "price": "$5.93",
         "market_cap": "~$4B",
         "revenue": "has revenue",
         "cash": "n/a",
@@ -1884,7 +1936,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$19.98",
+        "price": "$19.35",
         "market_cap": "~$5.6B",
         "revenue": "~$6M Q1'26",
         "cash": "~$1.75B",
@@ -1918,7 +1970,16 @@
           "impact": "high"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "MP Materials trade-secrets lawsuit (filed May 22, 2026, Texas Business Court 8th Div.; alleges grain-boundary-diffusion formulations obtained via ex-MP engineer; USAR filed full denial June 2026; MP seeks >$5M + exemplary damages)",
+          "severity": "med"
+        },
+        {
+          "desc": "Added to China's export-restriction list in late June 2026 (alongside MP) — restricted access to Chinese technology/inputs",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "Cash burn outruns funding and dilution accelerates",
         "Stillwater ramp or Round Top feasibility stalls",
@@ -1930,14 +1991,26 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "USA Rare Earth rebuts MP Materials trade-secrets lawsuit (mining.com)",
+          "url": "https://www.mining.com/web/usa-rare-earth-rebuts-mp-materials-lawsuit-as-rivalry-deepens/",
+          "as_of": "2026-07",
+          "confidence": "medium"
+        },
+        {
+          "title": "USAR -23% in June: S-3/A resale registration (93.8M shares) + China export-restriction listing (Motley Fool, Jul 5 2026)",
+          "url": "https://www.fool.com/investing/2026/07/05/heres-why-shares-in-usa-rare-earth-slumped-23-in-j/",
+          "as_of": "2026-07",
+          "confidence": "medium"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-07-05",
       "price_targets": {
         "low": 30,
         "base": 38,
@@ -1978,7 +2051,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.83",
+        "price": "$3.82",
         "market_cap": "~$2.0B",
         "revenue": "pre-revenue",
         "cash": "~$1.21B",
@@ -2049,7 +2122,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$20.99",
+        "price": "$21.20",
         "market_cap": "~$2.9B",
         "revenue": "pre-revenue",
         "cash": "~$714M",
@@ -2137,7 +2210,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.82",
+        "price": "$4.75",
         "market_cap": "~$0.66B",
         "revenue": "pre-revenue",
         "cash": "~$307M",
@@ -2225,7 +2298,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.39",
+        "price": "$3.20",
         "market_cap": "~$0.48B",
         "revenue": "pre-revenue",
         "cash": "partly funded",
@@ -2294,7 +2367,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.53",
+        "price": "$1.61",
         "market_cap": "~$0.3B",
         "revenue": "pre-commercial",
         "cash": "~CA$74M",
@@ -2365,7 +2438,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.44",
+        "price": "$0.46",
         "market_cap": "~$0.2-0.3B",
         "revenue": "$5.6M FY25",
         "cash": "capital-intensive",
@@ -2436,7 +2509,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.58",
+        "price": "$0.57",
         "market_cap": "micro",
         "revenue": "pre-revenue",
         "cash": "needs capital",
@@ -2507,7 +2580,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.41",
+        "price": "$4.29",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "needs equity",
@@ -2577,7 +2650,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.75",
+        "price": "$2.72",
         "market_cap": "~$0.83B",
         "revenue": "pre-revenue",
         "cash": "$141M, no debt",
@@ -2648,7 +2721,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.42",
+        "price": "$9.56",
         "market_cap": "~$1.7B",
         "revenue": "pre-revenue",
         "cash": "$200M facility",
@@ -2719,7 +2792,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.94",
+        "price": "$4.89",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "fully funded 2026",
@@ -2788,7 +2861,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.23",
+        "price": "$3.87",
         "market_cap": "~$1.0B",
         "revenue": "Eagle revenue",
         "cash": "n/a",
@@ -2857,7 +2930,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.99",
+        "price": "$1.94",
         "market_cap": "~$0.24B",
         "revenue": "~nil operating",
         "cash": "~$72.5M",
@@ -2999,7 +3072,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.74",
+        "price": "$0.68",
         "market_cap": "~$0.16B",
         "revenue": "pre-revenue",
         "cash": "financing-dep.",
@@ -3085,7 +3158,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.77",
+        "price": "$3.56",
         "market_cap": "~$0.11B",
         "revenue": "pre-production",
         "cash": "~$21M (gap)",
@@ -3224,7 +3297,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$52.45",
+        "price": "$51.84",
         "market_cap": "~$10B",
         "revenue": "pre-revenue",
         "cash": "~$2.5B",
@@ -3295,7 +3368,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$10.15",
+        "price": "$9.61",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
@@ -3434,7 +3507,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$30.98",
+        "price": "$31.39",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
@@ -3493,7 +3566,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$75.29",
+        "price": "$78.54",
         "aum": "~$7.5B",
         "expense_ratio": "0.65%",
         "return_1y": "~+96%",
@@ -3552,7 +3625,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$43.18",
+        "price": "$43.88",
         "aum": "~$6.3B",
         "expense_ratio": "0.69%",
         "return_1y": "~+117%",
@@ -3611,7 +3684,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$114.87",
+        "price": "$116.41",
         "aum": "~$4.7B",
         "expense_ratio": "0.56%",
         "return_1y": "~+73%",
@@ -3670,7 +3743,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$87.66",
+        "price": "$85.25",
         "aum": "~$3.0B",
         "expense_ratio": "0.53-0.58%",
         "return_1y": "~+117%",
@@ -3729,7 +3802,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$52.37",
+        "price": "$53.54",
         "aum": "~$1.94B",
         "expense_ratio": "0.75%",
         "return_1y": "~+57%",
@@ -3788,7 +3861,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$104.36",
+        "price": "$106.46",
         "aum": "~$5.3B",
         "expense_ratio": "0.35%",
         "return_1y": "strong",
@@ -3847,7 +3920,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$18.93",
+        "price": "$19.17",
         "aum": "~$6.1B",
         "expense_ratio": "~0.35%",
         "return_1y": "tracks U",
@@ -3906,7 +3979,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$57.29",
+        "price": "$58.55",
         "aum": "~$1.8B",
         "expense_ratio": "0.39%",
         "return_1y": "strong",
@@ -3965,7 +4038,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$23.38",
+        "price": "$24.03",
         "aum": "~$358M",
         "expense_ratio": "0.80%",
         "return_1y": "~+68%",
@@ -4024,7 +4097,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$19.45",
+        "price": "$19.16",
         "aum": "~$50M",
         "expense_ratio": "~0.65%",
         "return_1y": "new fund",
@@ -4083,7 +4156,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$77.97",
+        "price": "$76.17",
         "aum": "~$2.1B",
         "expense_ratio": "0.75%",
         "return_1y": "~+88%",
@@ -4142,7 +4215,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$66.84",
+        "price": "$67.45",
         "aum": "~$0.9B",
         "expense_ratio": "0.85%",
         "return_1y": "~+42%",
@@ -4201,7 +4274,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$15.33",
+        "price": "$15.37",
         "aum": "~$126M",
         "expense_ratio": "0.59%",
         "return_1y": "positive",
@@ -4260,7 +4333,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$37.21",
+        "price": "$37.84",
         "aum": "~$833M",
         "expense_ratio": "0.97%",
         "return_1y": "tracks Cu",
@@ -4325,7 +4398,7 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$93.35",
+        "price": "$93.56",
         "as_of": "2026-07",
         "price_source": "stooq"
       }
@@ -4363,7 +4436,7 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$425.30",
+        "price": "$419.56",
         "as_of": "2026-07",
         "price_source": "stooq"
       }
@@ -4401,7 +4474,7 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$220.46",
+        "price": "$213.33",
         "as_of": "2026-07",
         "price_source": "stooq"
       }
@@ -4439,7 +4512,7 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$20.75",
+        "price": "$20.20",
         "as_of": "2026-07",
         "price_source": "stooq"
       }
@@ -4477,7 +4550,7 @@
       "updated_by": "universe-review",
       "updated_at": "2026-06-22",
       "fundamentals": {
-        "price": "$6.63",
+        "price": "$6.65",
         "as_of": "2026-07",
         "price_source": "stooq"
       }

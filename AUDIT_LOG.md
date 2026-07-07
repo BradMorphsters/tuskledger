@@ -122,8 +122,8 @@ improvements this pass, not just defects. 2 subagents (code audit + UX gap scan)
 ### Verification
 - mobile: `tsc --noEmit` clean. backend: py_compile clean; pytest 711 passed / same 35
   pre-existing env-drift failures.
-- Data note: laptop DB has budgets for Apr + May 2026 only — the phone card stays
-  hidden until a July budget exists on the laptop.
+- Data note: the phone's Budgets card stays hidden until a budget exists for
+  the CURRENT month on the laptop.
 
 ### Deferred
 - Month-by-month navigation; upcoming-bills teaser (where does derived data live in

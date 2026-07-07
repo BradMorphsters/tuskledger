@@ -135,6 +135,57 @@ def parse_tool_result(result) -> dict:
     return {}
 
 
+# --------------------------------------------------------------------------- error unwrapping
+
+class RobinhoodAgentError(RuntimeError):
+    """A failed live MCP call, with the *real* cause already unwrapped from any anyio
+    TaskGroup / ExceptionGroup so callers (and the UI) get an actionable message instead of
+    'unhandled errors in a TaskGroup (1 sub-exception)'."""
+
+
+def _iter_leaf_exceptions(exc):
+    """Recursively yield the leaf exceptions inside (possibly nested) ExceptionGroups.
+    Duck-typed on ``.exceptions`` so it works with both the 3.11+ builtin BaseExceptionGroup
+    and the ``exceptiongroup`` backport that anyio uses on 3.10."""
+    subs = getattr(exc, "exceptions", None)
+    if isinstance(subs, (list, tuple)) and subs:
+        for sub in subs:
+            yield from _iter_leaf_exceptions(sub)
+    else:
+        yield exc
+
+
+def describe_exception(exc) -> str:
+    """A compact, human-readable one-liner for ``exc`` — unwrapping anyio/TaskGroup
+    ExceptionGroups so the *actual* failure surfaces. De-dupes repeated causes and appends a
+    reconnect hint when the leaf looks like an auth/permission failure (expired token)."""
+    leaves = list(_iter_leaf_exceptions(exc))
+    if not leaves:
+        return (str(exc) or exc.__class__.__name__).strip()
+
+    def _one(e) -> str:
+        msg = str(e).strip()
+        name = e.__class__.__name__
+        return f"{name}: {msg}" if msg else name
+
+    seen: set[str] = set()
+    parts: list[str] = []
+    for e in leaves:
+        s = _one(e)
+        if s not in seen:
+            seen.add(s)
+            parts.append(s)
+    detail = "; ".join(parts)
+
+    blob = detail.lower()
+    already_hinted = "re-authorize" in blob or ("disconnect" in blob and "connect" in blob)
+    looks_auth = any(k in blob for k in ("401", "unauthorized", "invalid_token", "invalid_grant",
+                                         "token", "forbidden", "403", "expired", "revoked"))
+    if looks_auth and not already_hinted:
+        detail += " — your Robinhood authorization may have expired; Disconnect then Connect again to re-authorize."
+    return detail
+
+
 # --------------------------------------------------------------------------- live SDK flow (lazy)
 
 def _sdk_token_storage(store: EncryptedJsonStore):
@@ -184,11 +235,17 @@ def make_mcp_client(store: EncryptedJsonStore):
     Opens a short-lived streamable-HTTP session per call. Lazy SDK import."""
     import asyncio
 
-    async def _redirect(_url):  # already authorized — no interaction expected here
-        raise RuntimeError("not connected — run Connect first")
+    # These stubs are only reached when the stored token can't be refreshed and the SDK tries to
+    # start a fresh browser consent — which can't happen during a background read. Reaching them
+    # means the Robinhood authorization is expired/revoked, so say exactly that (and how to fix it).
+    _REAUTH = ("Robinhood authorization expired or was revoked (token refresh failed) — "
+               "click Disconnect, then Connect on the Agent Trading page to re-authorize.")
+
+    async def _redirect(_url):
+        raise RuntimeError(_REAUTH)
 
     async def _callback():
-        raise RuntimeError("not connected — run Connect first")
+        raise RuntimeError(_REAUTH)
 
     def call(tool: str, args: dict) -> dict:
         from mcp.client.session import ClientSession
@@ -201,7 +258,12 @@ def make_mcp_client(store: EncryptedJsonStore):
                     await session.initialize()
                     return await session.call_tool(tool, args or {})
 
-        return parse_tool_result(asyncio.run(_run()))
+        try:
+            return parse_tool_result(asyncio.run(_run()))
+        except RobinhoodAgentError:
+            raise
+        except Exception as e:  # noqa: BLE001 — anyio wraps the real cause in a TaskGroup group
+            raise RobinhoodAgentError(f"{tool} failed: {describe_exception(e)}") from e
 
     return call
 
@@ -276,7 +338,12 @@ def connect_once(store: EncryptedJsonStore, *, timeout: int = 300) -> dict:
 
 def _run_async(coro_fn):
     import asyncio
-    return asyncio.run(coro_fn())
+    try:
+        return asyncio.run(coro_fn())
+    except RobinhoodAgentError:
+        raise
+    except Exception as e:  # noqa: BLE001 — unwrap the anyio TaskGroup group to the real cause
+        raise RobinhoodAgentError(describe_exception(e)) from e
 
 
 def make_broker(store: EncryptedJsonStore, *, mode: str, account_number: str = ""):

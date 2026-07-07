@@ -47,6 +47,35 @@ def test_seed_flat_gives_no_movement_on_first_run_then_no_ops():
     assert rh.seed_flat(real, profile="rotation", domain=DOM, today="2026-06-16", ranks=ranks) is real
 
 
+def test_baseline_date_is_the_most_recent_prior_day():
+    hist = []
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-16", ranks={"USAR": 5})
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-17", ranks={"USAR": 2})
+    # measuring on a later day points at the latest prior snapshot...
+    assert rh.baseline_date(hist, profile="rotation", domain=DOM, today="2026-06-18") == "2026-06-17"
+    # ...and a same-day reload skips today, pointing at the prior day
+    assert rh.baseline_date(hist, profile="rotation", domain=DOM, today="2026-06-17") == "2026-06-16"
+    # none when there's no prior day, and isolated per (profile, domain)
+    assert rh.baseline_date([], profile="rotation", domain=DOM, today="2026-06-17") is None
+    assert rh.baseline_date(hist, profile="momentum", domain=DOM, today="2026-06-18") is None
+
+
+def test_last_change_date_finds_the_last_real_reshuffle():
+    hist = []
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-16", ranks={"A": 1, "B": 2})
+    # same order recorded on later days → no reshuffle yet
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-17", ranks={"A": 1, "B": 2})
+    assert rh.last_change_date(hist, profile="rotation", domain=DOM) is None
+    # order flips on the 18th, then holds flat for two more days
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-18", ranks={"A": 2, "B": 1})
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-19", ranks={"A": 2, "B": 1})
+    hist = rh.record(hist, profile="rotation", domain=DOM, today="2026-06-20", ranks={"A": 2, "B": 1})
+    # the last time it actually moved is the 18th — a long flat "–" run reads as stable, not broken
+    assert rh.last_change_date(hist, profile="rotation", domain=DOM) == "2026-06-18"
+    # isolated per (profile, domain)
+    assert rh.last_change_date(hist, profile="rotation", domain="ai-semis") is None
+
+
 def test_profile_AND_domain_isolated_and_history_capped():
     # a different PROFILE isn't used as the rotation baseline
     h = [{"date": "2026-06-16", "profile": "momentum", "domain": DOM, "ranks": {"USAR": 1}}]

@@ -49,7 +49,10 @@ export default function AgentRanking() {
   if (err) return <Shell><span style={{ color: RED, fontSize: 13 }}>{err}</span></Shell>
   if (!data?.configured) return <Shell><Muted>No research universe yet — the ranking populates once a domain is loaded.</Muted></Shell>
 
-  const { top_n: topN, exit_n: exitN, ranking = [], connected, held_count } = data
+  const { top_n: topN, exit_n: exitN, ranking = [], connected, held_count,
+          baseline_date: baselineDate, last_change_date: lastChangeDate, rank_basis: rankBasis } = data
+  const baselineLabel = fmtDay(baselineDate)
+  const anyMoved = ranking.some((r) => typeof r.rank_delta === 'number' && r.rank_delta !== 0)
   return (
     <Shell onReload={load}>
       <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 2px 12px' }}>
@@ -58,6 +61,8 @@ export default function AgentRanking() {
           ? `${held_count} of your holdings shown in place.`
           : 'Connect the agent to mark your live holdings.'}
       </p>
+      <TrendLegend baselineLabel={baselineLabel} anyMoved={anyMoved}
+                   lastChangeLabel={fmtDay(lastChangeDate)} thesis={rankBasis === 'thesis'} />
       {!connected && (
         <Pill tone="neutral" soft style={{ marginBottom: 10 }}>holdings not live — showing ranks only</Pill>
       )}
@@ -82,7 +87,7 @@ export default function AgentRanking() {
                   <Pill tone={s.tone} soft style={{ color: tone, borderColor: tone, minWidth: 0 }}>{s.label}</Pill>
                   <span style={{ width: 54, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                                  fontSize: 12.5, color: 'var(--text-secondary)' }}>{(+r.score).toFixed(3)}</span>
-                  <TrendChip d={r.rank_delta} />
+                  <TrendChip d={r.rank_delta} baseline={baselineLabel} />
                 </span>
               </div>
               {showBand && (
@@ -103,18 +108,51 @@ export default function AgentRanking() {
   )
 }
 
+// ISO date (YYYY-MM-DD) → "Jul 1"; null-safe.
+function fmtDay(iso) {
+  if (!iso) return null
+  const d = new Date(`${iso}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// One-line explainer so a column full of "–" reads as "stable", not "broken". Says what the
+// trend measures against, when the order last actually moved, and (for rotation) that the rank
+// is thesis-driven — which is WHY it can sit still for days.
+function TrendLegend({ baselineLabel, lastChangeLabel, anyMoved, thesis }) {
+  const bits = []
+  if (baselineLabel) bits.push(`▲/▼ = rank move since ${baselineLabel}`)
+  else bits.push('Trend starts after the next daily snapshot')
+  if (!anyMoved && baselineLabel) {
+    bits.push(lastChangeLabel ? `no change since then · last reshuffle ${lastChangeLabel}` : 'no change yet')
+  } else if (lastChangeLabel) {
+    bits.push(`last reshuffle ${lastChangeLabel}`)
+  }
+  return (
+    <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '0 2px 10px', lineHeight: 1.5 }}>
+      {bits.join(' · ')}
+      {thesis && (
+        <span style={{ opacity: 0.85 }}>
+          {' '}— the rotation order ranks by research thesis (conviction × upside), so it only shifts when the research changes, not on daily price moves.
+        </span>
+      )}
+    </p>
+  )
+}
+
 // Rank trend since the last daily snapshot: ▲+2 climbed (green), ▼3 fell (red), flat, or blank
 // when there's no prior day yet. Lower rank number = better, so a positive delta is an up-arrow.
-function TrendChip({ d }) {
-  if (d == null) return <span style={{ width: 40 }} title="no prior snapshot yet" />
-  if (d === 0) return <span style={{ width: 40, textAlign: 'right', fontSize: 12, color: 'var(--text-muted, var(--text-secondary))' }}>–</span>
+function TrendChip({ d, baseline }) {
+  const since = baseline ? ` since ${baseline}` : ' since the last snapshot'
+  if (d == null) return <span style={{ width: 40 }} title="no prior snapshot to compare yet" />
+  if (d === 0) return <span style={{ width: 40, textAlign: 'right', fontSize: 12, color: 'var(--text-muted, var(--text-secondary))' }}
+                             title={`no rank change${since}`}>–</span>
   const up = d > 0
   const color = up ? GREEN : RED
   const Icon = up ? ArrowUp : ArrowDown
   return (
     <span style={{ width: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1,
                    color, fontSize: 12.5, fontWeight: 700 }}
-          title={`${up ? 'climbed' : 'fell'} ${Math.abs(d)} rank${Math.abs(d) === 1 ? '' : 's'} since the last snapshot`}>
+          title={`${up ? 'climbed' : 'fell'} ${Math.abs(d)} rank${Math.abs(d) === 1 ? '' : 's'}${since}`}>
       <Icon size={13} />{Math.abs(d)}
     </span>
   )

@@ -39,6 +39,33 @@ def baseline(history: list[dict], *, profile: str, domain, today: str) -> dict[s
     return {}
 
 
+def baseline_date(history: list[dict], *, profile: str, domain, today: str):
+    """The DATE the trend is measured against — the most recent snapshot for this (``profile``,
+    ``domain``) whose date isn't ``today``. ``None`` when there's no prior day. Mirrors
+    :func:`baseline` so the UI can show 'movement since <date>'. Pure."""
+    for snap in reversed(history):
+        if (snap.get("profile") == profile and snap.get("domain") == domain
+                and snap.get("date") and snap.get("date") != today):
+            return snap["date"]
+    return None
+
+
+def last_change_date(history: list[dict], *, profile: str, domain):
+    """The most recent date whose ranks DIFFER from the immediately preceding snapshot for this
+    (``profile``, ``domain``) — i.e. the last time the ordering actually moved. ``None`` when
+    there are <2 snapshots or the order has never changed. Lets the UI say 'last reshuffle: <date>'
+    so a long run of flat '–' rows reads as 'stable', not 'broken'. Pure."""
+    snaps = sorted(
+        (s for s in history
+         if s.get("profile") == profile and s.get("domain") == domain and s.get("date")),
+        key=lambda s: s["date"],
+    )
+    for i in range(len(snaps) - 1, 0, -1):
+        if snaps[i].get("ranks") != snaps[i - 1].get("ranks"):
+            return snaps[i]["date"]
+    return None
+
+
 def deltas(history: list[dict], *, profile: str, domain, today: str, ranks: dict[str, int]) -> dict[str, object]:
     """``{ticker: prev_rank - rank}`` vs the baseline (positive = climbed). ``None`` for a name
     with no prior rank (new, or first run)."""

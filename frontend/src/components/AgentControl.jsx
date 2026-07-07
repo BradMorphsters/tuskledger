@@ -26,7 +26,7 @@ const STRATEGY_DESC = {
   signal_event: 'Event-driven swing — buy on insider / congress / gov-contract signals; hold the catalyst, exit on signal decay.',
   momentum: 'Trend-following — buy price strength in an uptrend; exit when the trend breaks.',
   mean_reversion: 'Dip-buying — buy a quality name pulled back inside an uptrend; exit on the bounce.',
-  rotation: 'Relative-strength basket — always hold the top-ranked names; rotate out the laggards (lowest turnover).',
+  rotation: 'Conviction basket — hold the top names ranked by research thesis (conviction × upside); rotate a holding out once it falls past the keep cutoff (low turnover).',
 }
 
 const STATUS = {

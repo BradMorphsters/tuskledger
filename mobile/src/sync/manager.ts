@@ -175,9 +175,10 @@ export async function syncNow(force = false): Promise<void> {
           since = last.updated_at;
         }
       }
-      // Persist the cursor once, after all pages land successfully.
-      // Saving mid-loop means a failure on a later page permanently
-      // skips unsynced pages because the cursor already advanced.
+      // Persist the cursor once, after the loop ends (fully drained OR
+      // bailed at MAX_PAGES_PER_SYNC) — never mid-loop, since a failure
+      // on a later page would permanently skip unsynced pages because
+      // the cursor already advanced.
       //
       // Only advance to server_time when the backlog is fully drained
       // (loop ended with has_more === false). If we bailed at

@@ -6,7 +6,7 @@
  * rank. That gap is the anti-churn buffer. The point is to see a rebalance coming — a holding
  * drifting toward the exit line, or a non-held name climbing into the buy zone. Read-only.
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { ListOrdered, RefreshCw, ArrowUp, ArrowDown } from 'lucide-react'
 import { getAgentTradingRanking } from '../api/client'
 import Pill from './Pill'
@@ -45,14 +45,21 @@ export default function AgentRanking() {
   }, [])
   useEffect(() => { load() }, [load])
 
+  // Memoized (and hoisted above the early returns to satisfy rules-of-hooks):
+  // recomputed only when the ranking payload changes, not on every render.
+  const baselineLabel = useMemo(() => fmtDay(data?.baseline_date), [data?.baseline_date])
+  const lastChangeLabel = useMemo(() => fmtDay(data?.last_change_date), [data?.last_change_date])
+  const anyMoved = useMemo(
+    () => (data?.ranking || []).some((r) => typeof r.rank_delta === 'number' && r.rank_delta !== 0),
+    [data?.ranking],
+  )
+
   if (loading && !data) return <Shell><Muted>Loading ranking…</Muted></Shell>
   if (err) return <Shell><span style={{ color: RED, fontSize: 13 }}>{err}</span></Shell>
   if (!data?.configured) return <Shell><Muted>No research universe yet — the ranking populates once a domain is loaded.</Muted></Shell>
 
   const { top_n: topN, exit_n: exitN, ranking = [], connected, held_count,
-          baseline_date: baselineDate, last_change_date: lastChangeDate, rank_basis: rankBasis } = data
-  const baselineLabel = fmtDay(baselineDate)
-  const anyMoved = ranking.some((r) => typeof r.rank_delta === 'number' && r.rank_delta !== 0)
+          rank_basis: rankBasis } = data
   return (
     <Shell onReload={load}>
       <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 2px 12px' }}>
@@ -62,7 +69,7 @@ export default function AgentRanking() {
           : 'Connect the agent to mark your live holdings.'}
       </p>
       <TrendLegend baselineLabel={baselineLabel} anyMoved={anyMoved}
-                   lastChangeLabel={fmtDay(lastChangeDate)} thesis={rankBasis === 'thesis'} />
+                   lastChangeLabel={lastChangeLabel} thesis={rankBasis === 'thesis'} />
       {!connected && (
         <Pill tone="neutral" soft style={{ marginBottom: 10 }}>holdings not live — showing ranks only</Pill>
       )}

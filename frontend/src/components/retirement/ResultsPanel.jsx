@@ -616,7 +616,9 @@ export function Results({ data }) {
             : successPct >= 60
               ? 'var(--accent-orange)'
               : 'var(--accent-red)'
-        const lastRow = mc.year_by_year_pct[mc.year_by_year_pct.length - 1]
+        const pctRows = mc.year_by_year_pct || []
+        const lastRow = pctRows[pctRows.length - 1]
+        const depletionAges = mc.depletion_ages || []
         return (
           <div style={{
             display: 'grid',
@@ -653,15 +655,15 @@ export function Results({ data }) {
                 color="var(--text-secondary)"
               />
             )}
-            {mc.depletion_ages.length > 0 && (
+            {depletionAges.length > 0 && (
               <StatTile
                 label="Depletion (when it happens)"
                 value={(() => {
-                  const sorted = [...mc.depletion_ages].sort((a, b) => a - b)
+                  const sorted = [...depletionAges].sort((a, b) => a - b)
                   const median = sorted[Math.floor(sorted.length / 2)]
-                  return `age ${median}`
+                  return median != null ? `age ${median}` : '—'
                 })()}
-                subtitle={`${mc.depletion_ages.length}/${mc.n_runs} paths deplete · median age shown`}
+                subtitle={`${depletionAges.length}/${mc.n_runs} paths deplete · median age shown`}
                 color="var(--accent-red)"
                 icon={<AlertCircle size={14} />}
               />
@@ -720,7 +722,9 @@ export function Results({ data }) {
           incomeOnsets/depletedAge — everything except the chartData
           input and the mode flag. */}
       {(() => {
-        const nominalChartData = toNominal(chartData, data.inputs.inflation_rate || 0.025)
+        // ?? not ||: an explicit 0% inflation input must not be silently
+        // replaced by the 2.5% default (0 is falsy).
+        const nominalChartData = toNominal(chartData, data.inputs.inflation_rate ?? 0.025)
         const renderChart = (rows, mode) => {
           const isNominal = mode === 'nominal'
           const yLabel = isNominal ? 'Nominal $ (future)' : 'Real $ (today)'
@@ -1085,7 +1089,7 @@ export function Results({ data }) {
                   />
                   <Tooltip
                     contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}
-                    formatter={(v) => Array.isArray(v) ? `${fmtRounded(v[0])} – ${fmtRounded(v[1])}` : fmtRounded(v)}
+                    formatter={(v) => v == null ? '—' : Array.isArray(v) ? `${fmtRounded(v[0])} – ${fmtRounded(v[1])}` : fmtRounded(v)}
                     labelFormatter={(age) => `Age ${age}`}
                   />
                   <Area type="monotone" dataKey="band_10_90"

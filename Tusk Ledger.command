@@ -100,7 +100,7 @@ if [ -f "$RESEARCH_DIR_PATH/research.schema.json" ] && \
     _b="$(basename "$_f")"; _b="${_b%.research.json}"
     _domains="${_domains:+$_domains, }$_b"
   done
-  echo "Research layer: ${_domains:-loaded} ($RESEARCH_DIR_PATH)"
+  echo "Research layer: ${_domains:-no domains found} ($RESEARCH_DIR_PATH)"
   echo ""
 else
   echo "NOTE: No research data found in $RESEARCH_DIR_PATH —"

@@ -25,6 +25,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -32,6 +33,15 @@ from typing import Any, Optional
 from jsonschema.validators import Draft202012Validator
 
 from app.config import settings
+
+# _atomic_write keeps individual files un-torn, but load→modify→save sequences
+# (upsert/remove entity, the signals-cache refresh in routers/signals.py) are
+# NOT atomic on their own: two concurrent writers — the MCP write tool, the
+# nightly refresh job, the UI — can each load the same snapshot and the second
+# save silently drops the first one's update. Public so routers doing their own
+# RMW on store files can take the same lock. RLock: RMW paths call other
+# locked helpers.
+STORE_LOCK = threading.RLock()
 
 SCHEMA_FILENAME = "research.schema.json"
 
@@ -257,7 +267,7 @@ def append_history(domain: str, entity: dict[str, Any]) -> None:
     }
     p = history_path(domain)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "a", encoding="utf-8") as f:
+    with STORE_LOCK, open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
@@ -421,28 +431,29 @@ def upsert_entity(
             "entity needs an 'id' or 'ticker'", ["entity.id / entity.ticker missing"]
         )
 
-    data = load_domain(domain)
-    meta_domain = (data.get("meta") or {}).get("domain", domain)
+    with STORE_LOCK:
+        data = load_domain(domain)
+        meta_domain = (data.get("meta") or {}).get("domain", domain)
 
-    incoming = dict(entity)
-    incoming.setdefault("id", eid)
-    incoming.setdefault("ticker", eid)
-    incoming.setdefault("domain", meta_domain)
-    incoming["updated_by"] = updated_by
-    incoming["updated_at"] = _today()
+        incoming = dict(entity)
+        incoming.setdefault("id", eid)
+        incoming.setdefault("ticker", eid)
+        incoming.setdefault("domain", meta_domain)
+        incoming["updated_by"] = updated_by
+        incoming["updated_at"] = _today()
 
-    entities = data.setdefault("entities", [])
-    merged = incoming
-    for i, e in enumerate(entities):
-        if e.get("id") == incoming["id"]:
-            merged = {**e, **incoming}  # shallow merge: incoming keys win
-            entities[i] = merged
-            break
-    else:
-        entities.append(merged)
+        entities = data.setdefault("entities", [])
+        merged = incoming
+        for i, e in enumerate(entities):
+            if e.get("id") == incoming["id"]:
+                merged = {**e, **incoming}  # shallow merge: incoming keys win
+                entities[i] = merged
+                break
+        else:
+            entities.append(merged)
 
-    save_domain(domain, data, updated_by=updated_by)
-    append_history(domain, merged)
+        save_domain(domain, data, updated_by=updated_by)
+        append_history(domain, merged)
     return merged
 
 
@@ -458,20 +469,21 @@ def remove_entity(
     a name that's fallen out of every theme ETF and is weak/stale. No history row is
     appended (the entity is gone); the snapshot heartbeat simply stops covering it.
     """
-    data = load_domain(domain)
-    entities = data.get("entities", []) or []
     key = (entity_id or "").strip()
     if not key:
         raise ResearchValidationError("entity id/ticker required", ["empty id"])
-    idx = next(
-        (i for i, e in enumerate(entities)
-         if e.get("id") == key or (e.get("ticker") or "").upper() == key.upper()),
-        None,
-    )
-    if idx is None:
-        raise ResearchNotFound(f"No entity {entity_id!r} in domain {domain!r}")
-    removed = entities.pop(idx)
-    save_domain(domain, data, updated_by=updated_by)
+    with STORE_LOCK:
+        data = load_domain(domain)
+        entities = data.get("entities", []) or []
+        idx = next(
+            (i for i, e in enumerate(entities)
+             if e.get("id") == key or (e.get("ticker") or "").upper() == key.upper()),
+            None,
+        )
+        if idx is None:
+            raise ResearchNotFound(f"No entity {entity_id!r} in domain {domain!r}")
+        removed = entities.pop(idx)
+        save_domain(domain, data, updated_by=updated_by)
     return {
         "removed": True,
         "id": removed.get("id"),
@@ -491,36 +503,37 @@ def upsert_entities(
     Returns ``{written: [ids], count, total}``. A history row is appended per entity."""
     if not entities:
         return {"written": [], "count": 0, "total": len(load_domain(domain).get("entities", []) or [])}
-    data = load_domain(domain)
-    meta_domain = (data.get("meta") or {}).get("domain", domain)
-    rows = data.setdefault("entities", [])
-    by_id = {e.get("id"): i for i, e in enumerate(rows) if e.get("id")}
-    written: list[dict[str, Any]] = []
-    for entity in entities:
-        if not isinstance(entity, dict):
-            raise ResearchValidationError("entity must be an object", ["entity not an object"])
-        eid = entity.get("id") or entity.get("ticker")
-        if not eid:
-            raise ResearchValidationError("entity needs an 'id' or 'ticker'",
-                                          ["entity.id / entity.ticker missing"])
-        incoming = dict(entity)
-        incoming.setdefault("id", eid)
-        incoming.setdefault("ticker", eid)
-        incoming.setdefault("domain", meta_domain)
-        incoming["updated_by"] = updated_by
-        incoming["updated_at"] = _today()
-        if incoming["id"] in by_id:
-            i = by_id[incoming["id"]]
-            merged = {**rows[i], **incoming}
-            rows[i] = merged
-        else:
-            by_id[incoming["id"]] = len(rows)
-            rows.append(incoming)
-            merged = incoming
-        written.append(merged)
-    save_domain(domain, data, updated_by=updated_by)  # one validate + one atomic write
-    for m in written:
-        append_history(domain, m)
+    with STORE_LOCK:
+        data = load_domain(domain)
+        meta_domain = (data.get("meta") or {}).get("domain", domain)
+        rows = data.setdefault("entities", [])
+        by_id = {e.get("id"): i for i, e in enumerate(rows) if e.get("id")}
+        written: list[dict[str, Any]] = []
+        for entity in entities:
+            if not isinstance(entity, dict):
+                raise ResearchValidationError("entity must be an object", ["entity not an object"])
+            eid = entity.get("id") or entity.get("ticker")
+            if not eid:
+                raise ResearchValidationError("entity needs an 'id' or 'ticker'",
+                                              ["entity.id / entity.ticker missing"])
+            incoming = dict(entity)
+            incoming.setdefault("id", eid)
+            incoming.setdefault("ticker", eid)
+            incoming.setdefault("domain", meta_domain)
+            incoming["updated_by"] = updated_by
+            incoming["updated_at"] = _today()
+            if incoming["id"] in by_id:
+                i = by_id[incoming["id"]]
+                merged = {**rows[i], **incoming}
+                rows[i] = merged
+            else:
+                by_id[incoming["id"]] = len(rows)
+                rows.append(incoming)
+                merged = incoming
+            written.append(merged)
+        save_domain(domain, data, updated_by=updated_by)  # one validate + one atomic write
+        for m in written:
+            append_history(domain, m)
     return {"written": [m.get("id") for m in written], "count": len(written), "total": len(rows)}
 
 
@@ -531,21 +544,22 @@ def remove_entities(
 ) -> dict[str, Any]:
     """Drop MANY entities in a single load → validate → atomic write (matched by ``id`` or
     ``ticker``). Returns ``{removed: [ids], count, remaining}``. Unknown ids are skipped."""
-    data = load_domain(domain)
-    rows = data.get("entities", []) or []
     want = {(x or "").strip().upper() for x in (ids or []) if (x or "").strip()}
-    if not want:
-        return {"removed": [], "count": 0, "remaining": len(rows)}
-    kept: list[dict[str, Any]] = []
-    removed: list[str] = []
-    for e in rows:
-        if (e.get("id") or "").upper() in want or (e.get("ticker") or "").upper() in want:
-            removed.append(e.get("id"))
-        else:
-            kept.append(e)
-    if removed:
-        data["entities"] = kept
-        save_domain(domain, data, updated_by=updated_by)
+    with STORE_LOCK:
+        data = load_domain(domain)
+        rows = data.get("entities", []) or []
+        if not want:
+            return {"removed": [], "count": 0, "remaining": len(rows)}
+        kept: list[dict[str, Any]] = []
+        removed: list[str] = []
+        for e in rows:
+            if (e.get("id") or "").upper() in want or (e.get("ticker") or "").upper() in want:
+                removed.append(e.get("id"))
+            else:
+                kept.append(e)
+        if removed:
+            data["entities"] = kept
+            save_domain(domain, data, updated_by=updated_by)
     return {"removed": removed, "count": len(removed), "remaining": len(kept)}
 
 

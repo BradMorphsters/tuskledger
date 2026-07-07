@@ -254,6 +254,15 @@ def check_order(
                 f"buy ${notional:,.2f} exceeds settled cash ${state.settled_cash:,.2f} "
                 f"(cash account T+1 — would risk a good-faith violation)",
             )
+        elif config.require_settled_cash:
+            # The check was requested but the broker snapshot has no
+            # settled_cash figure (fresh connection / API schema drift).
+            # Don't hard-block — Robinhood enforces GFV itself — but don't
+            # skip SILENTLY either: the gap must be visible in the report.
+            detail = ("require_settled_cash is on but the broker snapshot has no "
+                      "settled_cash figure — check skipped this cycle")
+            checks.append(Check("settled_cash", True, detail))
+            warnings.append(detail)
 
         # 6. Max position concentration (post-trade) ------------------------------
         post_position_value = state.position_value(ticker) + notional

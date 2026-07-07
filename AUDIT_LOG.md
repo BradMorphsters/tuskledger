@@ -1,5 +1,61 @@
 # Audit Log
 
+## 2026-07-07 — Pass 3 (deep line-audit of pattern-scanned areas)
+
+**Scope:** assistant_retrieval.py (1,923 ln) + Ask Tusk feedback loop, agent_trading
+internals beyond Pass-1/2 coverage (guardrails, wash_sale, sizing, order_policy,
+execution, bridge, rotation_coupling), tuskledger-mcp + research/signals/mobile
+routers + market-data/quiver/research_store services. 3 parallel subagents; 19 claims
+raised, 8 rejected on verification. Eduardo approved all 8 proposals.
+
+### Rejected before proposing (verified false or standing-constraint)
+- "missing DEMO_LOCKED on refresh endpoints" — the read-only middleware gates every
+  mutating method on demo; new endpoints inherit it by design (main.py:380).
+- "device-token timing attack" — DB equality on SHA-256 of a 256-bit random token;
+  documented deliberate (routers/mobile.py:123).
+- Twelve Data key in query params — their API's standard auth; local app.
+- execution.py `unknown` timeout state — IS the Pass-1 approved design (never silent-retry).
+- proposals.mark_placed accepting APPROVED — documented fallback, lock-guarded.
+- gain_pct on tiny cost basis — big % on near-zero basis is factually correct.
+- MTD "midnight boundary" — Transaction.date is a Date column; no time component.
+- quiver "timeout" mislabel path — unreachable (_get catches internally).
+
+### Fixed (8/8 approved)
+1. **P1** assistant_feedback.py: plain write_text + unlocked RMW → _STORE_LOCK (RLock)
+   + tmp-file/os.replace atomic writes on open.json/overrides.json; approve()/reject()
+   now atomic across both stores. (A torn write previously nuked ALL pending feedback +
+   learned overrides silently — loader swallowed the parse error into {}.)
+2. **P1** research_store.py: public STORE_LOCK; upsert_entity/upsert_entities/
+   remove_entity/remove_entities/append_history RMW now locked. signals router:
+   single-ticker write re-loads under the lock; bulk refresh merges only ITS updates
+   into a fresh load (the minutes-long loop no longer clobbers concurrent writes).
+3. **P2** bridge._apply buy path: 1e-9 near-zero guard before avg-price division
+   (mirrors sell path) — no Inf/NaN into same-cycle projections.
+4. **P2** guardrails settled_cash: when require_settled_cash=True but the snapshot has
+   no settled_cash, the skip is now a visible warning in the report (was silent).
+5. **P2** rotation_coupling: wash-sale deferral message parameterized from
+   WASH_WINDOW_DAYS (was hardcoded "30-day").
+6. **P3** wash_sale.py: comment documenting inclusive ±30 CALENDAR-day window semantics.
+7. **P3** order_policy.build_order_args now REFUSES sub-share limit orders (ValueError)
+   instead of silently inflating to 1 share; bridge.plan loop skips them like
+   /proposals/generate does (execution/events/runner call plan_cycle unfiltered);
+   test_limit_floors_to_whole_shares updated — the old "never floors below 1 share"
+   assertion codified the hazard; new test_sub_share_limit_refused_not_inflated.
+8. **P3** assistant_retrieval.category_spend: category filter pushed into SQL
+   (coalesce(nullif(custom_category,''), nullif(category,''), 'Uncategorized') to match
+   the display_category property exactly, including empty-string precedence).
+
+### Verification
+- pytest (sandbox system Python): 711 passed / 35 failed — same 35 pre-existing
+  env-drift failures as Pass 2 (still confirm locally). Agent-trading suites 33/33;
+  assistant/signals/research/rotation/wash subset 258/258.
+- py_compile clean on all 9 touched backend files. No frontend/mobile changes this pass.
+
+### Still deferred
+- Recurring-detector full consolidation; Dockerfile non-root Railway test;
+  weekly-security-sweep skill install decision; the 35 env-drift pytest failures
+  (verify green in the macOS venv).
+
 ## 2026-07-06 — Pass 2 (delta since Pass 1 + deferrals)
 
 **Scope:** files changed since 4f5e227 (Plaid update-mode, robinhood_agent error surfacing,

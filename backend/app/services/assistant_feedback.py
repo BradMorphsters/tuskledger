@@ -22,6 +22,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -30,6 +32,29 @@ from typing import Optional
 from app.config import settings
 
 _OV_CACHE: Optional[dict] = None
+
+# One lock for every read-modify-write on the JSON stores below. Without it,
+# concurrent requests (a 👎 landing while an approval is in flight) clobber
+# each other's writes; and a plain write_text() torn by a crash leaves a
+# half-written file that _load_*() silently turns into {} — losing every
+# pending feedback record / learned override.
+_STORE_LOCK = threading.RLock()
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Same-directory tmp file + os.replace, so readers never see a torn file
+    (mirrors research_store._atomic_write)."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ── storage ──────────────────────────────────────────────────────────────
@@ -58,7 +83,7 @@ def _normalize(q: str) -> str:
 
 
 def _append_event(ev: dict) -> None:
-    with _events_path().open("a") as f:
+    with _STORE_LOCK, _events_path().open("a") as f:
         f.write(json.dumps(ev) + "\n")
 
 
@@ -73,13 +98,14 @@ def _load_open() -> dict:
 
 
 def _write_open(d: dict) -> None:
-    _open_path().write_text(json.dumps(d, indent=2))
+    _atomic_write_json(_open_path(), d)
 
 
 def _save_open(fid: str, rec: dict) -> None:
-    d = _load_open()
-    d[fid] = rec
-    _write_open(d)
+    with _STORE_LOCK:
+        d = _load_open()
+        d[fid] = rec
+        _write_open(d)
 
 
 def _load_overrides() -> dict:
@@ -94,8 +120,9 @@ def _load_overrides() -> dict:
 
 def _save_overrides(ov: dict) -> None:
     global _OV_CACHE
-    _overrides_path().write_text(json.dumps(ov, indent=2))
-    _OV_CACHE = ov
+    with _STORE_LOCK:
+        _atomic_write_json(_overrides_path(), ov)
+        _OV_CACHE = ov
 
 
 def reset_cache() -> None:
@@ -234,30 +261,32 @@ def correct(db, fid: str, hint: str) -> Optional[dict]:
 
 def approve(fid: str) -> Optional[dict]:
     """Approve a correction → write the learned routing override + resolve the item."""
-    d = _load_open()
-    rec = d.get(fid)
-    if not rec:
-        return None
-    applied = None
-    si = rec.get("suggested_intent")
-    if si:
-        ov = _load_overrides()
-        ov[_normalize(rec["question"])] = si
-        _save_overrides(ov)
-        applied = si
-    _append_event({"id": fid, "ts": time.time(), "event": "approved", "applied_intent": applied})
-    del d[fid]
-    _write_open(d)
+    with _STORE_LOCK:  # RLock — whole approve is one atomic RMW across both stores
+        d = _load_open()
+        rec = d.get(fid)
+        if not rec:
+            return None
+        applied = None
+        si = rec.get("suggested_intent")
+        if si:
+            ov = _load_overrides()
+            ov[_normalize(rec["question"])] = si
+            _save_overrides(ov)
+            applied = si
+        _append_event({"id": fid, "ts": time.time(), "event": "approved", "applied_intent": applied})
+        del d[fid]
+        _write_open(d)
     return {"applied_intent": applied}
 
 
 def reject(fid: str) -> Optional[dict]:
-    d = _load_open()
-    if fid not in d:
-        return None
-    _append_event({"id": fid, "ts": time.time(), "event": "rejected"})
-    del d[fid]
-    _write_open(d)
+    with _STORE_LOCK:
+        d = _load_open()
+        if fid not in d:
+            return None
+        _append_event({"id": fid, "ts": time.time(), "event": "rejected"})
+        del d[fid]
+        _write_open(d)
     return {"ok": True}
 
 

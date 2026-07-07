@@ -1090,11 +1090,9 @@ def cash_flow_forecast(
         _, per_year = cls
         active = {x.date.month for x in st}
         mult = len(active) if 3 <= len(active) <= 10 else per_year
-        monthly_rate = abs(med) * mult / 12
-        if med > 0:
-            monthly_recurring_outflow += monthly_rate
-        else:
-            monthly_recurring_inflow += monthly_rate  # never hits because med > 0 above
+        # med > 0 is guaranteed by the guard above — this loop only counts
+        # outflows; the inflow loop below handles the negative-amount side.
+        monthly_recurring_outflow += abs(med) * mult / 12
 
     # Also include the inflow side: the same logic but for negative amounts.
     # Loop over the same merchant groups because some merchants are inflow.
@@ -1110,7 +1108,12 @@ def cash_flow_forecast(
         med = sorted(abs_amts)[len(abs_amts) // 2]
         if med <= 0:
             continue
-        if not all(abs(a - med) / med < 0.25 for a in abs_amts):
+        # Income is lumpier than bills (overtime, PTO) — allow the same 60%
+        # variance the recurring-events detector uses for inflows above.
+        # 0.25 here caused a drift: a lumpy paycheck qualified as recurring
+        # income for event modeling but was NOT netted out of the flat
+        # salary rate, double-counting it in the forecast.
+        if not all(abs(a - med) / med < 0.60 for a in abs_amts):
             continue
         intervals = [(st[i + 1].date - st[i].date).days for i in range(len(st) - 1)]
         if not intervals:

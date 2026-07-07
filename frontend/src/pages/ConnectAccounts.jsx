@@ -27,14 +27,21 @@ export default function ConnectAccounts() {
   const { toast } = useToast()
 
   useEffect(() => {
-    getLinkToken().then(res => setLinkToken(res.link_token)).catch(() => {})
+    // Silent fail is intentional (button falls back to the "configure Plaid
+    // keys" hint) — but log so a misconfigured backend is debuggable.
+    getLinkToken().then(res => setLinkToken(res.link_token)).catch((e) => {
+      console.warn('Plaid link token unavailable:', e?.message || e)
+    })
     loadData()
   }, [])
 
   const loadData = () => {
     getPlaidItems().then(setItems).catch(() => {})
     refreshAccounts()
-    getManualAssets().then(setManualAssets).catch(() => setManualAssets([]))
+    getManualAssets().then(setManualAssets).catch((e) => {
+      console.warn('Manual assets unavailable:', e?.message || e)
+      setManualAssets([])
+    })
   }
 
   // Manual entries unified into one shape so the new section's table can

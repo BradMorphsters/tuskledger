@@ -1,5 +1,48 @@
 # Audit Log
 
+## 2026-07-06 — Pass 2 (delta since Pass 1 + deferrals)
+
+**Scope:** files changed since 4f5e227 (Plaid update-mode, robinhood_agent error surfacing,
+rank_history, AgentRanking/ConnectAccounts), Pass-1 deferrals (ResultsPanel line-audit,
+site dist rebuild), launcher + scripts, mobile sync spot-check. 3 parallel subagents;
+findings cross-verified before proposing. Eduardo approved all 8.
+
+### Rejected before proposing (verified false or standing-constraint)
+- "plaid update-link-token missing auth" — no plaid route has auth; DEV_BYPASS_AUTH accepted.
+- "analytics.py `.date.month` bug" — not a bug; `d` is a Transaction, `.date` is the column.
+- "site .command `-nt` fails on missing target" — bash `-nt` is true when file2 is absent.
+- stop.sh pkill patterns — Pass-1 approved form; left as-is.
+
+### Fixed (8/8 approved)
+1. **P1** cash_flow_forecast (routers/analytics.py): inflow-baseline tolerance drift — events
+   detector allowed 60% variance on income but baseline netting hardcoded 25%, so lumpy
+   paychecks were event-modeled yet not netted from the flat salary rate (income
+   double-count). Baseline inflow loop now uses 0.60; dead `else` branch removed.
+   Forecast numbers change (correctly) for lumpy-income cases.
+2. **P2** ResultsPanel.jsx hardening: null-safe `year_by_year_pct`/`depletion_ages`
+   (no more "age undefined"), tooltip formatter null guard, `??` instead of `||` on
+   inflation_rate (explicit 0% no longer silently replaced by 2.5% default).
+3. **P2** tuskledger-site/dist rebuilt (was 17 days stale; Pass-1 tool-count changes now
+   shipped). Built on Linux in /tmp (macOS node_modules can't run rollup natives in sandbox).
+4. **P2** launcher: "Research layer: loaded" misleading fallback → "no domains found".
+5. **P3** ConnectAccounts.jsx: two silent catches now console.warn (behavior unchanged).
+6. **P3** mobile sync manager.ts: cursor-persistence comment corrected (logic untouched).
+7. **P3** AgentRanking.jsx: baselineLabel/lastChangeLabel/anyMoved memoized (hoisted above
+   early returns for rules-of-hooks).
+8. **P3** stale `.claude/worktrees/peaceful-joliot-5d5a99` worktree deleted + pruned.
+
+### Verification
+- Backend: deps installed into sandbox system Python → **full pytest now runs in sandbox**:
+  710 passed / 35 failed, but the same 35 fail on stashed pre-change code — pre-existing,
+  almost certainly env-version drift (system Python vs macOS venv). **Run pytest locally to
+  confirm the 35 are env-only.** test_cash_flow_forecast: 13/13 green with the tolerance fix.
+- Frontend: vitest 166/166 (fresh Linux install in /tmp). py_compile + bash -n clean.
+- Mobile: comment-only change, tsc skipped.
+
+### Still deferred
+- Recurring-detector full consolidation (4 drifted copies; #1 above is the surgical subset).
+- Dockerfile non-root Railway test; weekly-security-sweep skill install decision.
+
 ## 2026-07-01 — Pass 1 (full top-down audit)
 
 **Scope:** backend, frontend, mobile, tuskledger-mcp, site, marketplace, scripts.

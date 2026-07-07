@@ -22,6 +22,7 @@
 import * as SQLite from 'expo-sqlite';
 import type {
   AccountWire,
+  BudgetWire,
   HoldingWire,
   ManualAssetWire,
   NetWorthSnapshotWire,
@@ -30,12 +31,12 @@ import type {
 } from '../sync/types';
 
 const DB_NAME = 'tuskledger.db';
-// Bumped to 3 with the addition of manual_assets — without those, the
-// phone's net worth was missing the user's homes, vehicles, and any
-// non-Plaid liabilities, so the headline number didn't match the laptop.
+// 3: added manual_assets — without those, the phone's net worth was
+//    missing homes, vehicles, and non-Plaid liabilities.
+// 4: added budgets + budget_categories (read-only Budgets card).
 // Bumping forces a one-time wipe + full re-pull on next launch — fine
 // because the mirror is disposable and the laptop is the source of truth.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 let _db: SQLite.SQLiteDatabase | null = null;
 
@@ -127,6 +128,21 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
       plaid_mortgage_account_id INTEGER,
       updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS budgets (
+      id INTEGER PRIMARY KEY,
+      month INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      total_limit REAL,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS budget_categories (
+      id INTEGER PRIMARY KEY,
+      budget_id INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      limit_amount REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_budget_categories_budget_id
+      ON budget_categories(budget_id);
   `);
 
   const row = await db.getFirstAsync<{ value: string }>(
@@ -149,6 +165,8 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
         DELETE FROM holdings;
         DELETE FROM net_worth_snapshots;
         DELETE FROM manual_assets;
+        DELETE FROM budgets;
+        DELETE FROM budget_categories;
       `);
       // Also clear the sync cursor so the next sync does a full pull
       // against the now-empty tables. Without this, the incremental
@@ -200,6 +218,8 @@ export async function resetMirror(): Promise<void> {
     DELETE FROM holdings;
     DELETE FROM net_worth_snapshots;
     DELETE FROM manual_assets;
+    DELETE FROM budgets;
+    DELETE FROM budget_categories;
   `);
   // Bump the data version so any UI subscribed to the mirror re-queries
   // and clears immediately, rather than stranding pre-wipe rows on
@@ -218,6 +238,7 @@ export async function applySync(
     holdings?: HoldingWire[];
     netWorthSnapshots?: NetWorthSnapshotWire[];
     manualAssets?: ManualAssetWire[];
+    budgets?: BudgetWire[];
   } = {},
 ): Promise<void> {
   const db = await getDb();
@@ -373,6 +394,35 @@ export async function applySync(
         }
       } finally {
         await stmt.finalizeAsync();
+      }
+    }
+
+    // Budgets: the server sends the COMPLETE set on every schema-v3
+    // sync (undefined means an older server that doesn't know about
+    // budgets — leave whatever we have). Wipe + reinsert so a budget
+    // or category deleted on the laptop disappears here too.
+    if (extra.budgets !== undefined) {
+      await db.execAsync('DELETE FROM budgets; DELETE FROM budget_categories;');
+      if (extra.budgets.length > 0) {
+        const bStmt = await db.prepareAsync(
+          `INSERT OR REPLACE INTO budgets (id, month, year, total_limit, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        );
+        const cStmt = await db.prepareAsync(
+          `INSERT OR REPLACE INTO budget_categories (id, budget_id, category, limit_amount)
+           VALUES (?, ?, ?, ?)`,
+        );
+        try {
+          for (const b of extra.budgets) {
+            await bStmt.executeAsync([b.id, b.month, b.year, b.total_limit, b.updated_at]);
+            for (const c of b.categories) {
+              await cStmt.executeAsync([c.id, c.budget_id, c.category, c.limit_amount]);
+            }
+          }
+        } finally {
+          await bStmt.finalizeAsync();
+          await cStmt.finalizeAsync();
+        }
       }
     }
 

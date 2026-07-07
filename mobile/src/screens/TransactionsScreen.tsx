@@ -21,7 +21,14 @@ import Chip from '../components/Chip';
 import EmptyState from '../components/EmptyState';
 import Screen from '../components/Screen';
 import TransactionRow from '../components/TransactionRow';
-import { listTransactions, spendCategories, TransactionRow as Tx } from '../db/queries';
+import SkeletonBlock from '../components/SkeletonBlock';
+import {
+  AccountChip,
+  accountsWithActivity,
+  listTransactions,
+  spendCategories,
+  TransactionRow as Tx,
+} from '../db/queries';
 import { useAppStore } from '../state/appStore';
 import { syncNow, useSyncStore } from '../sync/manager';
 import {
@@ -115,6 +122,9 @@ export default function TransactionsScreen() {
   const setCategory = useAppStore((s) => s.setTxCategory);
   const [rows, setRows] = useState<Tx[]>([]);
   const [cats, setCats] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<AccountChip[]>([]);
+  const [accountId, setAccountId] = useState<number | null>(null);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<DateFilter>('all');
@@ -130,13 +140,16 @@ export default function TransactionsScreen() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Chip row of this month's top spend categories. A drilled-in
-  // category that's outside the top set still renders (prepended) so
-  // the active filter is always visible and clearable.
+  // Chip rows: this month's top spend categories, and the accounts with
+  // the most activity. A drilled-in category that's outside the top set
+  // still renders (prepended) so the active filter is always visible and
+  // clearable.
   useEffect(() => {
     let cancelled = false;
-    spendCategories(10).then((c) => {
-      if (!cancelled) setCats(c);
+    Promise.all([spendCategories(10), accountsWithActivity(8)]).then(([c, a]) => {
+      if (cancelled) return;
+      setCats(c);
+      setAccounts(a);
     });
     return () => {
       cancelled = true;
@@ -155,15 +168,17 @@ export default function TransactionsScreen() {
         sinceDate: range.since,
         untilDate: range.until,
         category: category ?? undefined,
+        accountId: accountId ?? undefined,
       });
       if (cancelled) return;
       setRows(initial);
       setReachedEnd(initial.length < PAGE_SIZE);
+      setInitialLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, search, filter, monthOffset, category]);
+  }, [dataVersion, search, filter, monthOffset, category, accountId]);
 
   async function loadMore() {
     if (loadingMore || reachedEnd) return;
@@ -177,6 +192,7 @@ export default function TransactionsScreen() {
         sinceDate: range.since,
         untilDate: range.until,
         category: category ?? undefined,
+        accountId: accountId ?? undefined,
       });
       setRows((prev) => [...prev, ...next]);
       if (next.length < PAGE_SIZE) setReachedEnd(true);
@@ -195,14 +211,14 @@ export default function TransactionsScreen() {
   // Empty-state messaging depends on whether there's a search term.
   const empty = useMemo(() => {
     if (rows.length > 0) return null;
-    if (search.trim() || filter !== 'all' || category) {
+    if (search.trim() || filter !== 'all' || category || accountId != null) {
       return { title: 'No matches', message: 'Nothing in your local copy matches these filters.' };
     }
     if (status === 'unpaired') {
       return { title: 'Not paired yet', message: 'Pair this phone with your laptop to start syncing.' };
     }
     return { title: 'No transactions yet', message: 'Pull down to sync from your laptop.' };
-  }, [rows.length, search, filter, category, status]);
+  }, [rows.length, search, filter, category, accountId, status]);
 
   return (
     <Screen title="Transactions" scroll={false}>
@@ -269,6 +285,22 @@ export default function TransactionsScreen() {
           ))}
         </ScrollView>
       )}
+      {accounts.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.catRow}
+          contentContainerStyle={styles.catRowContent}>
+          {accounts.map((a) => (
+            <Chip
+              key={a.id}
+              label={accountId === a.id ? `${a.label} ✕` : a.label}
+              selected={accountId === a.id}
+              onPress={() => setAccountId(accountId === a.id ? null : a.id)}
+            />
+          ))}
+        </ScrollView>
+      )}
       <SectionList
         sections={sections}
         keyExtractor={(r) => String(r.id)}
@@ -296,7 +328,15 @@ export default function TransactionsScreen() {
           />
         }
         ListEmptyComponent={
-          empty ? (
+          !initialLoaded ? (
+            // First query hasn't returned yet — skeleton rows instead of a
+            // flash of "No transactions yet".
+            <View style={{ paddingHorizontal: layout.screenPad, paddingTop: space(3), gap: space(4) }}>
+              <SkeletonBlock height={44} />
+              <SkeletonBlock height={44} />
+              <SkeletonBlock height={44} />
+            </View>
+          ) : empty ? (
             <EmptyState icon="🔎" title={empty.title} message={empty.message} />
           ) : null
         }

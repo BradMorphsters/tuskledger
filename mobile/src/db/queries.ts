@@ -82,9 +82,11 @@ export async function listTransactions(opts: {
    *  Dashboard top-category drill-down. Compared against
    *  COALESCE(custom_category, category, 'Uncategorized'). */
   category?: string;
+  /** Restrict to one account — powers the account filter chips. */
+  accountId?: number;
 } = {}): Promise<TransactionRow[]> {
   const db = await getDb();
-  const { limit = 100, offset = 0, search, sinceDate, untilDate, category } = opts;
+  const { limit = 100, offset = 0, search, sinceDate, untilDate, category, accountId } = opts;
   const params: (string | number)[] = [];
   let where = '1=1';
   if (search && search.trim()) {
@@ -108,6 +110,11 @@ export async function listTransactions(opts: {
   if (category) {
     where += " AND COALESCE(t.custom_category, t.category, 'Uncategorized') = ?";
     params.push(category);
+  }
+  if (accountId != null) {
+    // Uses ix_transactions_account_id.
+    where += ' AND t.account_id = ?';
+    params.push(accountId);
   }
   params.push(limit, offset);
   return db.getAllAsync<TransactionRow>(
@@ -179,6 +186,28 @@ export async function topCategoriesThisMonth(
      ORDER BY total DESC
      LIMIT ?`,
     [start, limit],
+  );
+}
+
+export interface AccountChip {
+  id: number;
+  label: string;
+}
+
+/** Accounts ordered by how much transaction activity they carry —
+ *  powers the account filter chips on the Transactions screen. Accounts
+ *  with no transactions at all (pure investment/loan balances) are
+ *  omitted; filtering to them would always show an empty list. */
+export async function accountsWithActivity(limit = 8): Promise<AccountChip[]> {
+  const db = await getDb();
+  return db.getAllAsync<AccountChip>(
+    `SELECT a.id, COALESCE(a.custom_name, a.name) AS label
+     FROM accounts a
+     JOIN transactions t ON t.account_id = a.id
+     GROUP BY a.id
+     ORDER BY COUNT(t.id) DESC
+     LIMIT ?`,
+    [limit],
   );
 }
 

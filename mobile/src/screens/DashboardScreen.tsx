@@ -199,11 +199,20 @@ export default function DashboardScreen() {
       <SectionHeader
         label="This month"
         right={
-          <Text style={type.small}>
-            {summary?.transactionCount ?? 0} transactions
-          </Text>
+          loaded ? (
+            <Text style={type.small}>
+              {summary?.transactionCount ?? 0} transactions
+            </Text>
+          ) : undefined
         }
       />
+      {!loaded ? (
+        <Card>
+          <SkeletonBlock height={16} />
+          <SkeletonBlock height={16} style={{ marginTop: space(3) }} />
+          <SkeletonBlock height={24} width={140} style={{ marginTop: space(3) }} />
+        </Card>
+      ) : (
       <Card>
         <FlowRow
           label="Income"
@@ -227,6 +236,7 @@ export default function DashboardScreen() {
           Transfers excluded
         </Text>
       </Card>
+      )}
 
       {/* ── Upcoming bills (mortgage + CC due dates; hidden when none) ── */}
       {bills.length > 0 && (
@@ -264,7 +274,13 @@ export default function DashboardScreen() {
       {/* ── Top categories ──────────────────────────────────────── */}
       <SectionHeader label="Top categories" />
       <Card>
-        {topCats.length === 0 ? (
+        {!loaded ? (
+          <>
+            <SkeletonBlock height={16} />
+            <SkeletonBlock height={16} style={{ marginTop: space(3) }} />
+            <SkeletonBlock height={16} style={{ marginTop: space(3) }} />
+          </>
+        ) : topCats.length === 0 ? (
           <Text style={type.small}>No spending recorded yet this month.</Text>
         ) : (
           topCats.map((c, i) => (

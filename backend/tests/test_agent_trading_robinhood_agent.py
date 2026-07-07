@@ -7,6 +7,7 @@ from __future__ import annotations
 from app.agent_trading.robinhood_agent import (
     EncryptedJsonStore,
     connection_status,
+    describe_exception,
     make_broker,
     parse_tool_result,
 )
@@ -63,6 +64,45 @@ def test_parse_tool_result_variants():
         structuredContent = {"data": {"ok": True}}
         content = []
     assert parse_tool_result(_Struct()) == {"data": {"ok": True}}            # structuredContent wins
+
+
+def _exception_group():
+    """A real ExceptionGroup wrapping a single cause — the shape anyio raises out of the
+    streamable-HTTP task group. Uses the 3.11+ builtin or the 3.10 backport."""
+    try:
+        EG = ExceptionGroup  # noqa: F821 — builtin on 3.11+
+    except NameError:  # pragma: no cover - depends on interpreter version
+        from exceptiongroup import ExceptionGroup as EG
+
+    class HTTPStatusError(Exception):
+        pass
+
+    inner = HTTPStatusError("Client error '401 Unauthorized' for url 'https://agent.robinhood.com/mcp/trading'")
+    return EG("unhandled errors in a TaskGroup", [inner]), inner
+
+
+def test_describe_exception_unwraps_taskgroup_and_hints_reconnect():
+    grp, inner = _exception_group()
+    # the opaque group message must NOT leak through
+    assert str(grp) == "unhandled errors in a TaskGroup (1 sub-exception)"
+    out = describe_exception(grp)
+    assert "TaskGroup" not in out
+    assert "401 Unauthorized" in out and "HTTPStatusError" in out
+    # a 401 gets the reconnect hint
+    assert "Disconnect then Connect" in out
+
+
+def test_describe_exception_dedupes_nested_and_passes_plain_through():
+    try:
+        EG = ExceptionGroup  # noqa: F821
+    except NameError:  # pragma: no cover
+        from exceptiongroup import ExceptionGroup as EG
+    err = ConnectionError("nodename nor servname provided")
+    nested = EG("outer", [EG("inner", [err, err])])
+    out = describe_exception(nested)
+    assert out == "ConnectionError: nodename nor servname provided"  # de-duped, no hint
+    # a plain (non-group) exception is described directly
+    assert describe_exception(ValueError("boom")) == "ValueError: boom"
 
 
 def test_make_broker_uses_stored_account_and_is_read_only(tmp_path, monkeypatch):

@@ -17,9 +17,14 @@ from app.models import (
     CreditCardDetail,
 )
 from app.schemas.schemas import LinkTokenResponse, PublicTokenExchange
-from app.services.plaid_service import get_plaid_client, create_link_token, exchange_public_token
+from app.services.plaid_service import (
+    get_plaid_client,
+    create_link_token,
+    create_update_link_token,
+    exchange_public_token,
+)
 from app.services.sync_service import sync_single_item
-from app.services.crypto import encrypt_token
+from app.services.crypto import encrypt_token, decrypt_token
 
 router = APIRouter(prefix="/api/plaid", tags=["plaid"])
 
@@ -29,6 +34,35 @@ def get_link_token():
     """Generate a Plaid Link token for the frontend."""
     client = get_plaid_client()
     token = create_link_token(client)
+    return {"link_token": token}
+
+
+@router.post("/link-token/update", response_model=LinkTokenResponse)
+def get_update_link_token(
+    request: Request,
+    item_id: int = Query(..., description="PlaidItem.id to re-authenticate"),
+    db: Session = Depends(get_db),
+):
+    """Generate a Plaid Link token in update mode to re-authenticate an
+    existing institution.
+
+    This is the reconnect path for an item that's fallen into
+    ``ITEM_LOGIN_REQUIRED``. Unlike ``/link-token`` (which starts a fresh
+    link and would create a duplicate item), this creates the token from
+    the existing item's access_token so Link re-opens the SAME item. The
+    frontend opens Link with this token; on success the access_token is
+    unchanged, so it just calls ``/sync`` — no token exchange, no
+    duplicate item.
+    """
+    # Demo items are synthetic — there's no real Plaid item to update.
+    if _is_demo_request(request):
+        raise HTTPException(status_code=400, detail="demo mode — reconnect is a no-op")
+    item = db.query(PlaidItem).filter_by(id=item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    client = get_plaid_client()
+    access_token = decrypt_token(item.access_token)
+    token = create_update_link_token(client, access_token)
     return {"link_token": token}
 
 

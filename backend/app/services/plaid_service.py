@@ -76,6 +76,39 @@ def create_link_token(client: plaid_api.PlaidApi) -> str:
     return response["link_token"]
 
 
+def create_update_link_token(client: plaid_api.PlaidApi, access_token: str) -> str:
+    """Create a Plaid Link token in **update mode** to re-authenticate an
+    existing item.
+
+    Update mode repairs an item that's fallen into ``ITEM_LOGIN_REQUIRED``
+    (expired credentials, a password change at the bank, revoked MFA
+    consent, etc.) WITHOUT creating a new item. The one field that flips
+    Link into update mode is ``access_token`` — passing it tells Plaid
+    "re-open Link for THIS existing item" instead of "link a new
+    institution."
+
+    Product fields (``products`` / ``optional_products`` /
+    ``required_if_supported_products``) must NOT be set in update mode —
+    Plaid rejects the request otherwise, and the item keeps whatever
+    products it was originally linked with. Because the item is unchanged,
+    on success the ``access_token`` stays the same: the caller does NOT
+    exchange a new public token, it just re-syncs.
+    """
+    user = LinkTokenCreateRequestUser(
+        client_user_id="fintrack-user",
+        phone_number_verified_time=datetime.now(timezone.utc),
+    )
+    request = LinkTokenCreateRequest(
+        user=user,
+        client_name="Tusk Ledger",
+        country_codes=[CountryCode("US")],
+        language="en",
+        access_token=access_token,
+    )
+    response = client.link_token_create(request)
+    return response["link_token"]
+
+
 def exchange_public_token(client: plaid_api.PlaidApi, public_token: str) -> dict:
     """Exchange a public token from Link for a persistent access token."""
     request = ItemPublicTokenExchangeRequest(public_token=public_token)

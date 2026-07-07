@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { Link2, CheckCircle, AlertCircle, Pencil, Check, X, ChevronDown, ChevronRight, Home, FileEdit, Plus } from 'lucide-react'
+import { Link2, CheckCircle, AlertCircle, Pencil, Check, X, ChevronDown, ChevronRight, Home, FileEdit, Plus, RefreshCw } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import Pill from '../components/Pill'
 import BackfillPanel from '../components/BackfillPanel'
@@ -9,7 +9,7 @@ import IntegrationsCard from '../components/IntegrationsCard'
 import RobinhoodAgentCard from '../components/RobinhoodAgentCard'
 import { useToast } from '../components/Toast'
 import {
-  getLinkToken, exchangeToken, getPlaidItems, triggerSync,
+  getLinkToken, getUpdateLinkToken, exchangeToken, getPlaidItems, triggerSync,
   updateAccount, getMortgageDetail, getCreditCardDetail, getManualAssets,
   createManualAccount,
 } from '../api/client'
@@ -163,6 +163,7 @@ export default function ConnectAccounts() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <CheckCircle size={14} style={{ color: 'var(--accent-green)' }} />
                           {item.institution_name || 'Unknown Institution'}
+                          <ReconnectButton item={item} onDone={loadData} />
                         </div>
                         {itemAccounts.length > 0 && (
                           <ul style={{
@@ -360,6 +361,100 @@ export default function ConnectAccounts() {
       )}
     </div>
   )
+}
+
+
+/**
+ * ReconnectButton — re-authenticate one connected institution via Plaid
+ * update mode. Use when an item falls into ITEM_LOGIN_REQUIRED (expired
+ * credentials, a password change at the bank, revoked MFA consent). Unlike
+ * the top-of-page "Connect Account" button — which starts a fresh link and
+ * would create a *duplicate* item — this re-opens Link against the SAME
+ * item. On success the access_token is unchanged, so there's no public-token
+ * exchange: we just trigger a sync to pull whatever was missed while the
+ * connection was broken.
+ *
+ * react-plaid-link's usePlaidLink needs the token at hook-init time, so the
+ * actual Link instance lives in the child PlaidUpdateLauncher, which mounts
+ * only once we've fetched an update-mode token and auto-opens when ready.
+ */
+function ReconnectButton({ item, onDone }) {
+  const [token, setToken] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const { toast } = useToast()
+
+  const begin = async () => {
+    setBusy(true)
+    try {
+      const res = await getUpdateLinkToken(item.id)
+      setToken(res.link_token)  // mounts the launcher, which auto-opens
+    } catch (e) {
+      setBusy(false)
+      toast({ kind: 'error', message: e.message || 'Could not start reconnect' })
+    }
+  }
+
+  const handleSuccess = async () => {
+    setToken(null)
+    try {
+      await triggerSync()
+      toast({ kind: 'success', message: `${item.institution_name || 'Institution'} reconnected` })
+      onDone && onDone()
+    } catch {
+      // Credentials were repaired even if the follow-up sync hiccuped —
+      // the next scheduled/manual sync will catch up.
+      toast({ kind: 'info', message: 'Reconnected — but the sync failed. Try Sync again shortly.' })
+      onDone && onDone()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // User closed the Link modal without finishing (or Plaid errored). Reset
+  // so the button is clickable again; nothing changed server-side.
+  const handleExit = () => {
+    setToken(null)
+    setBusy(false)
+  }
+
+  return (
+    <>
+      <button
+        onClick={begin}
+        disabled={busy}
+        title="Re-authenticate this institution (fixes 'login required' / expired-credential sync errors)"
+        style={{
+          marginLeft: 'auto',
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '3px 9px', fontSize: 11, fontWeight: 500,
+          background: 'transparent', color: 'var(--accent-blue)',
+          border: '1px solid var(--accent-blue)', borderRadius: 4,
+          cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <RefreshCw size={11} />
+        {busy ? 'Reconnecting…' : 'Reconnect'}
+      </button>
+      {token && (
+        <PlaidUpdateLauncher token={token} onSuccess={handleSuccess} onExit={handleExit} />
+      )}
+    </>
+  )
+}
+
+/**
+ * PlaidUpdateLauncher — headless bridge that opens Plaid Link in update
+ * mode. Mounted by ReconnectButton only once a token exists; auto-opens the
+ * moment Link is ready so the user doesn't need a second click. Renders
+ * nothing itself.
+ */
+function PlaidUpdateLauncher({ token, onSuccess, onExit }) {
+  const { open, ready } = usePlaidLink({ token, onSuccess, onExit })
+  useEffect(() => {
+    if (ready) open()
+  }, [ready, open])
+  return null
 }
 
 

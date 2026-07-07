@@ -28,6 +28,11 @@ export const logout = () => request('/auth/logout', { method: 'POST' });
 
 // Plaid
 export const getLinkToken = () => request('/plaid/link-token', { method: 'POST' });
+// Update-mode link token — re-authenticate an existing institution that's
+// fallen into ITEM_LOGIN_REQUIRED. Opens Link against the SAME item (no
+// duplicate); on success just re-sync, no token exchange needed.
+export const getUpdateLinkToken = (itemId) =>
+  request(`/plaid/link-token/update?item_id=${encodeURIComponent(itemId)}`, { method: 'POST' });
 export const exchangeToken = (data) =>
   request('/plaid/exchange-token', { method: 'POST', body: JSON.stringify(data) });
 export const triggerSync = () => request('/plaid/sync', { method: 'POST' });

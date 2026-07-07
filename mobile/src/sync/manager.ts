@@ -153,6 +153,7 @@ export async function syncNow(force = false): Promise<void> {
             netWorthSnapshots: resp.net_worth_snapshots,
             manualAssets: resp.manual_assets,
             budgets: resp.budgets,
+            upcomingBills: resp.upcoming_bills,
           },
         );
         highwater = resp.server_time;

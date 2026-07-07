@@ -40,14 +40,14 @@ class UpcomingBill(BaseModel):
     note: Optional[str] = None           # short label like "minimum $32" or "next payment"
 
 
-@router.get("/upcoming", response_model=List[UpcomingBill])
-def upcoming_bills(
+def collect_upcoming_bills(
+    db: Session,
     days_ahead: int = 60,
     include_overdue: bool = True,
-    db: Session = Depends(get_db),
-):
-    """Bills due in the next `days_ahead` days, plus optionally any
-    already-overdue ones (their `days_until` will be negative)."""
+) -> list[UpcomingBill]:
+    """The reusable core of /api/bills/upcoming — also consumed by the
+    mobile /sync payload (schema v4), so the phone's teaser card and the
+    web Dashboard tile can never disagree about what's due."""
     today = datetime.date.today()
     cutoff = today + datetime.timedelta(days=days_ahead)
     bills: list[UpcomingBill] = []
@@ -106,3 +106,14 @@ def upcoming_bills(
 
     bills.sort(key=lambda b: b.due_date)
     return bills
+
+
+@router.get("/upcoming", response_model=List[UpcomingBill])
+def upcoming_bills(
+    days_ahead: int = 60,
+    include_overdue: bool = True,
+    db: Session = Depends(get_db),
+):
+    """Bills due in the next `days_ahead` days, plus optionally any
+    already-overdue ones (their `days_until` will be negative)."""
+    return collect_upcoming_bills(db, days_ahead=days_ahead, include_overdue=include_overdue)

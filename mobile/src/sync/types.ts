@@ -96,6 +96,19 @@ export interface BudgetWire {
   updated_at: string | null;
 }
 
+export interface UpcomingBillWire {
+  /** Synthetic key: `${account_id}:${kind}`. */
+  id: string;
+  account_id: number;
+  account_name: string;
+  kind: string; // 'mortgage' | 'credit_card'
+  due_date: string; // YYYY-MM-DD
+  days_until: number; // negative = overdue
+  amount: number | null;
+  minimum: number | null;
+  note: string | null;
+}
+
 export interface SyncResponse {
   server_time: string;
   full: boolean;
@@ -113,6 +126,12 @@ export interface SyncResponse {
    * locally from the transactions mirror.
    */
   budgets?: BudgetWire[];
+  /**
+   * Optional — schema_version >= 4. Derived server-side (mortgage +
+   * credit-card due dates, next 60 days incl. overdue); complete set
+   * every sync, phone wipes + reinserts.
+   */
+  upcoming_bills?: UpcomingBillWire[];
   has_more: boolean;
 }
 

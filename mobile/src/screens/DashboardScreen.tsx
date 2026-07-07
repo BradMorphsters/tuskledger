@@ -28,12 +28,14 @@ import {
   NetWorthPoint,
   NetWorthSnapshot,
   TransactionRow as Tx,
+  UpcomingBillRow,
   budgetProgress,
   currentMonthSummary,
   listTransactions,
   netWorth,
   netWorthHistory,
   topCategoriesThisMonth,
+  upcomingBills,
 } from '../db/queries';
 import { useAppStore } from '../state/appStore';
 import { useSyncStore } from '../sync/manager';
@@ -85,18 +87,20 @@ export default function DashboardScreen() {
   // reliably; 1Y just wastes rows on it).
   const [deltaHistory, setDeltaHistory] = useState<NetWorthPoint[]>([]);
   const [recent, setRecent] = useState<Tx[]>([]);
+  const [bills, setBills] = useState<UpcomingBillRow[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [s, c, b, n, h, r] = await Promise.all([
+      const [s, c, b, n, h, r, ub] = await Promise.all([
         currentMonthSummary(),
         topCategoriesThisMonth(5),
         budgetProgress(),
         netWorth(),
         netWorthHistory(90),
         listTransactions({ limit: 6 }),
+        upcomingBills(4),
       ]);
       if (cancelled) return;
       setSummary(s);
@@ -105,6 +109,7 @@ export default function DashboardScreen() {
       setNw(n);
       setDeltaHistory(h);
       setRecent(r);
+      setBills(ub);
       setLoaded(true);
     })();
     return () => {
@@ -223,6 +228,18 @@ export default function DashboardScreen() {
         </Text>
       </Card>
 
+      {/* ── Upcoming bills (mortgage + CC due dates; hidden when none) ── */}
+      {bills.length > 0 && (
+        <>
+          <SectionHeader label="Upcoming bills" />
+          <Card>
+            {bills.map((b, i) => (
+              <BillLine key={b.id} bill={b} first={i === 0} />
+            ))}
+          </Card>
+        </>
+      )}
+
       {/* ── Budgets (only when a budget exists for this month) ──── */}
       {budget && budget.rows.length > 0 && (
         <>
@@ -313,6 +330,39 @@ function FlowRow({
         height={5}
         style={{ marginTop: space(1.5) }}
       />
+    </View>
+  );
+}
+
+/** "in 5d" / "today" / "3d overdue" — red when overdue, amber inside 3 days. */
+function dueLabel(days: number): { text: string; color: string } {
+  if (days < 0) return { text: `${-days}d overdue`, color: colors.expense };
+  if (days === 0) return { text: 'due today', color: colors.expense };
+  if (days <= 3) return { text: `in ${days}d`, color: colors.warning };
+  return { text: `in ${days}d`, color: colors.textMuted };
+}
+
+function BillLine({ bill, first }: { bill: UpcomingBillRow; first: boolean }) {
+  const due = dueLabel(bill.days_until);
+  return (
+    <View
+      style={[styles.billRow, !first && { marginTop: space(3.5) }]}
+      accessibilityLabel={`${bill.account_name}, ${bill.amount != null ? formatCurrency(bill.amount) : 'amount unknown'}, ${due.text}`}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={type.body} numberOfLines={1}>
+          {bill.account_name}
+        </Text>
+        <Text style={[type.small, { marginTop: space(0.5) }]}>
+          {bill.kind === 'mortgage' ? 'Mortgage' : 'Credit card'}
+          {bill.note ? ` · ${bill.note}` : ''}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <MoneyText value={bill.amount} size="body" />
+        <Text style={[type.small, { color: due.color, marginTop: space(0.5), fontWeight: '600' }]}>
+          {due.text}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -408,6 +458,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: space(2),
     marginTop: space(2),
+  },
+  billRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
   },
   divider: {
     height: StyleSheet.hairlineWidth,

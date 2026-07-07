@@ -1,5 +1,52 @@
 # Audit Log
 
+## 2026-07-07 — Pass 5 (deferred backlog)
+
+**Scope:** the four actionable deferrals. Eduardo approved all 4. (Not actionable
+from the sandbox: Dockerfile non-root Railway test; widget App-Group portal
+registration; the 35 env-drift failures need his macOS venv.)
+
+### Built (4/4 approved)
+1. **Recurring-detector consolidation** (deferred since Pass 1): new
+   `services/recurring.py` — FREQUENCY_BANDS, classify_frequency, RecurringStream,
+   detect_streams — now the ONLY detector. Refactored all FIVE inline copies:
+   detect_recurring (normalized grouping), cash-flow-forecast events loop +
+   BOTH baseline netting loops (now sums over the same streams list — the netting
+   and the events detector can never drift again), financial-pulse bill-stress,
+   calendar upcoming-events. analytics.py re-exports the old names for tests.
+   Semantic unification (deliberate): seasonal annual-multiplier now only replaces
+   MONTHLY cadence everywhere (canonical detect_recurring rule; pulse + baselines
+   previously applied it to every band); mixed-sign merchants excluded everywhere.
+   Grouping stays raw-merchant on forecast/pulse paths, normalized on
+   detect_recurring/calendar — flipping forecast to normalized grouping changes
+   numbers, needs its own approval. Verified: identical 4 pre-existing failures
+   before/after on the three affected test files; forecast 13/13.
+2. **Upcoming bills on the phone**: bills.py core extracted to
+   collect_upcoming_bills(); /sync ships it (schema v4 — derived data, complete
+   set each sync, wipe+reinsert like budgets, synthetic id account_id:kind).
+   Phone SCHEMA_VERSION 4→5 (upcoming_bills table), Dashboard teaser card
+   (next 4 by due date; days_until recomputed locally so it doesn't stale
+   between syncs; red overdue/today, amber ≤3d).
+3. **Month navigation**: Transactions "This month" chip → "By month" with a
+   ‹ July 2026 › stepper (any past month; forward disabled at current).
+   listTransactions gained an EXCLUSIVE untilDate bound.
+4. **Mobile router pytest harness** (gap flagged in Pass 4):
+   tests/test_mobile_sync.py — 9 tests: pairing handshake + single-use code,
+   token enforcement (missing/garbage/revoked), manifest schema_version,
+   full-sync payload incl. budgets + upcoming_bills complete-set contracts,
+   incremental cursor filtering, transaction pagination has_more + resume.
+
+### Verification
+- Backend: 720 passed (was 711 + 9 new) / same 35 pre-existing env-drift
+  failures. Mobile: tsc --noEmit clean.
+- Phone needs a new EAS build; SCHEMA_VERSION bump forces one-time re-pull.
+
+### Still deferred
+- Dockerfile non-root Railway test; weekly-security-sweep skill decision;
+  widget App-Group registration (Apple portal); forecast normalized-merchant
+  grouping (number-changing, own approval); analytics month-range closures →
+  app.utils helpers.
+
 ## 2026-07-07 — Pass 4 (mobile: audit + read-only UX improvements)
 
 **Scope:** mobile/src + App.tsx + backend routers/mobile.py. Eduardo asked for

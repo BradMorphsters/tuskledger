@@ -28,15 +28,17 @@ import type {
   NetWorthSnapshotWire,
   SecurityWire,
   TransactionWire,
+  UpcomingBillWire,
 } from '../sync/types';
 
 const DB_NAME = 'tuskledger.db';
 // 3: added manual_assets — without those, the phone's net worth was
 //    missing homes, vehicles, and non-Plaid liabilities.
 // 4: added budgets + budget_categories (read-only Budgets card).
+// 5: added upcoming_bills (derived mortgage/CC due dates teaser).
 // Bumping forces a one-time wipe + full re-pull on next launch — fine
 // because the mirror is disposable and the laptop is the source of truth.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 let _db: SQLite.SQLiteDatabase | null = null;
 
@@ -143,6 +145,17 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS ix_budget_categories_budget_id
       ON budget_categories(budget_id);
+    CREATE TABLE IF NOT EXISTS upcoming_bills (
+      id TEXT PRIMARY KEY,
+      account_id INTEGER NOT NULL,
+      account_name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      days_until INTEGER NOT NULL,
+      amount REAL,
+      minimum REAL,
+      note TEXT
+    );
   `);
 
   const row = await db.getFirstAsync<{ value: string }>(
@@ -167,6 +180,7 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
         DELETE FROM manual_assets;
         DELETE FROM budgets;
         DELETE FROM budget_categories;
+        DELETE FROM upcoming_bills;
       `);
       // Also clear the sync cursor so the next sync does a full pull
       // against the now-empty tables. Without this, the incremental
@@ -220,6 +234,7 @@ export async function resetMirror(): Promise<void> {
     DELETE FROM manual_assets;
     DELETE FROM budgets;
     DELETE FROM budget_categories;
+    DELETE FROM upcoming_bills;
   `);
   // Bump the data version so any UI subscribed to the mirror re-queries
   // and clears immediately, rather than stranding pre-wipe rows on
@@ -239,6 +254,7 @@ export async function applySync(
     netWorthSnapshots?: NetWorthSnapshotWire[];
     manualAssets?: ManualAssetWire[];
     budgets?: BudgetWire[];
+    upcomingBills?: UpcomingBillWire[];
   } = {},
 ): Promise<void> {
   const db = await getDb();
@@ -422,6 +438,37 @@ export async function applySync(
         } finally {
           await bStmt.finalizeAsync();
           await cStmt.finalizeAsync();
+        }
+      }
+    }
+
+    // Upcoming bills: same complete-set contract as budgets — undefined
+    // means an older backend; wipe + reinsert otherwise so a paid-off
+    // bill disappears from the phone too.
+    if (extra.upcomingBills !== undefined) {
+      await db.execAsync('DELETE FROM upcoming_bills;');
+      if (extra.upcomingBills.length > 0) {
+        const stmt = await db.prepareAsync(
+          `INSERT OR REPLACE INTO upcoming_bills
+           (id, account_id, account_name, kind, due_date, days_until, amount, minimum, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        try {
+          for (const b of extra.upcomingBills) {
+            await stmt.executeAsync([
+              b.id,
+              b.account_id,
+              b.account_name,
+              b.kind,
+              b.due_date,
+              b.days_until,
+              b.amount,
+              b.minimum,
+              b.note,
+            ]);
+          }
+        } finally {
+          await stmt.finalizeAsync();
         }
       }
     }

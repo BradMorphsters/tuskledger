@@ -170,21 +170,15 @@ def apply_all_rules(db: Session, transaction: Transaction):
 
 
 # ─── Recurring Transactions / Subscriptions ─────────────────
-FREQUENCY_BANDS = (
-    ("weekly", 6, 8, 52),
-    ("bi-weekly", 13, 16, 26),
-    ("monthly", 27, 35, 12),
-    ("quarterly", 85, 100, 4),
-    ("annual", 350, 380, 1),
+# Recurring detection now lives in ONE place — app/services/recurring.py —
+# after audit Passes 1-3 kept finding drift between the five inline copies
+# this file used to carry. These aliases keep the public names (tests and
+# older callers import them from here) pointing at the canonical versions.
+from app.services.recurring import (  # noqa: E402
+    FREQUENCY_BANDS,
+    classify_frequency as _classify_frequency,
+    detect_streams,
 )
-
-
-def _classify_frequency(avg_interval: float):
-    """Return (name, per_year_multiplier) or None."""
-    for name, lo, hi, mult in FREQUENCY_BANDS:
-        if lo <= avg_interval <= hi:
-            return name, mult
-    return None
 
 
 def _classify_kind(merchant: str, median_amount: float, frequency: str, category: str | None) -> str:
@@ -210,18 +204,10 @@ def _classify_kind(merchant: str, median_amount: float, frequency: str, category
     return "bill" if frequency == "monthly" else "other"
 
 
-# TODO(consolidation): this file carries ~4 drifted copies of the
-# recurring-detection heuristic (here in detect_recurring, plus the two
-# loops in cash_flow_forecast and the spending-patterns forecast) and
-# several inline month-range closures (shift_month/month_start/month_end
-# around lines 721 and 1047). The specific bugs found in the audit have
-# been fixed in place (abs-median sign handling, avg_amount key), but the
-# copies still differ in tolerance/seasonal logic. Consolidating the
-# recurring detector into one shared function is a larger, higher-risk
-# refactor deferred to a dedicated pass. The month-range math now has a
-# canonical home in app.utils (shift_month / month_start /
-# month_end_exclusive); migrate the closures to those when touching this
-# file next.
+# Consolidation done (audit Pass 5): the five inline detector copies this file
+# carried now route through app/services/recurring.detect_streams. Remaining
+# TODO from the old note: migrate the inline month-range closures (~lines 721
+# and 1047) to app.utils shift_month / month_start / month_end_exclusive.
 @router.get("/recurring")
 def detect_recurring(db: Session = Depends(get_db)):
     """Detect recurring transactions by finding merchants with regular intervals.
@@ -248,76 +234,30 @@ def detect_recurring(db: Session = Depends(get_db)):
         .all()
     )
 
-    # Group by NORMALIZED merchant name so different raw descriptions for
-    # the same logical merchant ('WITHDRAWAL WF HOME MTG TYPE:...' vs
-    # 'Wf Home Mtg Pay Id:...') collapse together. Without this, the
-    # mortgage gets fragmented into 3-4 sub-groups, none with enough
-    # transactions to trip the cadence detection.
-    merchant_txns = defaultdict(list)
-    for t in txns:
+    # Detection is the canonical services/recurring pipeline; grouping is by
+    # NORMALIZED merchant so different raw descriptions for the same logical
+    # merchant ('WITHDRAWAL WF HOME MTG TYPE:...' vs 'Wf Home Mtg Pay Id:...')
+    # collapse together — without this the mortgage fragments into sub-groups
+    # too small to trip the cadence detection.
+    def _norm_key(t):
         raw = (t.merchant_name or t.name or "Unknown").strip()
-        key = normalize_merchant(raw) or raw
-        merchant_txns[key].append(t)
+        return normalize_merchant(raw) or raw
 
     recurring = []
-    for merchant, txn_list in merchant_txns.items():
-        if len(txn_list) < 2:
-            continue
-
-        sorted_txns = sorted(txn_list, key=lambda x: x.date)
+    for stream in detect_streams(txns, merchant_key=_norm_key):
+        merchant = stream.merchant
+        txn_list = stream.txns
+        sorted_txns = txn_list
         amounts = [t.amount for t in sorted_txns]
-        dates_ = [t.date for t in sorted_txns]
+        is_income = stream.is_income
+        median_amount = stream.median_amount
+        median_interval = stream.median_interval
+        frequency = stream.frequency
+        active_months = list(stream.active_months)
+        is_seasonal = stream.is_seasonal
+        annual_multiplier = stream.annual_multiplier
 
-        # Mixed-sign merchant (refunds + purchases at the same merchant) —
-        # not really a recurring pattern. Skip.
-        if any(a > 0 for a in amounts) and any(a < 0 for a in amounts):
-            continue
-
-        is_income = amounts[0] < 0
-        abs_amounts = [abs(a) for a in amounts]
-        median_amount = sorted(abs_amounts)[len(abs_amounts) // 2]
-        if median_amount <= 0:
-            continue
-
-        # Outflows have to be tight (a "monthly bill" that swings 2x is
-        # probably not really one bill). Income is naturally lumpier —
-        # paychecks vary with overtime, PTO, supplemental pay, bonuses
-        # mixed in with regular gross — so allow up to 60% variance on
-        # the inflow side.
-        tolerance = 0.60 if is_income else 0.25
-        if not all(abs(a - median_amount) / median_amount < tolerance for a in abs_amounts):
-            continue
-
-        intervals = [(dates_[i + 1] - dates_[i]).days for i in range(len(dates_) - 1)]
-        if not intervals:
-            continue
-        # Median is more robust than mean — for a seasonal merchant
-        # (e.g. lawn care: monthly Apr–Oct, dormant Nov–Mar) the winter
-        # gap shows up as one ~180-day interval that would skew the mean
-        # out of the monthly band entirely. Median ignores it.
-        sorted_intervals = sorted(intervals)
-        median_interval = sorted_intervals[len(sorted_intervals) // 2]
-
-        classification = _classify_frequency(median_interval)
-        if not classification:
-            continue
-        frequency, per_year = classification
-
-        # ─── Seasonality detection ──────────────────────────
-        # If the merchant only charges during a subset of calendar months
-        # over the past year, classify as seasonal and record those months.
-        # Bound 3..10 distinct months — fewer than 3 isn't really seasonal,
-        # more than 10 is just "year-round with one missing month or two."
-        active_months = sorted({d.month for d in dates_})
-        is_seasonal = 3 <= len(active_months) <= 10
-        # Annual cost reflects active months only. For monthly seasonal,
-        # this is median × len(active_months) instead of median × 12.
-        if is_seasonal and frequency == "monthly":
-            annual_multiplier = len(active_months)
-        else:
-            annual_multiplier = per_year
-
-        last_date = dates_[-1]
+        last_date = stream.last_date
         # Next-expected logic: for non-seasonal, simple last_date + interval.
         # For seasonal, if the projected next date falls in an inactive
         # month, push to the 1st of the earliest active month that follows.
@@ -969,11 +909,6 @@ def cash_flow_forecast(
         .all()
     )
 
-    by_merchant: dict[str, list[Transaction]] = defaultdict(list)
-    for t in txns:
-        key = (t.merchant_name or t.name or "Unknown").strip()
-        by_merchant[key].append(t)
-
     # day_index → list of {kind, source, amount}
     events: dict[date, list[dict]] = defaultdict(list)
 
@@ -985,55 +920,25 @@ def cash_flow_forecast(
     # re-keyed via _clean_source once that helper is in scope.
     recurring_income_monthly_by_raw: dict[str, float] = defaultdict(float)
 
-    for merchant, lst in by_merchant.items():
-        if len(lst) < 2:
-            continue
-        sorted_txns = sorted(lst, key=lambda x: x.date)
-        amounts = [t.amount for t in sorted_txns]
-        # Sign handling mirrors detect_recurring (:261-266): a merchant
-        # that mixes debits and credits (purchases + refunds) isn't a
-        # clean recurring pattern — skip it. Otherwise take the median of
-        # ABSOLUTE amounts so all-inflow merchants (paychecks are stored
-        # as negative amounts) survive. The old `median <= 0: continue`
-        # dropped every income stream, which made the inflow branch below
-        # unreachable and meant paychecks were never modeled.
-        if any(a > 0 for a in amounts) and any(a < 0 for a in amounts):
-            continue
-        is_income = amounts[0] < 0
-        abs_amounts = [abs(a) for a in amounts]
-        median = sorted(abs_amounts)[len(abs_amounts) // 2]
-        if median <= 0:
-            continue
-        # Income is lumpier than bills (overtime, PTO) — allow 60% variance
-        # on inflows vs 25% on outflows, matching detect_recurring.
-        tolerance = 0.60 if is_income else 0.25
-        if not all(abs(a - median) / median < tolerance for a in abs_amounts):
-            continue
-        intervals = [(sorted_txns[i + 1].date - sorted_txns[i].date).days for i in range(len(sorted_txns) - 1)]
-        if not intervals:
-            continue
-        # Median (not mean) so seasonal merchants survive their winter gap.
-        sorted_intervals = sorted(intervals)
-        median_int = sorted_intervals[len(sorted_intervals) // 2]
-        if not any(lo <= median_int <= hi for _, lo, hi, _ in FREQUENCY_BANDS):
-            continue
+    # Detection is the shared services/recurring pipeline. Grouping stays by
+    # RAW merchant string on this path (parity with pre-consolidation
+    # behavior — switching the forecast to normalized grouping changes its
+    # numbers and needs its own pass). The SAME streams list also powers the
+    # variable-spend baseline netting below, so the events detector and the
+    # netting can never drift apart again (the old inline copies disagreed
+    # on income tolerance, which double-counted lumpy paychecks).
+    forecast_streams = detect_streams(txns)
 
-        # Seasonality: detect active calendar months and use them to skip
-        # off-season events when projecting forward.
-        active_months = {d.date.month for d in sorted_txns}
-        is_seasonal = 3 <= len(active_months) <= 10
+    for stream in forecast_streams:
+        merchant = stream.merchant
+        sorted_txns = stream.txns
+        median = stream.median_amount
+        median_int = stream.median_interval
+        is_seasonal = stream.is_seasonal
+        active_months = set(stream.active_months)
 
-        # If this is a recurring income stream, record its steady-state
-        # monthly amount so we can avoid double-counting it against the
-        # flat salary rate. per_year from the frequency band; seasonal
-        # monthly streams contribute only during their active months.
-        if is_income:
-            _band_per_year = next(
-                (py for _, lo, hi, py in FREQUENCY_BANDS if lo <= median_int <= hi),
-                12,
-            )
-            _mult = len(active_months) if (is_seasonal and _band_per_year == 12) else _band_per_year
-            recurring_income_monthly_by_raw[merchant] += median * _mult / 12
+        if stream.is_income:
+            recurring_income_monthly_by_raw[merchant] += stream.monthly_rate
 
         # Walk forward from last_date
         next_date = sorted_txns[-1].date + timedelta(days=int(median_int))
@@ -1061,71 +966,17 @@ def cash_flow_forecast(
         return idx // 12, (idx % 12) + 1
 
     # Monthly recurring estimate (used to net out from per-month spend).
-    # We approximate by counting the median × per-year multiplier from the
-    # detector — events[] already has dates+amounts in the horizon window,
-    # but we want the steady-state monthly rate, so use the recurring
-    # records themselves.
-    monthly_recurring_outflow = 0.0
-    monthly_recurring_inflow = 0.0
-    by_merchant_for_baseline: dict[str, list[Transaction]] = defaultdict(list)
-    for t in txns:
-        by_merchant_for_baseline[(t.merchant_name or t.name or "Unknown").strip()].append(t)
-    for lst in by_merchant_for_baseline.values():
-        if len(lst) < 2:
-            continue
-        st = sorted(lst, key=lambda x: x.date)
-        amts = [x.amount for x in st]
-        med = sorted(amts)[len(amts) // 2]
-        if med <= 0:
-            continue
-        if not all(abs(a - med) / med < 0.25 for a in amts):
-            continue
-        intervals = [(st[i + 1].date - st[i].date).days for i in range(len(st) - 1)]
-        if not intervals:
-            continue
-        mi = sorted(intervals)[len(intervals) // 2]
-        cls = _classify_frequency(mi)
-        if not cls:
-            continue
-        _, per_year = cls
-        active = {x.date.month for x in st}
-        mult = len(active) if 3 <= len(active) <= 10 else per_year
-        # med > 0 is guaranteed by the guard above — this loop only counts
-        # outflows; the inflow loop below handles the negative-amount side.
-        monthly_recurring_outflow += abs(med) * mult / 12
-
-    # Also include the inflow side: the same logic but for negative amounts.
-    # Loop over the same merchant groups because some merchants are inflow.
-    for lst in by_merchant_for_baseline.values():
-        if len(lst) < 2:
-            continue
-        st = sorted(lst, key=lambda x: x.date)
-        amts = [x.amount for x in st]
-        if all(a >= 0 for a in amts):
-            continue  # outflow merchant, already counted above
-        # Swap to absolute values for the median test.
-        abs_amts = [abs(a) for a in amts]
-        med = sorted(abs_amts)[len(abs_amts) // 2]
-        if med <= 0:
-            continue
-        # Income is lumpier than bills (overtime, PTO) — allow the same 60%
-        # variance the recurring-events detector uses for inflows above.
-        # 0.25 here caused a drift: a lumpy paycheck qualified as recurring
-        # income for event modeling but was NOT netted out of the flat
-        # salary rate, double-counting it in the forecast.
-        if not all(abs(a - med) / med < 0.60 for a in abs_amts):
-            continue
-        intervals = [(st[i + 1].date - st[i].date).days for i in range(len(st) - 1)]
-        if not intervals:
-            continue
-        mi = sorted(intervals)[len(intervals) // 2]
-        cls = _classify_frequency(mi)
-        if not cls:
-            continue
-        _, per_year = cls
-        active = {x.date.month for x in st}
-        mult = len(active) if 3 <= len(active) <= 10 else per_year
-        monthly_recurring_inflow += med * mult / 12
+    # Derived from the SAME `forecast_streams` the events detector produced
+    # above — identical window, identical semantics by construction. The two
+    # inline loops that used to live here were the drift the audits kept
+    # hitting (25% vs 60% income tolerance; a mixed-sign merchant slipping
+    # through the inflow side as phantom recurring income).
+    monthly_recurring_outflow = sum(
+        s.monthly_rate for s in forecast_streams if not s.is_income
+    )
+    monthly_recurring_inflow = sum(
+        s.monthly_rate for s in forecast_streams if s.is_income
+    )
 
     # Per-month variable spend over the last 6 complete calendar months.
     # Median of these is naturally outlier-resistant: a single bonus or
@@ -1721,43 +1572,18 @@ def cash_flow_health(db: Session = Depends(get_db)):
 
     runway_months = round(liquid_total / avg_monthly_spend, 2) if avg_monthly_spend > 0 else None
 
-    # Recurring outflows — re-detect quickly here using the same cadence
-    # logic. Could call detect_recurring() but pulling its sums directly
-    # avoids the JSON round-trip.
-    monthly_recurring_outflow = 0.0
-    by_merchant: dict = defaultdict(list)
+    # Recurring outflows — the shared services/recurring detector over the
+    # last year of spend (outflow-only query, raw-merchant grouping; same
+    # semantics the inline copy here had before the Pass-5 consolidation).
     cutoff365 = today - timedelta(days=365)
     rt = db.query(Transaction).filter(
         Transaction.date >= cutoff365,
         Transaction.is_transfer.is_(False),
         Transaction.amount > 0,
     ).all()
-    for t in rt:
-        by_merchant[(t.merchant_name or t.name or "Unknown").strip()].append(t)
-    for lst in by_merchant.values():
-        if len(lst) < 2:
-            continue
-        sorted_t = sorted(lst, key=lambda x: x.date)
-        amts = [t.amount for t in sorted_t]
-        med = sorted(amts)[len(amts) // 2]
-        if med <= 0:
-            continue
-        if not all(abs(a - med) / med < 0.25 for a in amts):
-            continue
-        intervals = [(sorted_t[i + 1].date - sorted_t[i].date).days for i in range(len(sorted_t) - 1)]
-        if not intervals:
-            continue
-        mi = sorted(intervals)[len(intervals) // 2]
-        cls = _classify_frequency(mi)
-        if not cls:
-            continue
-        _, per_year = cls
-        active_months = {d.date.month for d in sorted_t}
-        if 3 <= len(active_months) <= 10:
-            mult = len(active_months)
-        else:
-            mult = per_year
-        monthly_recurring_outflow += med * mult / 12
+    monthly_recurring_outflow = sum(
+        s.monthly_rate for s in detect_streams(rt) if not s.is_income
+    )
 
     bill_stress_pct = round((monthly_recurring_outflow / avg_monthly_income) * 100, 1) if avg_monthly_income > 0 else None
 
@@ -2974,53 +2800,27 @@ def cashflow_calendar(
         .all()
     )
     
-    merchant_txns = defaultdict(list)
-    for t in txns:
+    # Shared services/recurring detector, normalized-merchant grouping
+    # (same key detect_recurring uses, so calendar and the recurring page
+    # agree on what a merchant is).
+    def _cal_key(t):
         raw = (t.merchant_name or t.name or "Unknown").strip()
-        key = normalize_merchant(raw) or raw
-        merchant_txns[key].append(t)
-    
+        return normalize_merchant(raw) or raw
+
     # Extract recurring events
     events = []
-    for merchant, txn_list in merchant_txns.items():
-        if len(txn_list) < 2:
-            continue
-        
-        sorted_txns = sorted(txn_list, key=lambda x: x.date)
-        amounts = [t.amount for t in sorted_txns]
-        dates_ = [t.date for t in sorted_txns]
-        
-        # Skip mixed-sign merchants
-        if any(a > 0 for a in amounts) and any(a < 0 for a in amounts):
-            continue
-        
-        is_income = amounts[0] < 0
-        abs_amounts = [abs(a) for a in amounts]
-        median_amount = sorted(abs_amounts)[len(abs_amounts) // 2]
-        if median_amount <= 0:
-            continue
-        
-        # Check if it passes variance tolerance
-        tolerance = 0.60 if is_income else 0.25
-        if not all(abs(a - median_amount) / median_amount < tolerance for a in abs_amounts):
-            continue
-        
-        intervals = [(dates_[i + 1] - dates_[i]).days for i in range(len(dates_) - 1)]
-        if not intervals:
-            continue
-        
-        sorted_intervals = sorted(intervals)
-        median_interval = sorted_intervals[len(sorted_intervals) // 2]
-        
-        classification = _classify_frequency(median_interval)
-        if not classification:
-            continue
-        
+    for stream in detect_streams(txns, merchant_key=_cal_key):
+        merchant = stream.merchant
+        txn_list = stream.txns
+        is_income = stream.is_income
+        median_amount = stream.median_amount
+        median_interval = stream.median_interval
+
         # Compute next expected date
-        last_date = dates_[-1]
+        last_date = stream.last_date
         candidate = last_date + timedelta(days=int(median_interval))
         next_date = candidate
-        
+
         # Only include if within the lookahead window
         if next_date >= today and (next_date - today).days <= days:
             # Compute confidence based on historical occurrences

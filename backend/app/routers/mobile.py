@@ -368,6 +368,23 @@ class BudgetOut(BaseModel):
     updated_at: Optional[datetime.datetime]
 
 
+class UpcomingBillOut(BaseModel):
+    """One upcoming bill for the phone's teaser card. Flat mirror of
+    routers/bills.py UpcomingBill; derived data (no table of its own on
+    the laptop), so /sync sends the complete horizon every time and the
+    phone wipes + reinserts — same contract as budgets. `id` is synthetic
+    (account_id + kind) purely for the phone's primary key."""
+    id: str
+    account_id: int
+    account_name: str
+    kind: str                    # "mortgage" | "credit_card"
+    due_date: datetime.date
+    days_until: int              # negative = overdue
+    amount: Optional[float]
+    minimum: Optional[float]
+    note: Optional[str]
+
+
 class SyncResponse(BaseModel):
     server_time: datetime.datetime = Field(
         ...,
@@ -434,6 +451,15 @@ class SyncResponse(BaseModel):
             "the phone wipes + reinserts its budget tables each sync "
             "and laptop-side deletions propagate. Phones with "
             "schema_version < 3 ignore this field."
+        ),
+    )
+    upcoming_bills: list[UpcomingBillOut] = Field(
+        default_factory=list,
+        description=(
+            "Structured upcoming bills (mortgage + credit-card due "
+            "dates) for the next 60 days incl. overdue (schema_version "
+            ">= 4). Derived server-side by routers/bills.py — complete "
+            "set every sync, phone wipes + reinserts."
         ),
     )
     has_more: bool = Field(
@@ -615,9 +641,10 @@ def manifest(
         server_time=utcnow(),
         # 2 = adds securities + holdings + net_worth_snapshots to /sync.
         # 3 = adds budgets (full set each sync, not cursor-filtered).
+        # 4 = adds upcoming_bills (derived; full set each sync).
         # Older phone clients ignore the new fields safely; their
         # SyncResponse type just doesn't reference them.
-        schema_version=3,
+        schema_version=4,
         demo_available=bool(settings.DEMO_ENABLED),
     )
 
@@ -704,6 +731,9 @@ def sync(
         .order_by(Budget.year.desc(), Budget.month.desc())
         .all()
     )
+    # Upcoming bills: derived (no laptop table), same complete-set contract.
+    from app.routers.bills import collect_upcoming_bills
+    bill_rows = collect_upcoming_bills(db, days_ahead=60, include_overdue=True)
 
     txn_rows = transactions_q.limit(transaction_limit + 1).all()
     has_more = len(txn_rows) > transaction_limit
@@ -816,6 +846,20 @@ def sync(
                 updated_at=b.updated_at,
             )
             for b in budgets
+        ],
+        upcoming_bills=[
+            UpcomingBillOut(
+                id=f"{b.account_id}:{b.kind}",
+                account_id=b.account_id,
+                account_name=b.account_name,
+                kind=b.kind,
+                due_date=b.due_date,
+                days_until=b.days_until,
+                amount=b.amount,
+                minimum=b.minimum,
+                note=b.note,
+            )
+            for b in bill_rows
         ],
         has_more=has_more,
     )

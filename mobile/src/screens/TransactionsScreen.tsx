@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Pressable,
   RefreshControl,
   ScrollView,
   SectionList,
@@ -40,21 +41,45 @@ type DateFilter = 'all' | 'month' | '30d';
 
 const FILTERS: { key: DateFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'month', label: 'This month' },
+  { key: 'month', label: 'By month' },
   { key: '30d', label: 'Last 30 days' },
 ];
 
-function sinceFor(filter: DateFilter): string | undefined {
-  const pad = (n: number) => String(n).padStart(2, '0');
+/** Local-calendar (year, month 1-12) shifted back by `offset` months. */
+function shiftedMonth(offset: number): { y: number; m: number } {
   const now = new Date();
+  const idx = now.getFullYear() * 12 + now.getMonth() - offset;
+  return { y: Math.floor(idx / 12), m: (idx % 12) + 1 };
+}
+
+function monthLabel(offset: number): string {
+  const { y, m } = shiftedMonth(offset);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** [inclusive since, exclusive until) for the month filter; since only
+ *  for the 30d filter; both undefined for 'all'. */
+function rangeFor(
+  filter: DateFilter,
+  monthOffset: number,
+): { since?: string; until?: string } {
+  const pad = (n: number) => String(n).padStart(2, '0');
   if (filter === 'month') {
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+    const { y, m } = shiftedMonth(monthOffset);
+    const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
+    return {
+      since: `${y}-${pad(m)}-01`,
+      until: `${next.y}-${pad(next.m)}-01`,
+    };
   }
   if (filter === '30d') {
-    const d = new Date(now.getTime() - 30 * 86400000);
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const d = new Date(Date.now() - 30 * 86400000);
+    return { since: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` };
   }
-  return undefined;
+  return {};
 }
 
 interface DaySection {
@@ -93,6 +118,9 @@ export default function TransactionsScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<DateFilter>('all');
+  // 0 = current month; grows as the user steps back. Reset when the
+  // month filter is deselected so re-entering starts at "now".
+  const [monthOffset, setMonthOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reachedEnd, setReachedEnd] = useState(false);
 
@@ -119,11 +147,13 @@ export default function TransactionsScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const range = rangeFor(filter, monthOffset);
       const initial = await listTransactions({
         limit: PAGE_SIZE,
         offset: 0,
         search,
-        sinceDate: sinceFor(filter),
+        sinceDate: range.since,
+        untilDate: range.until,
         category: category ?? undefined,
       });
       if (cancelled) return;
@@ -133,17 +163,19 @@ export default function TransactionsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, search, filter, category]);
+  }, [dataVersion, search, filter, monthOffset, category]);
 
   async function loadMore() {
     if (loadingMore || reachedEnd) return;
     setLoadingMore(true);
     try {
+      const range = rangeFor(filter, monthOffset);
       const next = await listTransactions({
         limit: PAGE_SIZE,
         offset: rows.length,
         search,
-        sinceDate: sinceFor(filter),
+        sinceDate: range.since,
+        untilDate: range.until,
         category: category ?? undefined,
       });
       setRows((prev) => [...prev, ...next]);
@@ -194,10 +226,33 @@ export default function TransactionsScreen() {
             key={f.key}
             label={f.label}
             selected={filter === f.key}
-            onPress={() => setFilter(f.key)}
+            onPress={() => {
+              setFilter(f.key);
+              if (f.key !== 'month') setMonthOffset(0);
+            }}
           />
         ))}
       </View>
+      {filter === 'month' && (
+        <View style={styles.monthRow}>
+          <Pressable
+            onPress={() => setMonthOffset((o) => o + 1)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month">
+            <Text style={styles.monthArrow}>‹</Text>
+          </Pressable>
+          <Text style={styles.monthLabel}>{monthLabel(monthOffset)}</Text>
+          <Pressable
+            onPress={() => setMonthOffset((o) => Math.max(0, o - 1))}
+            hitSlop={10}
+            disabled={monthOffset === 0}
+            accessibilityRole="button"
+            accessibilityLabel="Next month">
+            <Text style={[styles.monthArrow, monthOffset === 0 && { opacity: 0.25 }]}>›</Text>
+          </Pressable>
+        </View>
+      )}
       {chipCats.length > 0 && (
         <ScrollView
           horizontal
@@ -283,6 +338,27 @@ const styles = StyleSheet.create({
   catRow: {
     flexGrow: 0,
     marginBottom: space(3),
+  },
+  monthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space(5),
+    paddingBottom: space(3),
+  },
+  monthArrow: {
+    fontSize: 26,
+    lineHeight: 28,
+    color: colors.accent,
+    paddingHorizontal: space(2),
+  },
+  monthLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    minWidth: 150,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   catRowContent: {
     gap: space(2),

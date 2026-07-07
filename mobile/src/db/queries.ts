@@ -75,13 +75,16 @@ export async function listTransactions(opts: {
   search?: string;
   /** Inclusive YYYY-MM-DD lower bound — powers the date filter chips. */
   sinceDate?: string;
+  /** EXCLUSIVE YYYY-MM-DD upper bound — with sinceDate this brackets a
+   *  single month for the month stepper. */
+  untilDate?: string;
   /** Exact effective-category match — powers the category chips and the
    *  Dashboard top-category drill-down. Compared against
    *  COALESCE(custom_category, category, 'Uncategorized'). */
   category?: string;
 } = {}): Promise<TransactionRow[]> {
   const db = await getDb();
-  const { limit = 100, offset = 0, search, sinceDate, category } = opts;
+  const { limit = 100, offset = 0, search, sinceDate, untilDate, category } = opts;
   const params: (string | number)[] = [];
   let where = '1=1';
   if (search && search.trim()) {
@@ -97,6 +100,10 @@ export async function listTransactions(opts: {
     // it for a table this size.
     where += ' AND t.date >= ?';
     params.push(sinceDate);
+  }
+  if (untilDate) {
+    where += ' AND t.date < ?';
+    params.push(untilDate);
   }
   if (category) {
     where += " AND COALESCE(t.custom_category, t.category, 'Uncategorized') = ?";
@@ -272,6 +279,39 @@ export async function budgetProgress(): Promise<BudgetProgress | null> {
     total_spent: totalRow?.spending ?? 0,
     rows: out,
   };
+}
+
+// ─── Upcoming bills ───────────────────────────────────────────────
+
+export interface UpcomingBillRow {
+  id: string;
+  account_name: string;
+  kind: string; // 'mortgage' | 'credit_card'
+  due_date: string;
+  /** Recomputed locally from due_date — the synced value goes stale
+   *  between syncs (it was "days until" as of the laptop's clock). */
+  days_until: number;
+  amount: number | null;
+  minimum: number | null;
+  note: string | null;
+}
+
+export async function upcomingBills(limit = 5): Promise<UpcomingBillRow[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<Omit<UpcomingBillRow, 'days_until'>>(
+    `SELECT id, account_name, kind, due_date, amount, minimum, note
+     FROM upcoming_bills
+     ORDER BY due_date ASC
+     LIMIT ?`,
+    [limit],
+  );
+  const todayMs = new Date(new Date().toDateString()).getTime();
+  return rows.map((r) => ({
+    ...r,
+    days_until: Math.round(
+      (new Date(`${r.due_date}T00:00:00`).getTime() - todayMs) / 86400000,
+    ),
+  }));
 }
 
 export interface NetWorthSnapshot {

@@ -1,5 +1,52 @@
 # Audit Log
 
+## 2026-07-07 — Pass 4 (mobile: audit + read-only UX improvements)
+
+**Scope:** mobile/src + App.tsx + backend routers/mobile.py. Eduardo asked for
+improvements this pass, not just defects. 2 subagents (code audit + UX gap scan);
+5 claims rejected on verification. Eduardo approved all 5 proposals.
+
+### Rejected before proposing (verified false)
+- "transactions cursor should be DESC" — backwards; ASC + last-row updated_at is what
+  makes resume pagination correct.
+- "net refunds into category totals" — would BREAK parity; web semantics are gross
+  spend (amount > 0), mobile matches.
+- pagination limit+1 boundary and Settings hydrate race — self-retracted by the agent.
+- manifest schema_version constant — no-op until v3 (which this pass then shipped anyway).
+
+### Fixed / built (5/5 approved)
+1. **Fix** queries.investmentsRollup: manual investment accounts with NEGATIVE balances
+   were excluded from portfolio value (`> 0` → `!= 0`; still skips zero stubs).
+2. **UX** Category drill-down: Dashboard top-category rows are now Pressable → set
+   appStore.txCategory → navigate to Transactions pre-filtered. Store field, not a nav
+   param (tabs stay mounted).
+3. **UX** Transactions category filter: horizontal chip row of this month's top spend
+   categories (spendCategories()); active chip shows ✕; drilled-in category outside the
+   top set is prepended so it's always clearable. listTransactions gained a `category`
+   param (COALESCE(custom_category, category, 'Uncategorized') = ?).
+4. **UX** Net-worth sparkline range picker: 1M/3M/1Y chips; sparkline re-queries on
+   range change; the 30d delta chip keeps its own fixed 90d history so it doesn't
+   degrade on 1M.
+5. **Feature** Budgets on the phone (read-only): backend /sync now ships ALL budgets +
+   per-category limits (BudgetOut; complete set each sync — tiny table, wipe+reinsert
+   on the phone so laptop deletions propagate; no tombstones needed). Manifest
+   schema_version 2→3. Mobile: budgets/budget_categories tables (SCHEMA_VERSION 3→4 —
+   forces one-time wipe + full re-pull on next launch), budgetProgress() computes MTD
+   spent locally per category (same gross-spend semantics as the web), Dashboard
+   Budgets card with green/amber/red bars sorted most-over first, hidden when no
+   budget exists for the current month.
+
+### Verification
+- mobile: `tsc --noEmit` clean. backend: py_compile clean; pytest 711 passed / same 35
+  pre-existing env-drift failures.
+- Data note: laptop DB has budgets for Apr + May 2026 only — the phone card stays
+  hidden until a July budget exists on the laptop.
+
+### Deferred
+- Month-by-month navigation; upcoming-bills teaser (where does derived data live in
+  /sync?); full iOS widget (blocked on App-Group entitlement stopgap).
+- backend routers/mobile.py has NO pytest coverage (pairing/sync) — worth a harness.
+
 ## 2026-07-07 — Pass 3 (deep line-audit of pattern-scanned areas)
 
 **Scope:** assistant_retrieval.py (1,923 ln) + Ask Tusk feedback loop, agent_trading

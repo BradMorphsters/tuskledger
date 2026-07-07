@@ -75,9 +75,13 @@ export async function listTransactions(opts: {
   search?: string;
   /** Inclusive YYYY-MM-DD lower bound — powers the date filter chips. */
   sinceDate?: string;
+  /** Exact effective-category match — powers the category chips and the
+   *  Dashboard top-category drill-down. Compared against
+   *  COALESCE(custom_category, category, 'Uncategorized'). */
+  category?: string;
 } = {}): Promise<TransactionRow[]> {
   const db = await getDb();
-  const { limit = 100, offset = 0, search, sinceDate } = opts;
+  const { limit = 100, offset = 0, search, sinceDate, category } = opts;
   const params: (string | number)[] = [];
   let where = '1=1';
   if (search && search.trim()) {
@@ -93,6 +97,10 @@ export async function listTransactions(opts: {
     // it for a table this size.
     where += ' AND t.date >= ?';
     params.push(sinceDate);
+  }
+  if (category) {
+    where += " AND COALESCE(t.custom_category, t.category, 'Uncategorized') = ?";
+    params.push(category);
   }
   params.push(limit, offset);
   return db.getAllAsync<TransactionRow>(
@@ -165,6 +173,105 @@ export async function topCategoriesThisMonth(
      LIMIT ?`,
     [start, limit],
   );
+}
+
+/** Distinct effective categories with spend this month, largest first.
+ *  Powers the category filter chips on the Transactions screen. */
+export async function spendCategories(limit = 12): Promise<string[]> {
+  const db = await getDb();
+  const start = localMonthStart();
+  const rows = await db.getAllAsync<{ category: string }>(
+    `SELECT COALESCE(custom_category, category, 'Uncategorized') AS category
+     FROM transactions
+     WHERE date >= ? AND amount > 0 AND is_transfer = 0
+     GROUP BY COALESCE(custom_category, category, 'Uncategorized')
+     ORDER BY SUM(amount) DESC
+     LIMIT ?`,
+    [start, limit],
+  );
+  return rows.map((r) => r.category);
+}
+
+// ─── Budgets ──────────────────────────────────────────────────────
+
+export interface BudgetProgressRow {
+  category: string;
+  limit_amount: number;
+  /** Gross spend this month (amount > 0, transfers excluded) — same
+   *  semantics as the web's budget page and topCategoriesThisMonth. */
+  spent: number;
+  /** spent / limit_amount (limit is NOT NULL in the schema). */
+  pct: number;
+}
+
+export interface BudgetProgress {
+  month: number;
+  year: number;
+  total_limit: number | null;
+  total_spent: number;
+  rows: BudgetProgressRow[];
+}
+
+/**
+ * The CURRENT month's budget (by the phone's local calendar) joined
+ * against locally-mirrored spending. Returns null when no budget is
+ * defined for this month — the Dashboard hides the card entirely.
+ * Limits come from sync; "spent" is computed here so the card stays
+ * live between syncs as new transactions land.
+ */
+export async function budgetProgress(): Promise<BudgetProgress | null> {
+  const db = await getDb();
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const budget = await db.getFirstAsync<{
+    id: number;
+    total_limit: number | null;
+  }>(
+    'SELECT id, total_limit FROM budgets WHERE month = ? AND year = ?',
+    [month, year],
+  );
+  if (!budget) return null;
+  const start = localMonthStart();
+  const rows = await db.getAllAsync<{
+    category: string;
+    limit_amount: number;
+    spent: number | null;
+  }>(
+    `SELECT
+        bc.category,
+        bc.limit_amount,
+        (SELECT SUM(t.amount) FROM transactions t
+          WHERE COALESCE(t.custom_category, t.category, 'Uncategorized') = bc.category
+            AND t.date >= ? AND t.amount > 0 AND t.is_transfer = 0) AS spent
+     FROM budget_categories bc
+     WHERE bc.budget_id = ?
+     ORDER BY bc.limit_amount DESC`,
+    [start, budget.id],
+  );
+  const out: BudgetProgressRow[] = rows.map((r) => {
+    const spent = r.spent ?? 0;
+    return {
+      category: r.category,
+      limit_amount: r.limit_amount,
+      spent,
+      pct: r.limit_amount > 0 ? spent / r.limit_amount : 0,
+    };
+  });
+  // Most-over-budget first so trouble is at the top of the card.
+  out.sort((a, b) => b.pct - a.pct);
+  const totalRow = await db.getFirstAsync<{ spending: number | null }>(
+    `SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS spending
+     FROM transactions WHERE date >= ? AND is_transfer = 0`,
+    [start],
+  );
+  return {
+    month,
+    year,
+    total_limit: budget.total_limit,
+    total_spent: totalRow?.spending ?? 0,
+    rows: out,
+  };
 }
 
 export interface NetWorthSnapshot {
@@ -492,11 +599,14 @@ export async function investmentsRollup(): Promise<InvestmentsRollup> {
      LEFT JOIN securities s USING (plaid_security_id)`,
   );
   const manual = await db.getFirstAsync<{ manual_total: number | null }>(
+    // != 0 (not > 0): still skips zero-balance stubs, but a NEGATIVE
+    // balance (margin call, plan fee clawback) must count against the
+    // portfolio value, not be silently hidden from the hero number.
     `SELECT COALESCE(SUM(COALESCE(current_balance, 0)), 0) AS manual_total
      FROM accounts
      WHERE type = 'investment'
        AND id NOT IN (SELECT DISTINCT account_id FROM holdings)
-       AND COALESCE(current_balance, 0) > 0`,
+       AND COALESCE(current_balance, 0) != 0`,
   );
   const holdings_total = holdings?.total_value ?? 0;
   const cash_value = holdings?.cash_value ?? 0;

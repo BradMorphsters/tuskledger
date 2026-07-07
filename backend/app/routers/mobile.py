@@ -56,6 +56,7 @@ from app.database import get_db, get_real_db
 from app.dependencies import require_auth
 from app.models import (
     Account,
+    Budget,
     DeviceToken,
     Holding,
     ManualAsset,
@@ -345,6 +346,28 @@ class ManualAssetOut(BaseModel):
     updated_at: Optional[datetime.datetime]
 
 
+class BudgetCategoryOut(BaseModel):
+    id: int
+    budget_id: int
+    category: str
+    limit_amount: float
+
+
+class BudgetOut(BaseModel):
+    """A monthly budget + its per-category limits, for the phone's
+    read-only Budgets card. Sent in FULL on every sync (schema v3) —
+    the table is tiny (months × categories), so re-sending everything
+    and letting the phone wipe+reinsert is simpler and makes deletions
+    propagate without tombstones. The phone computes "spent" locally
+    from its transactions mirror; only the LIMITS come from here."""
+    id: int
+    month: int  # 1-12
+    year: int
+    total_limit: Optional[float]
+    categories: list[BudgetCategoryOut]
+    updated_at: Optional[datetime.datetime]
+
+
 class SyncResponse(BaseModel):
     server_time: datetime.datetime = Field(
         ...,
@@ -401,6 +424,16 @@ class SyncResponse(BaseModel):
             "vehicles, etc.). The phone needs these to compute net "
             "worth correctly — Plaid accounts alone miss this whole "
             "side of the balance sheet."
+        ),
+    )
+    budgets: list[BudgetOut] = Field(
+        default_factory=list,
+        description=(
+            "Monthly budgets with per-category limits (schema_version "
+            ">= 3). ALWAYS the complete set — not cursor-filtered — so "
+            "the phone wipes + reinserts its budget tables each sync "
+            "and laptop-side deletions propagate. Phones with "
+            "schema_version < 3 ignore this field."
         ),
     )
     has_more: bool = Field(
@@ -581,9 +614,10 @@ def manifest(
         app_name=settings.APP_NAME,
         server_time=utcnow(),
         # 2 = adds securities + holdings + net_worth_snapshots to /sync.
-        # Older phone clients (v1) ignore the new fields safely; their
+        # 3 = adds budgets (full set each sync, not cursor-filtered).
+        # Older phone clients ignore the new fields safely; their
         # SyncResponse type just doesn't reference them.
-        schema_version=2,
+        schema_version=3,
         demo_available=bool(settings.DEMO_ENABLED),
     )
 
@@ -663,6 +697,13 @@ def sync(
     holdings = holdings_q.all()
     manual_assets = manual_assets_q.all()
     snapshots = snapshot_q.all()
+    # Budgets: always the complete set (tiny table; wipe+reinsert on the
+    # phone means laptop-side deletions propagate without tombstones).
+    budgets = (
+        db.query(Budget)
+        .order_by(Budget.year.desc(), Budget.month.desc())
+        .all()
+    )
 
     txn_rows = transactions_q.limit(transaction_limit + 1).all()
     has_more = len(txn_rows) > transaction_limit
@@ -756,6 +797,25 @@ def sync(
                 updated_at=m.updated_at,
             )
             for m in manual_assets
+        ],
+        budgets=[
+            BudgetOut(
+                id=b.id,
+                month=b.month,
+                year=b.year,
+                total_limit=b.total_limit,
+                categories=[
+                    BudgetCategoryOut(
+                        id=c.id,
+                        budget_id=c.budget_id,
+                        category=c.category,
+                        limit_amount=c.limit_amount,
+                    )
+                    for c in b.categories
+                ],
+                updated_at=b.updated_at,
+            )
+            for b in budgets
         ],
         has_more=has_more,
     )

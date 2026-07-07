@@ -80,6 +80,22 @@ export interface ManualAssetWire {
   updated_at: string | null;
 }
 
+export interface BudgetCategoryWire {
+  id: number;
+  budget_id: number;
+  category: string;
+  limit_amount: number;
+}
+
+export interface BudgetWire {
+  id: number;
+  month: number; // 1-12
+  year: number;
+  total_limit: number | null;
+  categories: BudgetCategoryWire[];
+  updated_at: string | null;
+}
+
 export interface SyncResponse {
   server_time: string;
   full: boolean;
@@ -90,6 +106,13 @@ export interface SyncResponse {
   holdings?: HoldingWire[];
   net_worth_snapshots?: NetWorthSnapshotWire[];
   manual_assets?: ManualAssetWire[];
+  /**
+   * Optional — schema_version >= 3. ALWAYS the complete set (not a
+   * delta): the phone wipes + reinserts its budget tables each sync so
+   * laptop-side deletions propagate. Limits only — "spent" is computed
+   * locally from the transactions mirror.
+   */
+  budgets?: BudgetWire[];
   has_more: boolean;
 }
 

@@ -14,11 +14,22 @@ import { loadDemoMode } from '../sync/storage';
 interface AppState {
   demoMode: boolean;
   setDemoMode(on: boolean): void;
+  /**
+   * Category drill-down handoff: Dashboard sets this then navigates to
+   * the Transactions tab, which reads it as its active category filter.
+   * A store field (not a navigation param) because the tabs are always
+   * mounted — a param would only apply on the first navigate. Null =
+   * no category filter.
+   */
+  txCategory: string | null;
+  setTxCategory(category: string | null): void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   demoMode: false,
   setDemoMode: (demoMode) => set({ demoMode }),
+  txCategory: null,
+  setTxCategory: (txCategory) => set({ txCategory }),
 }));
 
 /** Read the persisted demo flag once (App.tsx calls this on launch). */

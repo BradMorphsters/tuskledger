@@ -1,5 +1,7 @@
 /**
- * Transactions — debounced local search, date-filter chips, and an
+ * Transactions — debounced local search, date-filter chips, a
+ * category-filter chip row (also the landing zone for the Dashboard's
+ * top-category drill-down via appStore.txCategory), and an
  * infinite-scrolling list grouped by day with sticky headers (date +
  * day net). No network reads in here — sync drops new rows into the
  * SQLite mirror in the background and the list reacts via dataVersion.
@@ -7,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   RefreshControl,
+  ScrollView,
   SectionList,
   StyleSheet,
   Text,
@@ -17,7 +20,8 @@ import Chip from '../components/Chip';
 import EmptyState from '../components/EmptyState';
 import Screen from '../components/Screen';
 import TransactionRow from '../components/TransactionRow';
-import { listTransactions, TransactionRow as Tx } from '../db/queries';
+import { listTransactions, spendCategories, TransactionRow as Tx } from '../db/queries';
+import { useAppStore } from '../state/appStore';
 import { syncNow, useSyncStore } from '../sync/manager';
 import {
   colors,
@@ -80,7 +84,12 @@ function groupByDay(rows: Tx[]): DaySection[] {
 export default function TransactionsScreen() {
   const dataVersion = useSyncStore((s) => s.dataVersion);
   const status = useSyncStore((s) => s.status);
+  // Category filter lives in the app store so the Dashboard's
+  // top-category drill-down can set it before switching tabs.
+  const category = useAppStore((s) => s.txCategory);
+  const setCategory = useAppStore((s) => s.setTxCategory);
   const [rows, setRows] = useState<Tx[]>([]);
+  const [cats, setCats] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<DateFilter>('all');
@@ -93,6 +102,19 @@ export default function TransactionsScreen() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  // Chip row of this month's top spend categories. A drilled-in
+  // category that's outside the top set still renders (prepended) so
+  // the active filter is always visible and clearable.
+  useEffect(() => {
+    let cancelled = false;
+    spendCategories(10).then((c) => {
+      if (!cancelled) setCats(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataVersion]);
+
   // Reset pagination when search, filter, or the underlying data change.
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +124,7 @@ export default function TransactionsScreen() {
         offset: 0,
         search,
         sinceDate: sinceFor(filter),
+        category: category ?? undefined,
       });
       if (cancelled) return;
       setRows(initial);
@@ -110,7 +133,7 @@ export default function TransactionsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, search, filter]);
+  }, [dataVersion, search, filter, category]);
 
   async function loadMore() {
     if (loadingMore || reachedEnd) return;
@@ -121,6 +144,7 @@ export default function TransactionsScreen() {
         offset: rows.length,
         search,
         sinceDate: sinceFor(filter),
+        category: category ?? undefined,
       });
       setRows((prev) => [...prev, ...next]);
       if (next.length < PAGE_SIZE) setReachedEnd(true);
@@ -131,17 +155,22 @@ export default function TransactionsScreen() {
 
   const sections = useMemo(() => groupByDay(rows), [rows]);
 
+  const chipCats = useMemo(
+    () => (category && !cats.includes(category) ? [category, ...cats] : cats),
+    [category, cats],
+  );
+
   // Empty-state messaging depends on whether there's a search term.
   const empty = useMemo(() => {
     if (rows.length > 0) return null;
-    if (search.trim() || filter !== 'all') {
-      return { title: 'No matches', message: 'Nothing in your local copy matches this search and date range.' };
+    if (search.trim() || filter !== 'all' || category) {
+      return { title: 'No matches', message: 'Nothing in your local copy matches these filters.' };
     }
     if (status === 'unpaired') {
       return { title: 'Not paired yet', message: 'Pair this phone with your laptop to start syncing.' };
     }
     return { title: 'No transactions yet', message: 'Pull down to sync from your laptop.' };
-  }, [rows.length, search, filter, status]);
+  }, [rows.length, search, filter, category, status]);
 
   return (
     <Screen title="Transactions" scroll={false}>
@@ -169,6 +198,22 @@ export default function TransactionsScreen() {
           />
         ))}
       </View>
+      {chipCats.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.catRow}
+          contentContainerStyle={styles.catRowContent}>
+          {chipCats.map((c) => (
+            <Chip
+              key={c}
+              label={category === c ? `${c} ✕` : c}
+              selected={category === c}
+              onPress={() => setCategory(category === c ? null : c)}
+            />
+          ))}
+        </ScrollView>
+      )}
       <SectionList
         sections={sections}
         keyExtractor={(r) => String(r.id)}
@@ -234,6 +279,14 @@ const styles = StyleSheet.create({
     gap: space(2),
     paddingHorizontal: layout.screenPad,
     paddingVertical: space(3),
+  },
+  catRow: {
+    flexGrow: 0,
+    marginBottom: space(3),
+  },
+  catRowContent: {
+    gap: space(2),
+    paddingHorizontal: layout.screenPad,
   },
   sectionHeader: {
     flexDirection: 'row',

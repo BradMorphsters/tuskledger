@@ -72,6 +72,15 @@ def build_order_args(account_number: str, order: ProposedOrder, *, policy: Order
     # whole-share only at Robinhood, so floor here at generation — the proposal then shows exactly
     # what will place (no fractional→whole surprise between Approve and the fill).
     if policy.order_type == "limit":
+        if is_sub_share_limit(order, policy):
+            # Refuse rather than silently inflate: max(1, ...) below would turn a
+            # 0.4-share order into a full share (a $50 buy of a $400 name becomes
+            # a $400 order). The generation path skips these via
+            # is_sub_share_limit(); any other caller must not sneak past it.
+            raise ValueError(
+                f"{args['symbol']}: sub-share limit order ({order.resolved_qty():.4f} sh) "
+                "cannot be built — Robinhood limits are whole-share; skip it instead"
+            )
         args["quantity"] = float(max(1, int(order.resolved_qty())))
         args["limit_price"] = limit_price(side, order.ref_price, policy)
     else:

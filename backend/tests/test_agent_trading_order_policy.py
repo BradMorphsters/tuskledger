@@ -36,8 +36,15 @@ def test_limit_floors_to_whole_shares():
     # same sizing as a MARKET order stays fractional
     mkt = build_order_args("a", ProposedOrder("usar", "buy", 21.97, notional=100.0))
     assert mkt["type"] == "market" and round(mkt["quantity"], 6) == round(100.0 / 21.97, 6)
-    # never floors below 1 share
-    assert build_order_args("a", ProposedOrder("x", "buy", 50.0, notional=10.0), policy=pol)["quantity"] == 1.0
+
+
+def test_sub_share_limit_refused_not_inflated():
+    """A limit order sized under 1 share must be REFUSED, never silently inflated to a whole
+    share (a $10 buy of a $50 name would become a $50 order). Callers skip these via
+    is_sub_share_limit(); build_order_args is the last line of defense."""
+    pol = OrderPolicy(order_type="limit", limit_offset_bps=25)
+    with pytest.raises(ValueError, match="sub-share limit order"):
+        build_order_args("a", ProposedOrder("x", "buy", 50.0, notional=10.0), policy=pol)
 
 
 def test_limit_price_helper():

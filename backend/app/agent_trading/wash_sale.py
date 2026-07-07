@@ -53,6 +53,11 @@ def assess_wash_sale(
     side = side.lower().strip()
     sym = symbol.upper().strip()
 
+    # Window semantics (both paths below): `0 <= days <= window_days` is an
+    # INCLUSIVE trailing window — with window_days=30 that's 31 calendar days
+    # counting today, i.e. one side of §1091's 61-day (±30) period. CALENDAR
+    # days, not trading days, matching the statute. If you ever change
+    # WASH_WINDOW_DAYS, remember the <= keeps it inclusive (31 → 32-day span).
     if side == "buy":
         result = compute_realized_pnl(txns, as_of=as_of)
         recent_losses = [

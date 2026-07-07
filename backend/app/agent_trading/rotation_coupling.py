@@ -29,6 +29,8 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
+from app.services.trading_tax import WASH_WINDOW_DAYS
+
 from .decisions import Decision
 from .guardrails import AccountState
 
@@ -148,8 +150,8 @@ def couple_rotation_sells(
     for b in buys:
         if wash_sale_lookup(b.ticker, "buy"):
             deferred_buys.append((b.ticker.upper(),
-                                  "deferred — buying now would trip a 30-day wash sale against a "
-                                  "recent loss in another account; re-check next cycle"))
+                                  f"deferred — buying now would trip a {WASH_WINDOW_DAYS}-day wash "
+                                  "sale against a recent loss in another account; re-check next cycle"))
         else:
             kept_buys.append(b)
 

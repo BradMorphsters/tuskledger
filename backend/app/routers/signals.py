@@ -111,11 +111,16 @@ def signals_ticker(domain: str, ticker: str, refresh: bool = Query(False), debug
         return entry or {"ticker": key, "available": False, "reason": "disabled on demo"}
     bundle = quiver.signals_for(ticker)
     bundle["_ts"] = time.time()
-    cache[key] = bundle
-    try:
-        store.save_signals(domain, cache)
-    except OSError:
-        pass
+    # Re-load inside the store lock before writing: the fetch above takes
+    # seconds, and a bulk refresh finishing in that window would otherwise be
+    # clobbered by our stale `cache` snapshot.
+    with store.STORE_LOCK:
+        cache = store.load_signals(domain)
+        cache[key] = bundle
+        try:
+            store.save_signals(domain, cache)
+        except OSError:
+            pass
     return {**bundle, "cached": False}
 
 
@@ -141,6 +146,7 @@ def signals_refresh(domain: str):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail=str(exc))
     cache = store.load_signals(domain)
+    updates: dict = {}  # only the keys THIS run touched — merged under the lock at the end
     refreshed = 0
     failed: list[str] = []
     kept: list[str] = []
@@ -152,20 +158,26 @@ def signals_refresh(domain: str):
             prev = cache.get(key)
             if prev and prev.get("available"):
                 # Transient failure — preserve the good prior pull.
-                cache[key] = {**prev, "stale": True}
+                updates[key] = {**prev, "stale": True}
                 kept.append(tk)
             else:
                 bundle["_ts"] = time.time()
-                cache[key] = bundle
+                updates[key] = bundle
                 failed.append(tk)
         else:
             bundle["_ts"] = time.time()
-            cache[key] = bundle
+            updates[key] = bundle
             refreshed += 1
         if i < len(tickers) - 1:
             time.sleep(SIGNALS_REFRESH_SLEEP)
-    try:
-        store.save_signals(domain, cache)
-    except OSError:
-        pass
+    # This loop runs for minutes (sleep between names) — merge into a FRESH
+    # load under the store lock so a single-ticker refresh that landed
+    # mid-run isn't clobbered by our stale snapshot.
+    with store.STORE_LOCK:
+        merged = store.load_signals(domain)
+        merged.update(updates)
+        try:
+            store.save_signals(domain, merged)
+        except OSError:
+            pass
     return {"domain": domain, "refreshed": refreshed, "kept_stale": kept, "failed": failed}

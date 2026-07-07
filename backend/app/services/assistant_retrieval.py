@@ -24,6 +24,8 @@ import re
 from datetime import date, timedelta
 from typing import Optional
 
+from sqlalchemy import func
+
 from app.config import settings
 from app.models.transaction import Transaction
 
@@ -533,8 +535,20 @@ def category_spend(db, start, end, label, question: str = "") -> dict:
         return _result("category_spend", label,
                        "I couldn't tell which category you meant — try the exact name from your Categories tab.",
                        found=False)
-    txns = [t for t in _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all()
-            if (t.display_category or "").lower() == cat.lower()]
+    # display_category is a Python property (custom_category or category or
+    # "Uncategorized"), so express the same precedence in SQL instead of
+    # loading every spend row in the window and filtering in a loop.
+    # nullif('') mirrors Python `or`, which also skips EMPTY strings — plain
+    # coalesce would stop at a '' custom_category and mismatch the property.
+    cat_l = cat.lower()
+    txns = (
+        _spend_q(db)
+        .filter(Transaction.date >= start, Transaction.date <= end)
+        .filter(func.lower(func.coalesce(func.nullif(Transaction.custom_category, ""),
+                                         func.nullif(Transaction.category, ""),
+                                         "Uncategorized")) == cat_l)
+        .all()
+    )
     total = round(sum(float(t.amount) for t in txns), 2)
     n = len(txns)
     if n == 0:

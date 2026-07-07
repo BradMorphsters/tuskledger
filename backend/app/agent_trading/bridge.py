@@ -28,7 +28,7 @@ from typing import Optional
 from .brokers import parse_account_state, parse_quotes
 from .candidates import holdings_from_state, make_candidate_provider
 from .decisions import Decision
-from .order_policy import OrderPolicy, build_order_args
+from .order_policy import OrderPolicy, build_order_args, is_sub_share_limit
 from .sizing import SizingConfig, size_decisions
 from .strategy import StrategyConfig, StrategyDecisionSource
 from .executor import OrderOutcome
@@ -102,7 +102,13 @@ def _apply(state: AccountState, order: ProposedOrder) -> AccountState:
         held = positions.get(t)
         if held:
             nq = held.qty + qty
-            positions[t] = Position(nq, (held.qty * held.avg_price + notional) / nq)
+            if nq > 1e-9:
+                positions[t] = Position(nq, (held.qty * held.avg_price + notional) / nq)
+            else:
+                # Degenerate: a ~0-qty held position + ~0-qty buy. Mirror the
+                # sell path's 1e-9 guard instead of dividing by near-zero and
+                # injecting an Inf/NaN avg_price into same-cycle projections.
+                positions.pop(t, None)
         else:
             positions[t] = Position(qty, order.ref_price)
     else:  # sell
@@ -180,6 +186,14 @@ def plan_cycle(
             notional=d.target_notional if d.target_notional is not None else default_notional,
             rationale=d.rationale,
         )
+        # Sub-1-share limit orders can't place as sized (Robinhood limits are
+        # whole-share) and build_order_args now REFUSES to inflate them — skip
+        # here like the /proposals/generate path does, so plan_cycle callers
+        # that don't pre-filter (execution, events, runner) get a skip, not a
+        # ValueError mid-plan.
+        if is_sub_share_limit(order, order_policy):
+            plan.skipped.append(d)
+            continue
         result = check_order(order, running, config, wash_sale_lookup)
         if result.ok:
             plan.approved.append(

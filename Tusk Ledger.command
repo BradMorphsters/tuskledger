@@ -33,6 +33,32 @@ echo ""
 echo "Project: $PROJECT_DIR"
 echo ""
 
+# --- macOS Full Disk Access / TCC probe ---
+# This project lives under ~/Documents, which macOS protects (TCC). If
+# Terminal.app hasn't been granted access to that folder, EVERY file
+# read/write below fails with "Operation not permitted" (EPERM) — a
+# stat/-d test still passes, but grep/cat/rm on the files do not. Left
+# unchecked that produces a confusing cascade: repeated grep errors, a
+# FALSE "broken venv, rebuilding..." (venv/bin/python couldn't run), and
+# "rm: venv: Operation not permitted". Detect it once, up front, and give
+# a single clear instruction instead.
+_probe="$PROJECT_DIR/backend/requirements.txt"
+if [ -f "$_probe" ] && ! cat "$_probe" >/dev/null 2>&1; then
+  echo "ERROR: macOS is blocking Terminal from reading files in this folder."
+  echo "       Every file access here returns \"Operation not permitted\"."
+  echo "       Your files are fine — Terminal just needs permission to read them."
+  echo ""
+  echo "  Fix (about 20 seconds):"
+  echo "   1. Open  System Settings > Privacy & Security > Full Disk Access"
+  echo "   2. Turn ON the switch next to \"Terminal\""
+  echo "      (if Terminal isn't listed, click + and add it from /Applications/Utilities)"
+  echo "   3. Quit Terminal completely (Cmd-Q), then double-click this file again."
+  echo ""
+  echo "Press any key to close."
+  read -n 1
+  exit 1
+fi
+
 # Sanity check: .env present AND populated?
 # A bare existence check would silently pass when the user has run
 # `cp .env.example .env` but not edited the placeholders yet — the most

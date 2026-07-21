@@ -377,6 +377,11 @@ const styles = StyleSheet.create({
   },
   catRow: {
     flexGrow: 0,
+    // ScrollView's base style is flexGrow:1 + flexShrink:1 — without
+    // pinning shrink to 0, adding the second chip row made both rows
+    // compress and clip their chips (the SectionList should absorb the
+    // squeeze instead; it scrolls).
+    flexShrink: 0,
     marginBottom: space(3),
   },
   monthRow: {

@@ -7,6 +7,9 @@
  * screens stay declarative.
  */
 import { getDb } from './sqlite';
+import { computePace, DailySpendRow, SpendingPace } from './pace';
+
+export type { SpendingPace } from './pace';
 
 /**
  * First day of the current month as a LOCAL YYYY-MM-DD string.
@@ -226,6 +229,47 @@ export async function spendCategories(limit = 12): Promise<string[]> {
     [start, limit],
   );
   return rows.map((r) => r.category);
+}
+
+// ─── Spending pace ────────────────────────────────────────────────
+
+/**
+ * Month-to-date spending pace vs a trailing 4-month moving-average
+ * baseline. Powers the "Spending pace" Dashboard tile. Computed entirely
+ * from the local mirror (the phone syncs the full transaction history,
+ * so a 4-month baseline is answerable offline) — no laptop API call.
+ *
+ * Spending definition matches the rest of the app: `amount > 0 AND
+ * is_transfer = 0`, summed by local-time `date`. The SQL just produces
+ * daily gross-spend sums for the window (earliest baseline month → now);
+ * all calendar/cumulative/average math lives in computePace() so it can
+ * be unit-tested without RN. Returns null (tile hidden) when fewer than 2
+ * of the prior 4 months have spend rows.
+ */
+export async function spendingPace(): Promise<SpendingPace | null> {
+  const db = await getDb();
+  const now = new Date();
+  // Earliest baseline month = 4 calendar months before the current one,
+  // as a LOCAL YYYY-MM-01 string (same timezone discipline as
+  // localMonthStart() — the `date` column is local-naive).
+  let y = now.getFullYear();
+  let m = now.getMonth() + 1;
+  for (let i = 0; i < 4; i++) {
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  const earliest = `${y}-${String(m).padStart(2, '0')}-01`;
+  const rows = await db.getAllAsync<DailySpendRow>(
+    `SELECT date, SUM(amount) AS total
+       FROM transactions
+      WHERE date >= ? AND amount > 0 AND is_transfer = 0
+      GROUP BY date`,
+    [earliest],
+  );
+  return computePace(rows, now);
 }
 
 // ─── Budgets ──────────────────────────────────────────────────────

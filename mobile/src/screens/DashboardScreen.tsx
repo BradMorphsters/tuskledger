@@ -19,6 +19,7 @@ import SectionHeader from '../components/SectionHeader';
 import Screen from '../components/Screen';
 import SkeletonBlock from '../components/SkeletonBlock';
 import Sparkline from '../components/Sparkline';
+import PaceChart from '../components/PaceChart';
 import TransactionRow from '../components/TransactionRow';
 import { categoryGlyph } from '../components/categoryGlyph';
 import {
@@ -27,6 +28,7 @@ import {
   MonthSummary,
   NetWorthPoint,
   NetWorthSnapshot,
+  SpendingPace,
   TransactionRow as Tx,
   UpcomingBillRow,
   budgetProgress,
@@ -34,6 +36,7 @@ import {
   listTransactions,
   netWorth,
   netWorthHistory,
+  spendingPace,
   topCategoriesThisMonth,
   upcomingBills,
 } from '../db/queries';
@@ -41,6 +44,9 @@ import { useAppStore } from '../state/appStore';
 import { useSyncStore } from '../sync/manager';
 import { colors, formatCurrency, formatDelta, layout, space, type } from '../theme';
 import AccountsBreakdown from './AccountsBreakdown';
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** Sparkline window options — label ↔ days of snapshot history. */
 const RANGES: { key: number; label: string }[] = [
@@ -79,6 +85,7 @@ export default function DashboardScreen() {
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [topCats, setTopCats] = useState<CategoryTotal[]>([]);
   const [budget, setBudget] = useState<BudgetProgress | null>(null);
+  const [pace, setPace] = useState<SpendingPace | null>(null);
   const [nw, setNw] = useState<NetWorthSnapshot | null>(null);
   const [range, setRange] = useState(90);
   const [history, setHistory] = useState<NetWorthPoint[]>([]);
@@ -93,10 +100,11 @@ export default function DashboardScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [s, c, b, n, h, r, ub] = await Promise.all([
+      const [s, c, b, p, n, h, r, ub] = await Promise.all([
         currentMonthSummary(),
         topCategoriesThisMonth(5),
         budgetProgress(),
+        spendingPace(),
         netWorth(),
         netWorthHistory(90),
         listTransactions({ limit: 6 }),
@@ -106,6 +114,7 @@ export default function DashboardScreen() {
       setSummary(s);
       setTopCats(c);
       setBudget(b);
+      setPace(p);
       setNw(n);
       setDeltaHistory(h);
       setRecent(r);
@@ -238,6 +247,9 @@ export default function DashboardScreen() {
       </Card>
       )}
 
+      {/* ── Spending pace (hidden when <2 baseline months of data) ─── */}
+      {pace && <PaceCard pace={pace} />}
+
       {/* ── Upcoming bills (mortgage + CC due dates; hidden when none) ── */}
       {bills.length > 0 && (
         <>
@@ -313,6 +325,82 @@ export default function DashboardScreen() {
         )}
       </Card>
     </Screen>
+  );
+}
+
+/**
+ * Spending pace tile: this month's MTD spend vs the trailing N-month
+ * average by the same day-of-month. Under pace (delta ≤ 0) reads green,
+ * over reads red — for spending, below the usual curve is the good
+ * outcome. Mirrors the web SpendingPace tile, minus the income line.
+ */
+function PaceCard({ pace }: { pace: SpendingPace }) {
+  const under = pace.delta <= 0;
+  const tone = under ? 'income' : 'expense';
+  const accent = under ? colors.income : colors.expense;
+  const monthLabel = MONTH_NAMES[pace.month - 1] ?? '';
+  const pctStr =
+    pace.pct != null ? ` (${under ? '' : '+'}${pace.pct}%)` : '';
+  const chipLabel = `${under ? '▼' : '▲'} ${formatCurrency(
+    Math.abs(pace.delta),
+  )}${pctStr} ${under ? 'under' : 'over'} pace`;
+
+  return (
+    <>
+      <SectionHeader
+        label="Spending pace"
+        right={<Text style={type.small}>vs {pace.baselineWindow}-mo avg</Text>}
+      />
+      <Card>
+        <View
+          style={styles.paceHeader}
+          accessibilityLabel={`${monthLabel} spending so far ${formatCurrency(
+            pace.mtdTotal,
+          )}, usual by day ${pace.today} ${formatCurrency(
+            pace.baselineToDate,
+          )}, ${chipLabel}`}>
+          <View style={styles.paceHeaderCol}>
+            <Text style={type.caption}>{monthLabel} so far</Text>
+            <MoneyText
+              value={pace.mtdTotal}
+              size="title"
+              style={{ marginTop: space(1) }}
+            />
+          </View>
+          <View style={[styles.paceHeaderCol, { alignItems: 'flex-end' }]}>
+            <Text style={type.caption}>usual by day {pace.today}</Text>
+            <MoneyText
+              value={pace.baselineToDate}
+              size="title"
+              tone="muted"
+              style={{ marginTop: space(1) }}
+            />
+          </View>
+        </View>
+        <Chip
+          label={chipLabel}
+          tone={tone}
+          small
+          style={{ marginTop: space(2), alignSelf: 'center' }}
+        />
+        <PaceChart
+          points={pace.points}
+          today={pace.today}
+          daysInMonth={pace.daysInMonth}
+          color={accent}
+          style={{ marginTop: space(3) }}
+        />
+        {pace.projected != null && (
+          <>
+            <View style={styles.divider} />
+            <Text style={type.small}>
+              Proj. {formatCurrency(pace.projected)} vs usual{' '}
+              {formatCurrency(pace.baselineFull)}
+            </Text>
+          </>
+        )}
+      </Card>
+    </>
   );
 }
 
@@ -484,6 +572,16 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
     marginVertical: space(3),
+  },
+  paceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: space(3),
+  },
+  paceHeaderCol: {
+    flex: 1,
+    minWidth: 0,
   },
   netRow: {
     flexDirection: 'row',

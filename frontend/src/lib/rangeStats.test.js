@@ -5,6 +5,7 @@ import {
   isValidPreset,
   resolveRangeMonths,
   fetchWindowMonths,
+  windowRangeDates,
   splitWindows,
   aggregateWindow,
   periodDeltaPct,
@@ -102,6 +103,74 @@ describe('fetchWindowMonths', () => {
         expect(fetchWindowMonths(p.key, now)).toBeGreaterThanOrEqual(1)
       }
     }
+  })
+})
+
+// ─── windowRangeDates ─────────────────────────────────────────
+describe('windowRangeDates', () => {
+  it('spans N months back from the anchor, ending on its last day', () => {
+    expect(windowRangeDates('6', AUG_2026)).toEqual({
+      start_date: '2026-03-01',
+      end_date: '2026-08-31',
+    })
+    expect(windowRangeDates('3', AUG_2026)).toEqual({
+      start_date: '2026-06-01',
+      end_date: '2026-08-31',
+    })
+  })
+
+  it('covers exactly the anchor month for the 1mo preset', () => {
+    expect(windowRangeDates('1', AUG_2026)).toEqual({
+      start_date: '2026-08-01',
+      end_date: '2026-08-31',
+    })
+    // 30-day month
+    expect(windowRangeDates('1', new Date(2026, 8, 12))).toEqual({
+      start_date: '2026-09-01',
+      end_date: '2026-09-30',
+    })
+  })
+
+  it('starts at January 1st for ytd', () => {
+    expect(windowRangeDates('ytd', AUG_2026)).toEqual({
+      start_date: '2026-01-01',
+      end_date: '2026-08-31',
+    })
+  })
+
+  it('collapses to January alone for ytd in January', () => {
+    expect(windowRangeDates('ytd', JAN_2026)).toEqual({
+      start_date: '2026-01-01',
+      end_date: '2026-01-31',
+    })
+  })
+
+  it('covers the whole year for ytd in December', () => {
+    expect(windowRangeDates('ytd', DEC_2026)).toEqual({
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+    })
+  })
+
+  it('crosses the year boundary (4mo anchored in February)', () => {
+    expect(windowRangeDates('4', new Date(2026, 1, 9))).toEqual({
+      start_date: '2025-11-01',
+      end_date: '2026-02-28',
+    })
+  })
+
+  it('handles a leap-year February end date', () => {
+    expect(windowRangeDates('1', new Date(2028, 1, 3))).toEqual({
+      start_date: '2028-02-01',
+      end_date: '2028-02-29',
+    })
+  })
+
+  it('crosses the year boundary for a 12mo window', () => {
+    expect(windowRangeDates('12', AUG_2026)).toEqual({
+      start_date: '2025-09-01',
+      end_date: '2026-08-31',
+    })
   })
 })
 

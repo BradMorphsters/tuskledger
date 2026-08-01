@@ -1,39 +1,52 @@
 /**
  * Spending & Income — the analytics command center for personal cash flow.
  *
- * ── The range filter ──────────────────────────────────────────
- * One preset (1/2/3/4/5/6/12 months or YTD, persisted to localStorage)
- * drives everything that isn't month-specific: the top stat cards, the
- * trend chart + aggregate tiles, and Top Merchants. Pick "6mo" and the
- * Spending card shows six months of spending compared against the six
- * months before it — not just the month in the picker.
+ * ── One filter drives the whole page ──────────────────────────
+ * A single range preset (1/2/3/4/5/6/12 months or YTD, persisted to
+ * localStorage) governs EVERY panel here: the top stat cards, the trend
+ * chart, Top Merchants, the category pie, Category Details, the
+ * waterfall, the day-of-week heatmap, Income Sources, the CSV export
+ * and the drill-down drawers. Pick "6mo" and every number on the page
+ * describes those six months.
  *
- * We fetch a DOUBLE window (see lib/rangeStats.fetchWindowMonths) in a
- * single call so the comparison period comes along for free, then split
+ * Two modes:
+ *
+ *   1mo mode (preset === '1') — the month/year picker appears and acts
+ *   as a drill-down: it moves the ANCHOR, so the whole page (top cards,
+ *   both trend bars, pie, waterfall, exports) follows it. Per-category
+ *   sparklines, MoM/YoY badges and the YoY comparison table are
+ *   month-only concepts and only render here.
+ *
+ *   Range mode (everything else) — the picker is hidden and the anchor
+ *   is the current month. The month-scoped endpoints are called with
+ *   explicit start/end dates instead (see lib/rangeStats.windowRangeDates).
+ *
+ * The trend chart fetches a DOUBLE window (lib/rangeStats.fetchWindowMonths)
+ * in one call so the comparison period comes along for free, then splits
  * it into current + prior locally. All of that arithmetic lives in
  * lib/rangeStats.js — this file only formats it.
  *
- * The month/year picker further down is still its own thing: it drives
- * the category pie, Category Details, YoY table, waterfall and DOW
- * heatmap, which are inherently single-month views.
- *
  * Layout (top to bottom):
  *   1. Stat cards: Spending, Income, Net, Savings Rate,
- *      Projected Spend (1mo, current month) / Avg Spend per month
+ *      Projected Spend (1mo on the current month) / Avg Spend per month
  *   2. Income vs Spending bar chart + range preset buttons
- *   3. Month/year selector + Spending/Income toggle + YoY toggle
- *   4. Pie chart + Category Details (with sparklines, MoM/YoY deltas)
- *      Both are click-to-drill into TransactionDrawer
- *   5. Top Merchants (follows the range filter) + Recurring/Subscriptions
+ *   3. Month/year selector (1mo only) + YoY toggle (1mo only)
+ *      + Spending/Income toggle (always)
+ *   4. Pie chart + Category Details — sparklines and MoM/YoY deltas in
+ *      1mo mode only. Both are click-to-drill into TransactionDrawer
+ *   5. Top Merchants + Recurring/Subscriptions
  *   6. Cash Flow Waterfall + Day-of-Week heatmap
  *   7. Income Sources panel (only in Income view)
  *
  * Backend endpoints used:
- *   - GET /transactions/income-vs-spending?months=N   (N <= 24; range filter)
+ *   - GET /transactions/income-vs-spending?months=N[&end_month=&end_year=]
  *   - GET /transactions/category-breakdown?month=&year=
- *   - GET /analytics/category-trends?month=&year=&months_back=6
+ *                                     ...or ?start_date=&end_date=
+ *   - GET /analytics/category-trends?month=&year=&months_back=6  (1mo only)
  *   - GET /analytics/spending-patterns?month=&year=
+ *                                 ...or ?start_date=&end_date=
  *   - GET /analytics/merchants?months=N               (range filter)
+ *   - GET /analytics/year-over-year?month=&year=      (1mo only)
  *   - GET /analytics/recurring
  *   - GET /analytics/export?start_date=&end_date=  (download)
  */
@@ -47,8 +60,9 @@ import {
   Receipt, Repeat, ArrowUp, ArrowDown, AlertTriangle, BarChart3,
 } from 'lucide-react'
 import {
-  getIncomeVsSpending, getCategoryBreakdown, getCategoryTrends,
-  getSpendingPatterns, getMerchantInsights, getRecurring, getExportUrl,
+  getIncomeVsSpending, getCategoryBreakdown, getCategoryBreakdownRange,
+  getCategoryTrends, getSpendingPatterns, getSpendingPatternsRange,
+  getMerchantInsights, getRecurring, getExportUrl,
   getSubscriptionRules, createSubscriptionRule, deleteSubscriptionRule,
   getYearOverYear,
 } from '../api/client'
@@ -63,7 +77,7 @@ import { useLatestRequest } from '../hooks/useLatestRequest'
 import { yearOptions, cleanMerchantName, formatCurrencyZero as fmt } from '../lib/format'
 import {
   RANGE_PRESETS, DEFAULT_RANGE_PRESET, isValidPreset,
-  resolveRangeMonths, fetchWindowMonths, splitWindows,
+  resolveRangeMonths, fetchWindowMonths, windowRangeDates, splitWindows,
   aggregateWindow, periodDeltaPct,
 } from '../lib/rangeStats'
 import { SpendingHeatmap } from '../components/SpendingExtras'
@@ -720,6 +734,9 @@ export default function SpendingIncome() {
   // resolves to a number for the API calls.
   const [trendPreset, setTrendPreset] = useState(loadTrendPreset)
   const rangeMonths = resolveRangeMonths(trendPreset)
+  // 1mo mode turns the month picker into a page-wide drill-down; every
+  // other preset hides it and anchors on the current month.
+  const isMonthMode = trendPreset === '1'
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(today.getFullYear())
   const [view, setView] = useState('spending')
@@ -727,7 +744,7 @@ export default function SpendingIncome() {
   const [yoyData, setYoyData] = useState(null)
   const [drawer, setDrawer] = useState({ open: false, title: '', subtitle: '', filters: {} })
   const [merchantDrawerName, setMerchantDrawerName] = useState(null)
-  const runMonth = useLatestRequest()
+  const runWindow = useLatestRequest()
   const runRange = useLatestRequest()
   const runMerchants = useLatestRequest()
 
@@ -736,39 +753,72 @@ export default function SpendingIncome() {
     saveTrendPreset(key)
   }
 
-  // One fetch per preset. Guarded the same way as the month fetches —
-  // clicking 1mo → 12mo → 3mo fires three requests and the 12mo answer
-  // must not land on top of the 3mo view.
+  // The newest month of the active window. In 1mo mode the picker owns
+  // it; otherwise it's the current month.
+  const anchorMonth = isMonthMode ? selectedMonth : today.getMonth() + 1
+  const anchorYear = isMonthMode ? selectedYear : today.getFullYear()
+  // Inclusive ISO bounds of the active window — kept as two primitive
+  // strings (not an object) so they can sit in effect dep arrays without
+  // re-triggering on every render.
+  const { start_date: windowStart, end_date: windowEnd } = windowRangeDates(
+    trendPreset,
+    new Date(anchorYear, anchorMonth - 1, 1),
+  )
+
+  // One fetch per preset (plus per picker move in 1mo mode). Guarded the
+  // same way as the window fetches — clicking 1mo → 12mo → 3mo fires
+  // three requests and the 12mo answer must not land on top of the 3mo
+  // view.
   useEffect(() => {
     runRange(token => {
-      getIncomeVsSpending(fetchWindowMonths(trendPreset))
+      getIncomeVsSpending(
+        fetchWindowMonths(trendPreset),
+        isMonthMode ? selectedMonth : null,
+        isMonthMode ? selectedYear : null,
+      )
         .then(d => { if (token.live) setRangeRows(Array.isArray(d) ? d : []) })
         .catch(() => { if (token.live) setRangeRows([]) })
     })
-  }, [trendPreset, runRange])
+  }, [trendPreset, isMonthMode, selectedMonth, selectedYear, runRange])
 
   useEffect(() => {
-    // Fast month-arrow clicks fire several parallel fetches; guard each so
-    // a slow response for a previous month can't render under the new
-    // month's label.
-    runMonth(token => {
-      getCategoryBreakdown(selectedMonth, selectedYear).then(d => { if (token.live) setBreakdown(d) }).catch(() => { if (token.live) setBreakdown(null) })
-      getCategoryTrends(selectedMonth, selectedYear, 6).then(d => { if (token.live) setTrends(d) }).catch(() => { if (token.live) setTrends(null) })
-      getSpendingPatterns(selectedMonth, selectedYear).then(d => { if (token.live) setPatterns(d) }).catch(() => { if (token.live) setPatterns(null) })
-      if (showYoY) {
+    // Fast month-arrow / preset clicks fire several parallel fetches;
+    // guard each so a slow response for a previous window can't render
+    // under the new window's label.
+    //
+    // 1mo mode keeps the month/year endpoints (identical payloads to
+    // before); every other preset uses the date-range variants.
+    runWindow(token => {
+      const breakdownReq = isMonthMode
+        ? getCategoryBreakdown(selectedMonth, selectedYear)
+        : getCategoryBreakdownRange(windowStart, windowEnd)
+      const patternsReq = isMonthMode
+        ? getSpendingPatterns(selectedMonth, selectedYear)
+        : getSpendingPatternsRange(windowStart, windowEnd)
+      breakdownReq.then(d => { if (token.live) setBreakdown(d) }).catch(() => { if (token.live) setBreakdown(null) })
+      patternsReq.then(d => { if (token.live) setPatterns(d) }).catch(() => { if (token.live) setPatterns(null) })
+      // Per-category history is inherently month-over-month, so it stays
+      // anchored to a single month and only renders in 1mo mode.
+      getCategoryTrends(anchorMonth, anchorYear, 6).then(d => { if (token.live) setTrends(d) }).catch(() => { if (token.live) setTrends(null) })
+      if (showYoY && isMonthMode) {
         getYearOverYear(selectedMonth, selectedYear).then(d => { if (token.live) setYoyData(d) }).catch(() => { if (token.live) setYoyData(null) })
       }
     })
-  }, [selectedMonth, selectedYear, showYoY])
+  }, [isMonthMode, selectedMonth, selectedYear, anchorMonth, anchorYear, windowStart, windowEnd, showYoY, runWindow])
 
-  // Top Merchants follows the range filter too.
+  // Top Merchants follows the range filter too — including the 1mo
+  // picker, so it can't show a different window than everything else.
   useEffect(() => {
     runMerchants(token => {
-      getMerchantInsights(resolveRangeMonths(trendPreset))
+      getMerchantInsights(
+        resolveRangeMonths(trendPreset),
+        isMonthMode ? selectedMonth : null,
+        isMonthMode ? selectedYear : null,
+      )
         .then(d => { if (token.live) setMerchants(d.merchants || []) })
         .catch(() => { if (token.live) setMerchants([]) })
     })
-  }, [trendPreset, runMerchants])
+  }, [trendPreset, isMonthMode, selectedMonth, selectedYear, runMerchants])
 
   useEffect(() => {
     getRecurring().then(setRecurring).catch(() => {})
@@ -793,12 +843,18 @@ export default function SpendingIncome() {
     ? 'vs same period last year'
     : `vs prior ${rangeMonths}mo`
 
-  // Caption above the stat grid — one line, so the cards themselves
-  // don't need a noisy "· 6mo" suffix on every label.
+  const monthLabel = useMemo(() => (
+    new Date(anchorYear, anchorMonth - 1, 1)
+      .toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  ), [anchorMonth, anchorYear])
+
+  // Human name for the active window — used above the stat grid, on the
+  // pie / Category Details headers and as the drawer subtitle, so the
+  // cards themselves don't need a noisy "· 6mo" suffix on every label.
   const windowLabel = trendPreset === 'ytd'
     ? 'year to date'
     : rangeMonths === 1
-      ? today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      ? monthLabel
       : `last ${rangeMonths} months`
 
   // Chart title — YTD reports how many months actually carried data,
@@ -806,15 +862,17 @@ export default function SpendingIncome() {
   const trendLabel = trendPreset === 'ytd'
     ? `Year-to-date · ${windowAgg.monthsWithData} mo`
     : rangeMonths === 1 ? 'This month' : `Last ${rangeMonths} mo`
-  // Caption on the Top Merchants card, same window.
+  // Caption on the Top Merchants card, same window. In 1mo mode the
+  // window is a named calendar month, not a trailing span.
   const merchantRangeLabel = trendPreset === 'ytd'
     ? 'year to date'
-    : `last ${rangeMonths} month${rangeMonths === 1 ? '' : 's'}`
+    : rangeMonths === 1 ? monthLabel : `last ${rangeMonths} months`
 
   const forecast = patterns?.forecast
   // The Projected Spend card only makes sense when the window IS the
-  // current month; every other range shows the per-month average.
-  const showProjected = trendPreset === '1' && !!forecast?.is_current_month
+  // running current month — i.e. 1mo mode with the picker sitting on
+  // today's month. Every other case shows the per-month average.
+  const showProjected = isMonthMode && !!forecast?.is_current_month
 
   const pieData = (view === 'spending' ? breakdown?.spending_categories : breakdown?.income_categories) || []
 
@@ -825,31 +883,19 @@ export default function SpendingIncome() {
     return map
   }, [trends])
 
-  // ISO date range that corresponds to the selected month — used as drawer filters
-  const monthRange = useMemo(() => {
-    const start = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`
-    const lastDay = new Date(selectedYear, selectedMonth, 0).getDate()
-    const end = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-    return { start_date: start, end_date: end }
-  }, [selectedMonth, selectedYear])
-
-  const monthLabel = useMemo(() => (
-    new Date(selectedYear, selectedMonth - 1, 1)
-      .toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  ), [selectedMonth, selectedYear])
-
-  // Drill-down handler
+  // Drill-down handler — drawers and the CSV export always inherit the
+  // ACTIVE window, which in 1mo mode is exactly the picked month.
   const openCategory = (category, isIncome = false) => {
     setDrawer({
       open: true,
       title: `${isIncome ? '💰 ' : ''}${category}`,
-      subtitle: monthLabel,
-      filters: { category, ...monthRange },
+      subtitle: windowLabel,
+      filters: { category, start_date: windowStart, end_date: windowEnd },
     })
   }
 
   const handleExport = () => {
-    const url = getExportUrl(monthRange.start_date, monthRange.end_date)
+    const url = getExportUrl(windowStart, windowEnd)
     window.open(url, '_blank')
   }
 
@@ -858,14 +904,14 @@ export default function SpendingIncome() {
   // 1mo display window is a single row, so "last month" comes from the
   // comparison window we already fetched alongside it.
   const forecastVsLast = useMemo(() => {
-    if (trendPreset !== '1') return null
+    if (!isMonthMode) return null
     if (!forecast?.is_current_month) return null
     const rows = [...priorRows, ...windowRows]
     const last = rows.length >= 2 ? rows[rows.length - 2]?.spending : null
     if (!last) return null
     const diff = forecast.projected_total - last
     return { last, diff, pct: last > 0 ? (diff / last) * 100 : null }
-  }, [trendPreset, forecast, priorRows, windowRows])
+  }, [isMonthMode, forecast, priorRows, windowRows])
 
   return (
     <div>
@@ -1073,48 +1119,55 @@ export default function SpendingIncome() {
         )}
       </div>
 
-      {/* ─── Month + view picker ───────────────────────────── */}
+      {/* ─── Month picker (1mo only) + view toggle ─────────── */}
+      {/* The picker is the 1mo drill-down: it moves the page anchor, so
+          it only makes sense while the window IS a single month. The
+          Spending/Income toggle stays in this row in both modes. */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <button
-            aria-label="Previous month"
-            onClick={() => {
-              if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1) }
-              else setSelectedMonth(m => m - 1)
-            }}
-            className="btn btn-secondary"
-            style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
-          >←</button>
-          <select
-            value={selectedMonth}
-            onChange={e => setSelectedMonth(Number(e.target.value))}
-            style={SELECT_STYLE}
-          >
-            {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
-              <option key={i} value={i + 1}>{m}</option>
-            ))}
-          </select>
-          <button
-            aria-label="Next month"
-            onClick={() => {
-              if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1) }
-              else setSelectedMonth(m => m + 1)
-            }}
-            className="btn btn-secondary"
-            style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
-          >→</button>
-        </div>
-        <select
-          value={selectedYear}
-          onChange={e => setSelectedYear(Number(e.target.value))}
-          style={SELECT_STYLE}
-        >
-          {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-        <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <input type="checkbox" checked={showYoY} onChange={e => setShowYoY(e.target.checked)} />
-          show year-over-year
-        </label>
+        {isMonthMode && (
+          <>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button
+                aria-label="Previous month"
+                onClick={() => {
+                  if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1) }
+                  else setSelectedMonth(m => m - 1)
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
+              >←</button>
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(Number(e.target.value))}
+                style={SELECT_STYLE}
+              >
+                {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
+                  <option key={i} value={i + 1}>{m}</option>
+                ))}
+              </select>
+              <button
+                aria-label="Next month"
+                onClick={() => {
+                  if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1) }
+                  else setSelectedMonth(m => m + 1)
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '6px 8px', fontSize: 14, lineHeight: 1 }}
+              >→</button>
+            </div>
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(Number(e.target.value))}
+              style={SELECT_STYLE}
+            >
+              {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={showYoY} onChange={e => setShowYoY(e.target.checked)} />
+              show year-over-year
+            </label>
+          </>
+        )}
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
           <button
             onClick={() => setView('spending')}
@@ -1134,7 +1187,7 @@ export default function SpendingIncome() {
         <div className="card">
           <div className="card-header">
             <span className="card-title">{view === 'spending' ? 'Spending' : 'Income'} by Category</span>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{monthLabel}</span>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{windowLabel}</span>
           </div>
           {pieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
@@ -1159,7 +1212,7 @@ export default function SpendingIncome() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState compact title={`No ${view} data for ${monthLabel}`} />
+            <EmptyState compact title={`No ${view} data for ${windowLabel}`} />
           )}
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>
             click a slice to see transactions
@@ -1175,7 +1228,9 @@ export default function SpendingIncome() {
           </div>
           <div style={{ maxHeight: 380, overflowY: 'auto' }}>
             {pieData.map((cat, i) => {
-              const trend = view === 'spending' ? trendsByCategory[cat.category] : null
+              // Sparklines and MoM/YoY badges are month-over-month
+              // concepts — they only mean something in 1mo mode.
+              const trend = isMonthMode && view === 'spending' ? trendsByCategory[cat.category] : null
               return (
                 <div
                   key={cat.category}
@@ -1243,7 +1298,7 @@ export default function SpendingIncome() {
       </div>
 
       {/* ─── Year-over-Year Comparison ─────────────────────── */}
-      {showYoY && yoyData && (
+      {isMonthMode && showYoY && yoyData && (
         <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
           <div className="card-header">
             <span className="card-title">Year-over-Year Comparison</span>

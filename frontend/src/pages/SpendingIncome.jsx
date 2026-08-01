@@ -1,22 +1,39 @@
 /**
  * Spending & Income — the analytics command center for personal cash flow.
  *
+ * ── The range filter ──────────────────────────────────────────
+ * One preset (1/2/3/4/5/6/12 months or YTD, persisted to localStorage)
+ * drives everything that isn't month-specific: the top stat cards, the
+ * trend chart + aggregate tiles, and Top Merchants. Pick "6mo" and the
+ * Spending card shows six months of spending compared against the six
+ * months before it — not just the month in the picker.
+ *
+ * We fetch a DOUBLE window (see lib/rangeStats.fetchWindowMonths) in a
+ * single call so the comparison period comes along for free, then split
+ * it into current + prior locally. All of that arithmetic lives in
+ * lib/rangeStats.js — this file only formats it.
+ *
+ * The month/year picker further down is still its own thing: it drives
+ * the category pie, Category Details, YoY table, waterfall and DOW
+ * heatmap, which are inherently single-month views.
+ *
  * Layout (top to bottom):
- *   1. Stat cards: Spending, Income, Net, Savings Rate, Forecast
- *   2. Income vs Spending bar chart (3/6/12 month toggle)
+ *   1. Stat cards: Spending, Income, Net, Savings Rate,
+ *      Projected Spend (1mo, current month) / Avg Spend per month
+ *   2. Income vs Spending bar chart + range preset buttons
  *   3. Month/year selector + Spending/Income toggle + YoY toggle
  *   4. Pie chart + Category Details (with sparklines, MoM/YoY deltas)
  *      Both are click-to-drill into TransactionDrawer
- *   5. Top Merchants + Recurring/Subscriptions (rolling 6mo)
+ *   5. Top Merchants (follows the range filter) + Recurring/Subscriptions
  *   6. Cash Flow Waterfall + Day-of-Week heatmap
  *   7. Income Sources panel (only in Income view)
  *
  * Backend endpoints used:
- *   - GET /transactions/income-vs-spending?months=N
+ *   - GET /transactions/income-vs-spending?months=N   (N <= 24; range filter)
  *   - GET /transactions/category-breakdown?month=&year=
  *   - GET /analytics/category-trends?month=&year=&months_back=6
  *   - GET /analytics/spending-patterns?month=&year=
- *   - GET /analytics/merchants?months=6
+ *   - GET /analytics/merchants?months=N               (range filter)
  *   - GET /analytics/recurring
  *   - GET /analytics/export?start_date=&end_date=  (download)
  */
@@ -44,6 +61,11 @@ import TrendStat from '../components/TrendStat'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 import { yearOptions, cleanMerchantName, formatCurrencyZero as fmt } from '../lib/format'
+import {
+  RANGE_PRESETS, DEFAULT_RANGE_PRESET, isValidPreset,
+  resolveRangeMonths, fetchWindowMonths, splitWindows,
+  aggregateWindow, periodDeltaPct,
+} from '../lib/rangeStats'
 import { SpendingHeatmap } from '../components/SpendingExtras'
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6', '#22d3ee', '#c084fc']
@@ -122,7 +144,10 @@ function DeltaBadge({ pct, inverse = false }) {
 }
 
 // ─── Top Merchants Card ──────────────────────────────────────
-function TopMerchantsCard({ merchants, onMerchantClick }) {
+// `rangeLabel` echoes the page's range filter ("last 6 months" /
+// "year to date") so the caption can never drift from the window the
+// data was actually fetched for.
+function TopMerchantsCard({ merchants, onMerchantClick, rangeLabel }) {
   return (
     <div className="card">
       <div className="card-header">
@@ -131,7 +156,7 @@ function TopMerchantsCard({ merchants, onMerchantClick }) {
           Top Merchants
         </span>
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-          last 6 months
+          {rangeLabel}
         </span>
       </div>
       {merchants.length === 0 ? (
@@ -657,25 +682,44 @@ function IncomeSourcesCard({ sources = [] }) {
   )
 }
 
+// The range preset survives reloads — it's a workspace preference, not
+// navigation state, and re-picking "12mo" on every visit gets old fast.
+// Same localStorage-with-try/catch pattern as the subscription statuses
+// above (Safari private mode throws on getItem/setItem).
+const TREND_PRESET_KEY = 'tuskledger.spendingIncome.trendPreset.v1'
+function loadTrendPreset() {
+  try {
+    const raw = localStorage.getItem(TREND_PRESET_KEY)
+    // Anything we don't recognise (a preset removed in a later build,
+    // hand-edited storage) falls back rather than reaching the API.
+    return isValidPreset(raw) ? raw : DEFAULT_RANGE_PRESET
+  } catch {
+    return DEFAULT_RANGE_PRESET
+  }
+}
+function saveTrendPreset(preset) {
+  try { localStorage.setItem(TREND_PRESET_KEY, preset) } catch {}
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  Main page
 // ═══════════════════════════════════════════════════════════════
 export default function SpendingIncome() {
   const today = new Date()
   const isMobile = useIsMobile()
-  const [monthlyData, setMonthlyData] = useState([])
+  // Raw income-vs-spending rows for the CURRENT window *plus* its
+  // comparison window — split locally by rangeStats.splitWindows.
+  const [rangeRows, setRangeRows] = useState([])
   const [breakdown, setBreakdown] = useState(null)
   const [trends, setTrends] = useState(null)
   const [patterns, setPatterns] = useState(null)
   const [merchants, setMerchants] = useState([])
   const [recurring, setRecurring] = useState(null)
-  // Range driving the trend chart + the new aggregate stats below it.
+  // Range driving the top stat cards, the trend chart and Top Merchants.
   // Stored as a string preset so 'ytd' can be a first-class option;
-  // resolves to a number for the API call.
-  const [trendPreset, setTrendPreset] = useState('6')
-  const timeRange = trendPreset === 'ytd'
-    ? Math.max(1, new Date().getMonth() + 1)
-    : parseInt(trendPreset, 10)
+  // resolves to a number for the API calls.
+  const [trendPreset, setTrendPreset] = useState(loadTrendPreset)
+  const rangeMonths = resolveRangeMonths(trendPreset)
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(today.getFullYear())
   const [view, setView] = useState('spending')
@@ -684,10 +728,24 @@ export default function SpendingIncome() {
   const [drawer, setDrawer] = useState({ open: false, title: '', subtitle: '', filters: {} })
   const [merchantDrawerName, setMerchantDrawerName] = useState(null)
   const runMonth = useLatestRequest()
+  const runRange = useLatestRequest()
+  const runMerchants = useLatestRequest()
 
+  const selectPreset = (key) => {
+    setTrendPreset(key)
+    saveTrendPreset(key)
+  }
+
+  // One fetch per preset. Guarded the same way as the month fetches —
+  // clicking 1mo → 12mo → 3mo fires three requests and the 12mo answer
+  // must not land on top of the 3mo view.
   useEffect(() => {
-    getIncomeVsSpending(timeRange).then(setMonthlyData).catch(() => {})
-  }, [timeRange])
+    runRange(token => {
+      getIncomeVsSpending(fetchWindowMonths(trendPreset))
+        .then(d => { if (token.live) setRangeRows(Array.isArray(d) ? d : []) })
+        .catch(() => { if (token.live) setRangeRows([]) })
+    })
+  }, [trendPreset, runRange])
 
   useEffect(() => {
     // Fast month-arrow clicks fire several parallel fetches; guard each so
@@ -703,26 +761,60 @@ export default function SpendingIncome() {
     })
   }, [selectedMonth, selectedYear, showYoY])
 
+  // Top Merchants follows the range filter too.
   useEffect(() => {
-    getMerchantInsights(6).then(d => setMerchants(d.merchants || [])).catch(() => {})
+    runMerchants(token => {
+      getMerchantInsights(resolveRangeMonths(trendPreset))
+        .then(d => { if (token.live) setMerchants(d.merchants || []) })
+        .catch(() => { if (token.live) setMerchants([]) })
+    })
+  }, [trendPreset, runMerchants])
+
+  useEffect(() => {
     getRecurring().then(setRecurring).catch(() => {})
   }, [])
 
-  // Derived numbers
-  const totalSpending = breakdown?.total_spending || 0
-  const totalIncome = breakdown?.total_income || 0
-  const netSavings = breakdown?.net || 0
-  const savingsRate = patterns?.savings_rate
+  // ─── Range-derived numbers ──────────────────────────────────
+  // `windowRows` is what the chart draws; `priorRows` only ever feeds
+  // the comparison badges. All the arithmetic is in lib/rangeStats so
+  // the same code can be exercised straight against the DB.
+  const { current: windowRows, prior: priorRows } = useMemo(
+    () => splitWindows(rangeRows, trendPreset),
+    [rangeRows, trendPreset],
+  )
+  const windowAgg = useMemo(() => aggregateWindow(windowRows), [windowRows])
+  const priorAgg = useMemo(() => aggregateWindow(priorRows), [priorRows])
+  // Both badges hide themselves when the two windows cover a different
+  // number of active months — pre-ledger months come back as zeros, not
+  // as real zero-spend months, so those totals aren't comparable.
+  const spendingDelta = periodDeltaPct(windowAgg, priorAgg, 'spending')
+  const incomeDelta = periodDeltaPct(windowAgg, priorAgg, 'income')
+  const compareLabel = trendPreset === 'ytd'
+    ? 'vs same period last year'
+    : `vs prior ${rangeMonths}mo`
+
+  // Caption above the stat grid — one line, so the cards themselves
+  // don't need a noisy "· 6mo" suffix on every label.
+  const windowLabel = trendPreset === 'ytd'
+    ? 'year to date'
+    : rangeMonths === 1
+      ? today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : `last ${rangeMonths} months`
+
+  // Chart title — YTD reports how many months actually carried data,
+  // numeric presets just name the span.
+  const trendLabel = trendPreset === 'ytd'
+    ? `Year-to-date · ${windowAgg.monthsWithData} mo`
+    : rangeMonths === 1 ? 'This month' : `Last ${rangeMonths} mo`
+  // Caption on the Top Merchants card, same window.
+  const merchantRangeLabel = trendPreset === 'ytd'
+    ? 'year to date'
+    : `last ${rangeMonths} month${rangeMonths === 1 ? '' : 's'}`
+
   const forecast = patterns?.forecast
-  const isCurrentMonth = forecast?.is_current_month
-  const monthChanges = (() => {
-    // Compute month-over-month from trends data — sum the deltas
-    if (!trends?.categories) return null
-    const cur = trends.categories.reduce((s, c) => s + c.amount, 0)
-    const prev = trends.categories.reduce((s, c) => s + c.prev_month_amount, 0)
-    if (prev === 0) return null
-    return ((cur - prev) / prev) * 100
-  })()
+  // The Projected Spend card only makes sense when the window IS the
+  // current month; every other range shows the per-month average.
+  const showProjected = trendPreset === '1' && !!forecast?.is_current_month
 
   const pieData = (view === 'spending' ? breakdown?.spending_categories : breakdown?.income_categories) || []
 
@@ -762,13 +854,18 @@ export default function SpendingIncome() {
   }
 
   // Forecast comparison: are we on track to beat / overshoot last month?
+  // Current-month concept, so it only renders on the 1mo preset. The
+  // 1mo display window is a single row, so "last month" comes from the
+  // comparison window we already fetched alongside it.
   const forecastVsLast = useMemo(() => {
+    if (trendPreset !== '1') return null
     if (!forecast?.is_current_month) return null
-    const last = monthlyData.length >= 2 ? monthlyData[monthlyData.length - 2]?.spending : null
+    const rows = [...priorRows, ...windowRows]
+    const last = rows.length >= 2 ? rows[rows.length - 2]?.spending : null
     if (!last) return null
     const diff = forecast.projected_total - last
     return { last, diff, pct: last > 0 ? (diff / last) * 100 : null }
-  }, [forecast, monthlyData])
+  }, [trendPreset, forecast, priorRows, windowRows])
 
   return (
     <div>
@@ -783,50 +880,73 @@ export default function SpendingIncome() {
         </button>
       </div>
 
-      {/* ─── Stat cards (5-up) ──────────────────────────────── */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+      {/* ─── Stat cards (5-up, range-driven) ────────────────── */}
+      <div style={{
+        fontSize: 'var(--text-xs)',
+        color: 'var(--text-muted)',
+        marginBottom: 'var(--space-2)',
+      }}>
+        Totals for {windowLabel}
+      </div>
+      <div
+        className="stats-grid"
+        style={{ gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)' }}
+      >
         <Stat
           label="Spending"
           icon={<TrendingDown size={14} color="var(--accent-red)" />}
-          value={fmt(totalSpending)}
+          value={fmt(windowAgg.spending)}
           tone="negative"
-          sub={monthChanges !== null ? (
+          sub={spendingDelta !== null ? (
             <span>
-              <DeltaBadge pct={monthChanges} inverse /> vs last month
+              <DeltaBadge pct={spendingDelta} inverse /> {compareLabel}
             </span>
           ) : null}
         />
         <Stat
           label="Income"
           icon={<TrendingUp size={14} color="var(--accent-green)" />}
-          value={fmt(totalIncome)}
+          value={fmt(windowAgg.income)}
           tone="positive"
+          sub={incomeDelta !== null ? (
+            <span>
+              <DeltaBadge pct={incomeDelta} /> {compareLabel}
+            </span>
+          ) : null}
         />
         <Stat
           label="Net"
           icon={<DollarSign size={14} color="var(--accent-blue)" />}
-          value={fmt(netSavings)}
-          tone={netSavings >= 0 ? 'positive' : 'negative'}
+          value={fmt(windowAgg.net)}
+          tone={windowAgg.net >= 0 ? 'positive' : 'negative'}
         />
         <Stat
           label="Savings Rate"
           icon={<Percent size={14} color="var(--accent-purple)" />}
-          value={savingsRate !== null && savingsRate !== undefined ? `${savingsRate}%` : '—'}
-          tone={savingsRate >= 20 ? 'positive' : savingsRate < 0 ? 'negative' : undefined}
-          sub={savingsRate >= 20 ? 'healthy' : savingsRate >= 0 ? 'building' : 'overspending'}
-        />
-        <Stat
-          label={isCurrentMonth ? 'Projected Spend' : 'Avg / Day'}
-          icon={<Calendar size={14} color="var(--accent-orange)" />}
-          value={
-            isCurrentMonth
-              ? fmt(forecast?.projected_total || 0)
-              : fmt(forecast?.daily_avg || 0)
+          value={windowAgg.savingsRate !== null ? `${windowAgg.savingsRate.toFixed(1)}%` : '—'}
+          tone={
+            windowAgg.savingsRate === null ? undefined
+              : windowAgg.savingsRate >= 20 ? 'positive'
+                : windowAgg.savingsRate < 0 ? 'negative' : undefined
           }
           sub={
-            isCurrentMonth && forecast
+            windowAgg.savingsRate === null ? null
+              : windowAgg.savingsRate >= 20 ? 'healthy'
+                : windowAgg.savingsRate >= 0 ? 'building' : 'overspending'
+          }
+        />
+        <Stat
+          label={showProjected ? 'Projected Spend' : 'Avg Spend / mo'}
+          icon={<Calendar size={14} color="var(--accent-orange)" />}
+          value={
+            showProjected
+              ? fmt(forecast?.projected_total || 0)
+              : fmt(windowAgg.avgSpending)
+          }
+          sub={
+            showProjected
               ? `${forecast.days_elapsed}/${forecast.days_in_month} days · ${fmt(forecast.daily_avg)}/day`
-              : forecast ? `${forecast.days_in_month} days` : null
+              : `over ${windowAgg.monthsWithData} mo`
           }
         />
       </div>
@@ -854,121 +974,104 @@ export default function SpendingIncome() {
       )}
 
       {/* ─── Income vs Spending trend ──────────────────────── */}
-      {/* Aggregates from the same monthlyData that feeds the chart, so the
-          stats and the bars can never disagree. Months-with-data is used
-          as the avg denominator (not raw range) so a partial current
-          month / partial YTD doesn't artificially deflate the per-month
+      {/* The tiles read the same windowAgg the stat cards above do, and
+          the bars draw the same windowRows it was computed from, so the
+          three can never disagree. Months-with-data is the avg
+          denominator (not the raw range) so a partial current month /
+          partial YTD doesn't artificially deflate the per-month
           numbers. */}
-      {(() => {
-        const totalIncome = monthlyData.reduce((s, m) => s + (m.income || 0), 0)
-        const totalSpending = monthlyData.reduce((s, m) => s + (m.spending || 0), 0)
-        const net = totalIncome - totalSpending
-        const monthsWithData = monthlyData.filter(
-          m => (m.income || 0) > 0 || (m.spending || 0) > 0
-        ).length
-        const avgIncome = monthsWithData > 0 ? totalIncome / monthsWithData : 0
-        const avgSpending = monthsWithData > 0 ? totalSpending / monthsWithData : 0
-        const avgNet = monthsWithData > 0 ? net / monthsWithData : 0
-        const trendLabel = trendPreset === 'ytd'
-          ? `Year-to-date · ${monthsWithData} mo`
-          : `Last ${timeRange} mo`
-
-        return (
-          <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
-            <div className="card-header">
-              <span className="card-title">Income vs Spending Trend · {trendLabel}</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {[
-                  { key: '2',  label: '2mo'  },
-                  { key: '3',  label: '3mo'  },
-                  { key: '6',  label: '6mo'  },
-                  { key: '12', label: '12mo' },
-                  { key: 'ytd', label: 'YTD' },
-                ].map(({ key, label }) => {
-                  const active = trendPreset === key
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setTrendPreset(key)}
-                      className={active ? 'btn btn-primary' : 'btn btn-secondary'}
-                      style={{ padding: '6px 14px', fontSize: 12 }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Aggregate tiles — same shape as the Dashboard's Trend snapshot
-                so jumping between the two pages is visually consistent. */}
-            {monthsWithData > 0 && (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 12,
-                marginBottom: 16,
-              }}>
-                <TrendStat
-                  label="Income"
-                  total={totalIncome}
-                  avg={avgIncome}
-                  color="var(--accent-green)"
-                />
-                <TrendStat
-                  label="Spending"
-                  total={totalSpending}
-                  avg={avgSpending}
-                  color="var(--accent-red)"
-                />
-                <TrendStat
-                  label="Net"
-                  total={net}
-                  avg={avgNet}
-                  color={net >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
-                />
-                <TrendStat
-                  label="Months counted"
-                  total={`${monthsWithData} of ${monthlyData.length}`}
-                  avg={monthsWithData < monthlyData.length ? 'partial month included' : 'all complete'}
-                  color="var(--text-secondary)"
-                  isText
-                />
-              </div>
-            )}
-
-            {monthlyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
-                <BarChart
-                  data={monthlyData}
-                  barGap={isMobile ? 2 : 4}
-                  margin={isMobile
-                    ? { top: 8, right: 4, left: -8, bottom: 0 }
-                    : { top: 8, right: 12, left: 0, bottom: 0 }}
+      <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
+        <div className="card-header">
+          <span className="card-title">Income vs Spending Trend · {trendLabel}</span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {RANGE_PRESETS.map(({ key, label }) => {
+              const active = trendPreset === key
+              const months = resolveRangeMonths(key, today)
+              return (
+                <button
+                  key={key}
+                  onClick={() => selectPreset(key)}
+                  aria-pressed={active}
+                  aria-label={key === 'ytd'
+                    ? 'Show year to date'
+                    : `Show last ${months} month${months === 1 ? '' : 's'}`}
+                  className={active ? 'btn btn-primary' : 'btn btn-secondary'}
+                  style={{ padding: '6px 14px', fontSize: 12 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
-                    interval={isMobile ? 'preserveStartEnd' : 0}
-                  />
-                  <YAxis
-                    tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
-                    tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
-                    width={isMobile ? 36 : 60}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  {!isMobile && <Legend wrapperStyle={{ fontSize: 13 }} />}
-                  <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="spending" name="Spending" fill="#f87171" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState compact icon={<BarChart3 size={20} />} title="No trend data yet" />
-            )}
+                  {label}
+                </button>
+              )
+            })}
           </div>
-        )
-      })()}
+        </div>
+
+        {/* Aggregate tiles — same shape as the Dashboard's Trend snapshot
+            so jumping between the two pages is visually consistent. */}
+        {windowAgg.monthsWithData > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+            gap: 12,
+            marginBottom: 16,
+          }}>
+            <TrendStat
+              label="Income"
+              total={windowAgg.income}
+              avg={windowAgg.avgIncome}
+              color="var(--accent-green)"
+            />
+            <TrendStat
+              label="Spending"
+              total={windowAgg.spending}
+              avg={windowAgg.avgSpending}
+              color="var(--accent-red)"
+            />
+            <TrendStat
+              label="Net"
+              total={windowAgg.net}
+              avg={windowAgg.avgNet}
+              color={windowAgg.net >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+            />
+            <TrendStat
+              label="Months counted"
+              total={`${windowAgg.monthsWithData} of ${windowRows.length}`}
+              avg={windowAgg.monthsWithData < windowRows.length ? 'partial month included' : 'all complete'}
+              color="var(--text-secondary)"
+              isText
+            />
+          </div>
+        )}
+
+        {windowRows.length > 0 ? (
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
+            <BarChart
+              data={windowRows}
+              barGap={isMobile ? 2 : 4}
+              margin={isMobile
+                ? { top: 8, right: 4, left: -8, bottom: 0 }
+                : { top: 8, right: 12, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
+                interval={isMobile ? 'preserveStartEnd' : 0}
+              />
+              <YAxis
+                tick={{ fill: 'var(--text-muted)', fontSize: isMobile ? 10 : 12 }}
+                tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
+                width={isMobile ? 36 : 60}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              {!isMobile && <Legend wrapperStyle={{ fontSize: 13 }} />}
+              <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="spending" name="Spending" fill="#f87171" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <EmptyState compact icon={<BarChart3 size={20} />} title="No trend data yet" />
+        )}
+      </div>
 
       {/* ─── Month + view picker ───────────────────────────── */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1239,6 +1342,7 @@ export default function SpendingIncome() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 'var(--space-6)' }}>
         <TopMerchantsCard
           merchants={merchants}
+          rangeLabel={merchantRangeLabel}
           onMerchantClick={(m) => setMerchantDrawerName(m.merchant)}
         />
         <RecurringCard data={recurring} onRulesChanged={() => getRecurring().then(setRecurring).catch(() => {})} />

@@ -115,6 +115,10 @@ export const getNetWorthHistory = (days = 90) => request(`/net-worth/?days=${day
 export const getLatestNetWorth = () => request('/net-worth/latest');
 
 // Analytics
+// Oldest→newest monthly buckets, ending with the current (partial)
+// month. The backend caps `months` at 24 — Spending & Income asks for a
+// doubled window (see lib/rangeStats.fetchWindowMonths) so the range
+// filter's comparison period arrives in the same round-trip.
 export const getIncomeVsSpending = (months = 6) =>
   request(`/transactions/income-vs-spending?months=${months}`);
 export const getCategoryBreakdown = (month, year) =>
@@ -149,6 +153,8 @@ export const createRule = (data) =>
 export const deleteRule = (id) =>
   request(`/analytics/rules/${id}`, { method: 'DELETE' });
 export const getRecurring = () => request('/analytics/recurring');
+// Rolling window of top merchants; `months` is arbitrary up to 24 and
+// follows the Spending & Income range filter.
 export const getMerchantInsights = (months = 6) =>
   request(`/analytics/merchants?months=${months}`);
 export const getMonthlyReport = (month, year) =>

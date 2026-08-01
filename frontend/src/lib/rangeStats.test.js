@@ -60,6 +60,11 @@ describe('resolveRangeMonths', () => {
     expect(resolveRangeMonths('12', AUG_2026)).toBe(12)
   })
 
+  it('resolves the last-month preset to a single month', () => {
+    expect(resolveRangeMonths('last', AUG_2026)).toBe(1)
+    expect(resolveRangeMonths('last', JAN_2026)).toBe(1)
+  })
+
   it('resolves ytd to the number of months elapsed this year, inclusive', () => {
     expect(resolveRangeMonths('ytd', AUG_2026)).toBe(8)
     expect(resolveRangeMonths('ytd', DEC_2026)).toBe(12)
@@ -84,6 +89,11 @@ describe('fetchWindowMonths', () => {
     expect(fetchWindowMonths('4', AUG_2026)).toBe(8)
     expect(fetchWindowMonths('5', AUG_2026)).toBe(10)
     expect(fetchWindowMonths('6', AUG_2026)).toBe(12)
+  })
+
+  it('asks for 2 months for the last-month preset (window + comparison)', () => {
+    expect(fetchWindowMonths('last', AUG_2026)).toBe(2)
+    expect(fetchWindowMonths('last', JAN_2026)).toBe(2)
   })
 
   it('caps at the backend le=24 limit', () => {
@@ -128,6 +138,19 @@ describe('windowRangeDates', () => {
     expect(windowRangeDates('1', new Date(2026, 8, 12))).toEqual({
       start_date: '2026-09-01',
       end_date: '2026-09-30',
+    })
+  })
+
+  it('covers the anchor month for the last-month preset', () => {
+    // Anchor is the PREVIOUS month — the page shifts it, not the helper.
+    expect(windowRangeDates('last', new Date(2026, 6, 1))).toEqual({
+      start_date: '2026-07-01',
+      end_date: '2026-07-31',
+    })
+    // January anchor after a December→January rollover.
+    expect(windowRangeDates('last', new Date(2025, 11, 1))).toEqual({
+      start_date: '2025-12-01',
+      end_date: '2025-12-31',
     })
   })
 
@@ -189,6 +212,14 @@ describe('splitWindows', () => {
     const { current, prior } = splitWindows(rows, '1', AUG_2026)
     expect(current.map(r => r.month)).toEqual(['Aug 2026'])
     expect(prior.map(r => r.month)).toEqual(['Jul 2026'])
+  })
+
+  it('treats the last-month preset as a 1-month numeric window', () => {
+    // The page anchors this fetch on July, so the rows are Jun + Jul.
+    const rows = series(2, 2026, 7)
+    const { current, prior } = splitWindows(rows, 'last', AUG_2026)
+    expect(current.map(r => r.month)).toEqual(['Jul 2026'])
+    expect(prior.map(r => r.month)).toEqual(['Jun 2026'])
   })
 
   it('crosses the year boundary correctly', () => {
@@ -415,8 +446,18 @@ describe('periodDeltaPct', () => {
 
 // ─── preset registry ──────────────────────────────────────────
 describe('preset registry', () => {
-  it('offers 1,2,3,4,5,6,12 and ytd', () => {
-    expect(RANGE_PRESETS.map(p => p.key)).toEqual(['1', '2', '3', '4', '5', '6', '12', 'ytd'])
+  it('offers last, 1,2,3,4,5,6,12 and ytd', () => {
+    expect(RANGE_PRESETS.map(p => p.key)).toEqual(['last', '1', '2', '3', '4', '5', '6', '12', 'ytd'])
+  })
+
+  it('leads with the single-month pair, labelled by which month they mean', () => {
+    expect(RANGE_PRESETS.slice(0, 2)).toEqual([
+      { key: 'last', label: 'Last mo' },
+      { key: '1', label: 'This mo' },
+    ])
+    expect(RANGE_PRESETS.map(p => p.label)).toEqual([
+      'Last mo', 'This mo', '2mo', '3mo', '4mo', '5mo', '6mo', '12mo', 'YTD',
+    ])
   })
 
   it('defaults to the current month', () => {
@@ -424,8 +465,13 @@ describe('preset registry', () => {
     expect(isValidPreset(DEFAULT_RANGE_PRESET)).toBe(true)
   })
 
+  it('accepts the last-month preset', () => {
+    expect(isValidPreset('last')).toBe(true)
+  })
+
   it('rejects values that are not known preset keys', () => {
     expect(isValidPreset('9')).toBe(false)
+    expect(isValidPreset('Last')).toBe(false)
     expect(isValidPreset('YTD')).toBe(false)
     expect(isValidPreset(6)).toBe(false)
     expect(isValidPreset(null)).toBe(false)

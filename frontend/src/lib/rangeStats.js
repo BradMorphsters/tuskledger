@@ -3,8 +3,8 @@
  *
  * Everything on that page — the top stat cards, the trend chart, the
  * aggregate tiles and the Top Merchants card — is driven by a single
- * range preset ('1'…'12' or 'ytd'). This module owns *all* of the
- * arithmetic behind that: how many months to ask the API for, how to
+ * range preset ('1'…'12', 'last' or 'ytd'). This module owns *all* of
+ * the arithmetic behind that: how many months to ask the API for, how to
  * slice the response into a display window plus a comparison window,
  * how to aggregate a window, and how to compare two windows.
  *
@@ -27,9 +27,15 @@
 /**
  * The range presets offered in the UI, in display order.
  * `key` is what we persist to localStorage; `label` is the button text.
+ *
+ * 'last' and '1' are the single-month pair and lead the row: 'last' is
+ * the previous COMPLETE calendar month, '1' is the current (partial)
+ * one. It's the caller's job to hand the helpers here the right anchor;
+ * this module never decides "which month is last".
  */
 export const RANGE_PRESETS = [
-  { key: '1', label: '1mo' },
+  { key: 'last', label: 'Last mo' },
+  { key: '1', label: 'This mo' },
   { key: '2', label: '2mo' },
   { key: '3', label: '3mo' },
   { key: '4', label: '4mo' },
@@ -62,14 +68,17 @@ export function isValidPreset(preset) {
  *
  * 'ytd' means January through the current month inclusive, so it
  * resolves to `now.getMonth() + 1` (1 in January, 12 in December).
+ * 'last' is a single (previous) month, so it resolves to 1 — which
+ * month that is comes from the anchor the caller supplies elsewhere.
  * Numeric presets resolve to themselves.
  *
- * @param {string} preset — '1'…'12' or 'ytd'
+ * @param {string} preset — '1'…'12', 'last' or 'ytd'
  * @param {Date} [now] — injectable clock; tests must always pass this
  * @returns {number} months in the display window (>= 1)
  */
 export function resolveRangeMonths(preset, now = new Date()) {
   if (preset === 'ytd') return now.getMonth() + 1
+  if (preset === 'last') return 1
   const n = parseInt(preset, 10)
   // Defensive: an unknown preset shouldn't produce NaN months and blow
   // up the query string. Callers should validate with isValidPreset.
@@ -81,6 +90,7 @@ export function resolveRangeMonths(preset, now = new Date()) {
  * display window and the comparison window in one round-trip.
  *
  *   numeric N → N * 2   (current N months + the N months before them)
+ *   'last'    → 2       (N = 1, so it just takes the numeric path)
  *   'ytd'     → N + 12  (this year so far + the same span last year,
  *                        which sits 12 months earlier)
  *
@@ -112,6 +122,10 @@ const _pad = n => String(n).padStart(2, '0')
  * aligned with the monthly buckets the trend chart draws.
  *
  *   numeric N → start = 1st of (anchor month − (N − 1))
+ *   'last'    → N = 1, so the anchor's month alone. This helper is
+ *               purely anchor-driven — it does NOT shift to "the
+ *               previous month" itself; the page passes the previous
+ *               month as the anchor for that preset.
  *   'ytd'     → start = January 1st of the anchor's year
  *
  * Built from local calendar fields (never `toISOString`, which shifts
@@ -148,6 +162,8 @@ export function windowRangeDates(preset, anchor = new Date()) {
  *
  *   numeric N → current = the last N rows
  *               prior   = the N rows immediately before those
+ *   'last'    → the numeric path with N = 1: current = the newest row
+ *               (the anchored previous month), prior = the one before
  *   'ytd'     → current = the last N rows (Jan…current month this year)
  *               prior   = last year's rows for the same months
  *                         (year === thisYear - 1 && month_num <= N)

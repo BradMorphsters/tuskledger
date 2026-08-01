@@ -2,24 +2,28 @@
  * Spending & Income — the analytics command center for personal cash flow.
  *
  * ── One filter drives the whole page ──────────────────────────
- * A single range preset (1/2/3/4/5/6/12 months or YTD, persisted to
- * localStorage) governs EVERY panel here: the top stat cards, the trend
- * chart, Top Merchants, the category pie, Category Details, the
- * waterfall, the day-of-week heatmap, Income Sources, the CSV export
- * and the drill-down drawers. Pick "6mo" and every number on the page
- * describes those six months.
+ * A single range preset (Last mo, This mo, 2/3/4/5/6/12 months or YTD,
+ * persisted to localStorage) governs EVERY panel here: the top stat
+ * cards, the trend chart, Top Merchants, the category pie, Category
+ * Details, the waterfall, the day-of-week heatmap, Income Sources, the
+ * CSV export and the drill-down drawers. Pick "6mo" and every number on
+ * the page describes those six months.
  *
- * Two modes:
+ * Single-month presets ('1' and 'last') keep the month/year endpoints
+ * and the month-over-month machinery — sparklines, MoM/YoY badges and
+ * the YoY comparison table. They differ only in where the anchor comes
+ * from:
  *
- *   1mo mode (preset === '1') — the month/year picker appears and acts
- *   as a drill-down: it moves the ANCHOR, so the whole page (top cards,
- *   both trend bars, pie, waterfall, exports) follows it. Per-category
- *   sparklines, MoM/YoY badges and the YoY comparison table are
- *   month-only concepts and only render here.
+ *   '1' — the month/year picker appears and acts as a drill-down: it
+ *   moves the ANCHOR, so the whole page (top cards, both trend bars,
+ *   pie, waterfall, exports) follows it.
  *
- *   Range mode (everything else) — the picker is hidden and the anchor
- *   is the current month. The month-scoped endpoints are called with
- *   explicit start/end dates instead (see lib/rangeStats.windowRangeDates).
+ *   'last' — no picker; the anchor is always the previous complete
+ *   calendar month.
+ *
+ * Range mode (every other preset) — no picker, anchor is the current
+ * month, and the month-scoped endpoints are called with explicit
+ * start/end dates instead (see lib/rangeStats.windowRangeDates).
  *
  * The trend chart fetches a DOUBLE window (lib/rangeStats.fetchWindowMonths)
  * in one call so the comparison period comes along for free, then splits
@@ -30,10 +34,10 @@
  *   1. Stat cards: Spending, Income, Net, Savings Rate,
  *      Projected Spend (1mo on the current month) / Avg Spend per month
  *   2. Income vs Spending bar chart + range preset buttons
- *   3. Month/year selector (1mo only) + YoY toggle (1mo only)
+ *   3. Month/year selector (1mo only) + YoY toggle (single-month only)
  *      + Spending/Income toggle (always)
  *   4. Pie chart + Category Details — sparklines and MoM/YoY deltas in
- *      1mo mode only. Both are click-to-drill into TransactionDrawer
+ *      single-month mode only. Both click-to-drill into TransactionDrawer
  *   5. Top Merchants + Recurring/Subscriptions
  *   6. Cash Flow Waterfall + Day-of-Week heatmap
  *   7. Income Sources panel (only in Income view)
@@ -734,9 +738,12 @@ export default function SpendingIncome() {
   // resolves to a number for the API calls.
   const [trendPreset, setTrendPreset] = useState(loadTrendPreset)
   const rangeMonths = resolveRangeMonths(trendPreset)
-  // 1mo mode turns the month picker into a page-wide drill-down; every
-  // other preset hides it and anchors on the current month.
+  // 1mo mode turns the month picker into a page-wide drill-down. 'last'
+  // is the same single-month shape without a picker (it always points at
+  // the previous complete month), so month-over-month features key off
+  // `isSingleMonth` while the picker itself keys off `isMonthMode`.
   const isMonthMode = trendPreset === '1'
+  const isSingleMonth = isMonthMode || trendPreset === 'last'
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(today.getFullYear())
   const [view, setView] = useState('spending')
@@ -754,9 +761,13 @@ export default function SpendingIncome() {
   }
 
   // The newest month of the active window. In 1mo mode the picker owns
-  // it; otherwise it's the current month.
-  const anchorMonth = isMonthMode ? selectedMonth : today.getMonth() + 1
-  const anchorYear = isMonthMode ? selectedYear : today.getFullYear()
+  // it; 'last' steps back one calendar month (Date handles the January →
+  // December-of-last-year rollover); everything else uses this month.
+  const anchorDate = trendPreset === 'last'
+    ? new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    : new Date(today.getFullYear(), today.getMonth(), 1)
+  const anchorMonth = isMonthMode ? selectedMonth : anchorDate.getMonth() + 1
+  const anchorYear = isMonthMode ? selectedYear : anchorDate.getFullYear()
   // Inclusive ISO bounds of the active window — kept as two primitive
   // strings (not an object) so they can sit in effect dep arrays without
   // re-triggering on every render.
@@ -773,52 +784,53 @@ export default function SpendingIncome() {
     runRange(token => {
       getIncomeVsSpending(
         fetchWindowMonths(trendPreset),
-        isMonthMode ? selectedMonth : null,
-        isMonthMode ? selectedYear : null,
+        isSingleMonth ? anchorMonth : null,
+        isSingleMonth ? anchorYear : null,
       )
         .then(d => { if (token.live) setRangeRows(Array.isArray(d) ? d : []) })
         .catch(() => { if (token.live) setRangeRows([]) })
     })
-  }, [trendPreset, isMonthMode, selectedMonth, selectedYear, runRange])
+  }, [trendPreset, isSingleMonth, anchorMonth, anchorYear, runRange])
 
   useEffect(() => {
     // Fast month-arrow / preset clicks fire several parallel fetches;
     // guard each so a slow response for a previous window can't render
     // under the new window's label.
     //
-    // 1mo mode keeps the month/year endpoints (identical payloads to
-    // before); every other preset uses the date-range variants.
+    // Single-month presets keep the month/year endpoints (identical
+    // payloads to before); every other preset uses the range variants.
     runWindow(token => {
-      const breakdownReq = isMonthMode
-        ? getCategoryBreakdown(selectedMonth, selectedYear)
+      const breakdownReq = isSingleMonth
+        ? getCategoryBreakdown(anchorMonth, anchorYear)
         : getCategoryBreakdownRange(windowStart, windowEnd)
-      const patternsReq = isMonthMode
-        ? getSpendingPatterns(selectedMonth, selectedYear)
+      const patternsReq = isSingleMonth
+        ? getSpendingPatterns(anchorMonth, anchorYear)
         : getSpendingPatternsRange(windowStart, windowEnd)
       breakdownReq.then(d => { if (token.live) setBreakdown(d) }).catch(() => { if (token.live) setBreakdown(null) })
       patternsReq.then(d => { if (token.live) setPatterns(d) }).catch(() => { if (token.live) setPatterns(null) })
       // Per-category history is inherently month-over-month, so it stays
-      // anchored to a single month and only renders in 1mo mode.
+      // anchored to a single month and only renders in single-month mode.
       getCategoryTrends(anchorMonth, anchorYear, 6).then(d => { if (token.live) setTrends(d) }).catch(() => { if (token.live) setTrends(null) })
-      if (showYoY && isMonthMode) {
-        getYearOverYear(selectedMonth, selectedYear).then(d => { if (token.live) setYoyData(d) }).catch(() => { if (token.live) setYoyData(null) })
+      if (showYoY && isSingleMonth) {
+        getYearOverYear(anchorMonth, anchorYear).then(d => { if (token.live) setYoyData(d) }).catch(() => { if (token.live) setYoyData(null) })
       }
     })
-  }, [isMonthMode, selectedMonth, selectedYear, anchorMonth, anchorYear, windowStart, windowEnd, showYoY, runWindow])
+  }, [isSingleMonth, anchorMonth, anchorYear, windowStart, windowEnd, showYoY, runWindow])
 
-  // Top Merchants follows the range filter too — including the 1mo
-  // picker, so it can't show a different window than everything else.
+  // Top Merchants follows the range filter too — including the anchor
+  // for single-month presets, so it can't show a different window than
+  // everything else on the page.
   useEffect(() => {
     runMerchants(token => {
       getMerchantInsights(
         resolveRangeMonths(trendPreset),
-        isMonthMode ? selectedMonth : null,
-        isMonthMode ? selectedYear : null,
+        isSingleMonth ? anchorMonth : null,
+        isSingleMonth ? anchorYear : null,
       )
         .then(d => { if (token.live) setMerchants(d.merchants || []) })
         .catch(() => { if (token.live) setMerchants([]) })
     })
-  }, [trendPreset, isMonthMode, selectedMonth, selectedYear, runMerchants])
+  }, [trendPreset, isSingleMonth, anchorMonth, anchorYear, runMerchants])
 
   useEffect(() => {
     getRecurring().then(setRecurring).catch(() => {})
@@ -861,7 +873,8 @@ export default function SpendingIncome() {
   // numeric presets just name the span.
   const trendLabel = trendPreset === 'ytd'
     ? `Year-to-date · ${windowAgg.monthsWithData} mo`
-    : rangeMonths === 1 ? 'This month' : `Last ${rangeMonths} mo`
+    : trendPreset === 'last' ? 'Last month'
+      : rangeMonths === 1 ? 'This month' : `Last ${rangeMonths} mo`
   // Caption on the Top Merchants card, same window. In 1mo mode the
   // window is a named calendar month, not a trailing span.
   const merchantRangeLabel = trendPreset === 'ytd'
@@ -981,18 +994,26 @@ export default function SpendingIncome() {
                 : windowAgg.savingsRate >= 0 ? 'building' : 'overspending'
           }
         />
+        {/* Third face of this card: a single complete month ('last', or
+            '1' parked on a past month) has no projection left to make,
+            and its avg-per-month would just restate the Spending card —
+            so it falls back to the per-day rate. */}
         <Stat
-          label={showProjected ? 'Projected Spend' : 'Avg Spend / mo'}
+          label={showProjected ? 'Projected Spend' : rangeMonths === 1 ? 'Avg / Day' : 'Avg Spend / mo'}
           icon={<Calendar size={14} color="var(--accent-orange)" />}
           value={
             showProjected
               ? fmt(forecast?.projected_total || 0)
-              : fmt(windowAgg.avgSpending)
+              : rangeMonths === 1
+                ? fmt(forecast?.daily_avg || 0)
+                : fmt(windowAgg.avgSpending)
           }
           sub={
             showProjected
               ? `${forecast.days_elapsed}/${forecast.days_in_month} days · ${fmt(forecast.daily_avg)}/day`
-              : `over ${windowAgg.monthsWithData} mo`
+              : rangeMonths === 1
+                ? (forecast ? `${forecast.days_in_month} days` : null)
+                : `over ${windowAgg.monthsWithData} mo`
           }
         />
       </div>
@@ -1040,7 +1061,11 @@ export default function SpendingIncome() {
                   aria-pressed={active}
                   aria-label={key === 'ytd'
                     ? 'Show year to date'
-                    : `Show last ${months} month${months === 1 ? '' : 's'}`}
+                    : key === 'last'
+                      ? 'Show last month'
+                      : key === '1'
+                        ? 'Show this month'
+                        : `Show last ${months} months`}
                   className={active ? 'btn btn-primary' : 'btn btn-secondary'}
                   style={{ padding: '6px 14px', fontSize: 12 }}
                 >
@@ -1162,11 +1187,15 @@ export default function SpendingIncome() {
             >
               {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
             </select>
-            <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <input type="checkbox" checked={showYoY} onChange={e => setShowYoY(e.target.checked)} />
-              show year-over-year
-            </label>
           </>
+        )}
+        {/* YoY needs a single month to compare, but not a picker — it's
+            just as meaningful for the 'last' preset. */}
+        {isSingleMonth && (
+          <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={showYoY} onChange={e => setShowYoY(e.target.checked)} />
+            show year-over-year
+          </label>
         )}
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
           <button
@@ -1230,7 +1259,7 @@ export default function SpendingIncome() {
             {pieData.map((cat, i) => {
               // Sparklines and MoM/YoY badges are month-over-month
               // concepts — they only mean something in 1mo mode.
-              const trend = isMonthMode && view === 'spending' ? trendsByCategory[cat.category] : null
+              const trend = isSingleMonth && view === 'spending' ? trendsByCategory[cat.category] : null
               return (
                 <div
                   key={cat.category}
@@ -1298,7 +1327,7 @@ export default function SpendingIncome() {
       </div>
 
       {/* ─── Year-over-Year Comparison ─────────────────────── */}
-      {isMonthMode && showYoY && yoyData && (
+      {isSingleMonth && showYoY && yoyData && (
         <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
           <div className="card-header">
             <span className="card-title">Year-over-Year Comparison</span>

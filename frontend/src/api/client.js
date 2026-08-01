@@ -119,10 +119,21 @@ export const getLatestNetWorth = () => request('/net-worth/latest');
 // month. The backend caps `months` at 24 — Spending & Income asks for a
 // doubled window (see lib/rangeStats.fetchWindowMonths) so the range
 // filter's comparison period arrives in the same round-trip.
-export const getIncomeVsSpending = (months = 6) =>
-  request(`/transactions/income-vs-spending?months=${months}`);
+// `endMonth`/`endYear` anchor the newest month of the window somewhere
+// other than today; both must be supplied or neither is sent.
+export const getIncomeVsSpending = (months = 6, endMonth = null, endYear = null) => {
+  const anchor = (endMonth !== null && endMonth !== undefined &&
+                  endYear !== null && endYear !== undefined)
+    ? `&end_month=${endMonth}&end_year=${endYear}`
+    : '';
+  return request(`/transactions/income-vs-spending?months=${months}${anchor}`);
+};
 export const getCategoryBreakdown = (month, year) =>
   request(`/transactions/category-breakdown?month=${month}&year=${year}`);
+// Same endpoint over an arbitrary inclusive ISO date range (multi-month
+// / YTD filters). Response reports month/year as null.
+export const getCategoryBreakdownRange = (startDate, endDate) =>
+  request(`/transactions/category-breakdown?start_date=${startDate}&end_date=${endDate}`);
 export const getCategories = () => request('/transactions/categories');
 // Custom-category CRUD. Reads come through getCategories() above (it
 // merges customs + standards). Writes hit the dedicated routes below.
@@ -154,15 +165,26 @@ export const deleteRule = (id) =>
   request(`/analytics/rules/${id}`, { method: 'DELETE' });
 export const getRecurring = () => request('/analytics/recurring');
 // Rolling window of top merchants; `months` is arbitrary up to 24 and
-// follows the Spending & Income range filter.
-export const getMerchantInsights = (months = 6) =>
-  request(`/analytics/merchants?months=${months}`);
+// follows the Spending & Income range filter. `endMonth`/`endYear`
+// anchor the window at a past month; both must be supplied or neither
+// is sent.
+export const getMerchantInsights = (months = 6, endMonth = null, endYear = null) => {
+  const anchor = (endMonth !== null && endMonth !== undefined &&
+                  endYear !== null && endYear !== undefined)
+    ? `&end_month=${endMonth}&end_year=${endYear}`
+    : '';
+  return request(`/analytics/merchants?months=${months}${anchor}`);
+};
 export const getMonthlyReport = (month, year) =>
   request(`/analytics/monthly-report?month=${month}&year=${year}`);
 export const getCategoryTrends = (month, year, monthsBack = 6) =>
   request(`/analytics/category-trends?month=${month}&year=${year}&months_back=${monthsBack}`);
 export const getSpendingPatterns = (month, year) =>
   request(`/analytics/spending-patterns?month=${month}&year=${year}`);
+// Range variant — `days_in_month` in the response means "days in the
+// window" and the forecast projects across the whole window.
+export const getSpendingPatternsRange = (startDate, endDate) =>
+  request(`/analytics/spending-patterns?start_date=${startDate}&end_date=${endDate}`);
 export const getInsights = (limit = 5) =>
   request(`/analytics/insights?limit=${limit}`);
 // AI-generated plain-English narrative of this month's spending.

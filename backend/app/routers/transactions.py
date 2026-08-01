@@ -800,23 +800,46 @@ def custom_category_usage(
 @router.get("/income-vs-spending")
 def income_vs_spending(
     months: int = Query(default=6, le=24),
+    end_month: Optional[int] = Query(default=None, ge=1, le=12),
+    end_year: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """Get monthly income vs spending for the last N months."""
+    """Get monthly income vs spending for N months ending at a given month.
+
+    By default the window ends at the current (partial) month, which is
+    what every existing caller relies on. Pass BOTH `end_month` and
+    `end_year` to anchor it somewhere else instead — the Spending &
+    Income page does this when its month picker is driving the page, so
+    the trend bars follow the picker rather than always ending today.
+    """
     today = date.today()
+
+    # Anchor = the newest month in the window. Both params must be
+    # supplied together; a lone one is ignored so a half-built query
+    # string can't silently shift the window.
+    if end_month is not None and end_year is not None:
+        anchor_month, anchor_year = end_month, end_year
+    else:
+        anchor_month, anchor_year = today.month, today.year
 
     # Compute the range start (first day of the oldest month), then fetch
     # the whole window in ONE query and bucket by month in Python — the
     # previous per-month loop fired up to 24 separate SELECTs.
-    m0 = today.month - (months - 1)
-    y0 = today.year
+    m0 = anchor_month - (months - 1)
+    y0 = anchor_year
     while m0 <= 0:
         m0 += 12
         y0 -= 1
     range_start = date(y0, m0, 1)
+    # Exclusive upper bound: the first day after the anchor month.
+    range_end = (
+        date(anchor_year + 1, 1, 1) if anchor_month == 12
+        else date(anchor_year, anchor_month + 1, 1)
+    )
 
     rows = db.query(Transaction.date, Transaction.amount).filter(
         Transaction.date >= range_start,
+        Transaction.date < range_end,
         Transaction.is_transfer.is_(False),
     ).all()
 
@@ -831,8 +854,8 @@ def income_vs_spending(
 
     results = []
     for i in range(months - 1, -1, -1):
-        m = today.month - i
-        y = today.year
+        m = anchor_month - i
+        y = anchor_year
         while m <= 0:
             m += 12
             y -= 1
@@ -851,16 +874,42 @@ def income_vs_spending(
 
 @router.get("/category-breakdown")
 def category_breakdown(
-    month: int = Query(...),
-    year: int = Query(...),
+    month: Optional[int] = Query(default=None),
+    year: Optional[int] = Query(default=None),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """Detailed category breakdown with friendly names, for a given month."""
-    start = date(year, month, 1)
-    if month == 12:
-        end = date(year + 1, 1, 1)
+    """Detailed category breakdown with friendly names.
+
+    Two mutually exclusive ways to pick the window:
+
+      * `month` + `year` — a single calendar month (the original,
+        unchanged behavior; the response still carries those keys).
+      * `start_date` + `end_date` — an arbitrary inclusive date range,
+        used by the Spending & Income page's multi-month / YTD filters.
+        The response reports `month`/`year` as null and adds the ISO
+        `start_date`/`end_date` that were actually used.
+
+    Aggregation is identical either way — only the window differs.
+    """
+    if start_date is not None and end_date is not None:
+        # Inclusive range → exclusive upper bound for the query.
+        start = start_date
+        end = end_date + timedelta(days=1)
+        range_mode = True
+    elif month is not None and year is not None:
+        start = date(year, month, 1)
+        if month == 12:
+            end = date(year + 1, 1, 1)
+        else:
+            end = date(year, month + 1, 1)
+        range_mode = False
     else:
-        end = date(year, month + 1, 1)
+        raise HTTPException(
+            400,
+            "Provide either month+year or start_date+end_date.",
+        )
 
     txns = db.query(Transaction).filter(
         Transaction.date >= start,
@@ -902,15 +951,21 @@ def category_breakdown(
             "percentage": round((total / total_income) * 100, 1) if total_income > 0 else 0,
         })
 
-    return {
-        "month": month,
-        "year": year,
+    payload = {
+        "month": None if range_mode else month,
+        "year": None if range_mode else year,
         "total_spending": round(total_spending, 2),
         "total_income": round(total_income, 2),
         "net": round(total_income - total_spending, 2),
         "spending_categories": spending_categories,
         "income_categories": income_categories,
     }
+    if range_mode:
+        # `end` is exclusive internally; report the inclusive bound the
+        # caller asked for so the UI can echo it verbatim.
+        payload["start_date"] = start.isoformat()
+        payload["end_date"] = (end - timedelta(days=1)).isoformat()
+    return payload
 
 
 @router.get("/by-merchant/{merchant_name}")

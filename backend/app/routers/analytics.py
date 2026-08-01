@@ -424,14 +424,46 @@ def detect_recurring(db: Session = Depends(get_db)):
 @router.get("/merchants")
 def merchant_insights(
     months: int = Query(default=6, le=24),
+    end_month: Optional[int] = Query(default=None, ge=1, le=12),
+    end_year: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """Top merchants by total spend, with transaction counts and trends."""
-    cutoff = date.today() - timedelta(days=months * 30)
+    """Top merchants by total spend, with transaction counts and trends.
+
+    By default the window is the last `months * 30` days ending today.
+    Pass BOTH `end_month` and `end_year` to anchor it at a different
+    calendar month instead — the Spending & Income page does this when
+    its month picker is driving the page, so this card can't contradict
+    the rest of the view. Either param alone is ignored.
+
+    The anchored window snaps to whole calendar months: exactly the
+    `months` months ending at the anchor. The `* 30`-day approximation
+    would land the lower bound mid-month (a 1-month window anchored on
+    March would start March 2nd and silently drop March 1st) while the
+    UI labels the card with the month's name.
+    """
+    if end_month is not None and end_year is not None:
+        # Exclusive upper bound: the first day after the anchor month.
+        end = (
+            date(end_year + 1, 1, 1) if end_month == 12
+            else date(end_year, end_month + 1, 1)
+        )
+        # Inclusive lower bound: the first day of the oldest month.
+        start_month = end_month - (months - 1)
+        start_year = end_year
+        while start_month <= 0:
+            start_month += 12
+            start_year -= 1
+        cutoff = date(start_year, start_month, 1)
+        date_filters = [Transaction.date >= cutoff, Transaction.date < end]
+    else:
+        cutoff = date.today() - timedelta(days=months * 30)
+        date_filters = [Transaction.date >= cutoff]
+
     txns = (
         db.query(Transaction)
         .filter(
-            Transaction.date >= cutoff,
+            *date_filters,
             Transaction.amount > 0,
             Transaction.is_transfer.is_(False),
         )
@@ -745,15 +777,42 @@ FIXED_CATEGORIES = {
 
 @router.get("/spending-patterns")
 def spending_patterns(
-    month: int = Query(...),
-    year: int = Query(...),
+    month: Optional[int] = Query(default=None),
+    year: Optional[int] = Query(default=None),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """Day-of-week heatmap, MTD forecast, cash-flow waterfall, and income
-    source breakdown for the selected month."""
-    start = date(year, month, 1)
-    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-    days_in_month = (end - start).days
+    """Day-of-week heatmap, spend forecast, cash-flow waterfall, and
+    income source breakdown for the selected window.
+
+    Accepts either `month` + `year` (a single calendar month — the
+    original behavior, response unchanged) or `start_date` + `end_date`
+    (an arbitrary inclusive range, used by the Spending & Income page's
+    multi-month / YTD filters).
+
+    The forecast generalises from "month to date" to "window to date":
+    when today falls inside the window we project the elapsed daily
+    average across the whole window; otherwise the window is complete
+    and the projection is just its actual total. The response key is
+    still `days_in_month` — it now means "days in the window" — because
+    the UI reads that name.
+    """
+    if start_date is not None and end_date is not None:
+        # Inclusive range → exclusive upper bound for the query.
+        start = start_date
+        end = end_date + timedelta(days=1)
+        range_mode = True
+    elif month is not None and year is not None:
+        start = date(year, month, 1)
+        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        range_mode = False
+    else:
+        raise HTTPException(
+            400,
+            "Provide either month+year or start_date+end_date.",
+        )
+    days_in_window = (end - start).days
     today = date.today()
 
     txns = db.query(Transaction).filter(
@@ -783,19 +842,21 @@ def spending_patterns(
         } for i in range(7)
     ]
 
-    # MTD forecast (only meaningful for the current month)
-    is_current = (year == today.year and month == today.month)
+    # Window-to-date forecast (only meaningful while the window is still
+    # running). For a calendar month this is exactly the old month-to-date
+    # arithmetic: start is the 1st, so days_elapsed == today.day.
+    is_current = start <= today < end
     if is_current:
-        days_elapsed = today.day
+        days_elapsed = (today - start).days + 1
         mtd_spend = sum(t.amount for t in spending if t.date <= today)
         mtd_income = sum(abs(t.amount) for t in income if t.date <= today)
         daily_avg = mtd_spend / max(days_elapsed, 1)
-        projected = daily_avg * days_in_month
+        projected = daily_avg * days_in_window
     else:
-        days_elapsed = days_in_month
+        days_elapsed = days_in_window
         mtd_spend = total_spending
         mtd_income = total_income
-        daily_avg = total_spending / max(days_in_month, 1)
+        daily_avg = total_spending / max(days_in_window, 1)
         projected = total_spending
 
     forecast = {
@@ -803,7 +864,8 @@ def spending_patterns(
         "mtd_spend": round(mtd_spend, 2),
         "mtd_income": round(mtd_income, 2),
         "days_elapsed": days_elapsed,
-        "days_in_month": days_in_month,
+        # Days in the *window*; name kept for UI compatibility.
+        "days_in_month": days_in_window,
         "daily_avg": round(daily_avg, 2),
         "projected_total": round(projected, 2),
     }
@@ -835,9 +897,9 @@ def spending_patterns(
     # Savings rate
     savings_rate = round(((total_income - total_spending) / total_income) * 100, 1) if total_income > 0 else None
 
-    return {
-        "month": month,
-        "year": year,
+    payload = {
+        "month": None if range_mode else month,
+        "year": None if range_mode else year,
         "total_income": round(total_income, 2),
         "total_spending": round(total_spending, 2),
         "savings_rate": savings_rate,
@@ -846,6 +908,12 @@ def spending_patterns(
         "waterfall": waterfall,
         "income_sources": income_sources,
     }
+    if range_mode:
+        # `end` is exclusive internally; report the inclusive bound the
+        # caller asked for so the UI can echo it verbatim.
+        payload["start_date"] = start.isoformat()
+        payload["end_date"] = (end - timedelta(days=1)).isoformat()
+    return payload
 
 
 # ─── Cash Flow Forecast ─────────────────────────────────────

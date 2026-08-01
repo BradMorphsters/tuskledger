@@ -98,6 +98,50 @@ export function fetchWindowMonths(preset, now = new Date()) {
   return Math.min(MAX_API_MONTHS, n * 2)
 }
 
+const _pad = n => String(n).padStart(2, '0')
+
+/**
+ * The calendar dates the selected window covers, as inclusive ISO
+ * 'YYYY-MM-DD' strings — what the date-range endpoints
+ * (`category-breakdown`, `spending-patterns`, `export`) and the
+ * drill-down drawer filters need.
+ *
+ * The window always ends on the LAST day of the anchor's month, even
+ * when the anchor is the current partial month: the endpoints only see
+ * transactions that exist, and a full-month bound keeps the range
+ * aligned with the monthly buckets the trend chart draws.
+ *
+ *   numeric N → start = 1st of (anchor month − (N − 1))
+ *   'ytd'     → start = January 1st of the anchor's year
+ *
+ * Built from local calendar fields (never `toISOString`, which shifts
+ * to UTC and can roll the day backwards in US timezones).
+ *
+ * @param {string} preset
+ * @param {Date} [anchor] — the newest month in the window
+ * @returns {{ start_date: string, end_date: string }} inclusive ISO dates
+ */
+export function windowRangeDates(preset, anchor = new Date()) {
+  const anchorYear = anchor.getFullYear()
+  const anchorMonth = anchor.getMonth() + 1 // 1-12
+  const n = resolveRangeMonths(preset, anchor)
+
+  // Day 0 of the following month == last day of the anchor month.
+  const lastDay = new Date(anchorYear, anchorMonth, 0).getDate()
+
+  let startYear = anchorYear
+  let startMonth = preset === 'ytd' ? 1 : anchorMonth - (n - 1)
+  while (startMonth <= 0) {
+    startMonth += 12
+    startYear -= 1
+  }
+
+  return {
+    start_date: `${startYear}-${_pad(startMonth)}-01`,
+    end_date: `${anchorYear}-${_pad(anchorMonth)}-${_pad(lastDay)}`,
+  }
+}
+
 /**
  * Split an oldest→newest row list into the display window and its
  * comparison window.

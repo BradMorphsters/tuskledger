@@ -597,7 +597,7 @@ export default function Transactions() {
           <table className="txn-table">
             <thead>
               <tr>
-                <th style={{ width: 24 }}>
+                <th>
                   <input
                     type="checkbox"
                     checked={selectedIds.size === displayed.length && displayed.length > 0}
@@ -638,7 +638,7 @@ export default function Transactions() {
                       fontStyle: isPending ? 'italic' : 'normal',
                     }}
                   >
-                    <td style={{ width: 24 }}>
+                    <td>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(t.id)}
@@ -648,14 +648,14 @@ export default function Transactions() {
                     </td>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{formatDate(t.date)}</td>
                     <td>
-                      <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                         <button
                           onClick={() => togglePin(t.id)}
                           title={pinnedIds.has(t.id) ? 'Unpin' : 'Pin transaction'}
                           style={{
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                             color: pinnedIds.has(t.id) ? 'var(--accent-yellow)' : 'var(--text-muted)',
-                            display: 'inline-flex', alignItems: 'center',
+                            display: 'inline-flex', alignItems: 'center', flexShrink: 0,
                             opacity: pinnedIds.has(t.id) ? 1 : 0.4,
                           }}
                         >
@@ -663,8 +663,9 @@ export default function Transactions() {
                         </button>
                         <span
                           onClick={() => setMerchantDrawerName(t.display_name || t.merchant_name || t.name)}
+                          className="txn-merchant"
                           style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent-blue)' }}
-                          title="Click to view merchant details"
+                          title={t.display_name || t.merchant_name || t.name}
                         >
                           {t.display_name || t.merchant_name || t.name}
                         </span>
@@ -683,19 +684,20 @@ export default function Transactions() {
                         )}
                       </div>
                       {t.display_name && (t.display_name !== (t.merchant_name || t.name)) && (
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t.merchant_name || t.name}</div>
+                        <div className="txn-subname" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t.merchant_name || t.name}</div>
                       )}
                     </td>
                     <td>
                       {editingId === t.id ? (
-                        <div style={{ display: 'flex', gap: 4 }}>
+                        <div style={{ display: 'flex', gap: 4, minWidth: 0 }}>
                           <select
                             value={editCategory}
                             onChange={e => setEditCategory(e.target.value)}
                             autoFocus
                             style={{
                               background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                              border: '1px solid var(--accent-blue)', borderRadius: 6, padding: '4px 6px', fontSize: 12, width: 160
+                              border: '1px solid var(--accent-blue)', borderRadius: 6, padding: '4px 6px', fontSize: 12,
+                              flex: 1, minWidth: 0, width: '100%'
                             }}
                           >
                             <option value="">-- Select --</option>
@@ -705,11 +707,11 @@ export default function Transactions() {
                           </select>
                           <button
                             onClick={() => handleCategoryUpdate(t.id)}
-                            style={{ background: 'var(--accent-green)', color: '#000', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                            style={{ background: 'var(--accent-green)', color: '#000', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
                           >Save</button>
                           <button
                             onClick={() => setEditingId(null)}
-                            style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                            style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
                           >✕</button>
                         </div>
                       ) : t.splits && t.splits.length > 0 ? (
@@ -741,7 +743,7 @@ export default function Transactions() {
                             style={{
                               background: 'none', border: '1px solid var(--border)', borderRadius: 6,
                               padding: '2px 5px', cursor: 'pointer', color: 'var(--text-muted)',
-                              display: 'inline-flex', alignItems: 'center',
+                              display: 'inline-flex', alignItems: 'center', flexShrink: 0,
                             }}
                           >
                             <Split size={11} />
@@ -757,7 +759,7 @@ export default function Transactions() {
                           style={{
                             background: 'transparent', color: 'var(--text-primary)',
                             border: t.business_id ? `1px solid ${businesses.find(b => b.id === t.business_id)?.color || 'var(--border)'}` : '1px solid var(--border)',
-                            borderRadius: 6, padding: '3px 6px', fontSize: 11, cursor: 'pointer',
+                            borderRadius: 6, padding: '3px 6px', fontSize: 11, cursor: 'pointer', maxWidth: '100%',
                             backgroundColor: t.business_id ? `${businesses.find(b => b.id === t.business_id)?.color || ''}15` : 'transparent',
                           }}
                         >
@@ -768,7 +770,7 @@ export default function Transactions() {
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
                       )}
                     </td>
-                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{acct?.custom_name || acct?.name || '—'}</td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }} title={acct?.custom_name || acct?.name || ''}>{acct?.custom_name || acct?.name || '—'}</td>
                     <td style={{ textAlign: 'right' }}>
                       <span className={t.amount > 0 ? 'amount-negative' : 'amount-positive'}>
                         {t.amount > 0 ? '-' : '+'}{formatCurrency(Math.abs(t.amount))}

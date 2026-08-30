@@ -365,6 +365,69 @@ a:hover { text-decoration: underline; }
 /* Tables */
 .table-wrapper { overflow-x: auto; }
 
+/* Transactions table — pinned column geometry.
+   ─────────────────────────────────────────────
+   Cells on this table swap between compact display chrome and full
+   editing controls: the category cell replaces a small badge with a
+   <select> plus Save/cancel buttons, the business cell holds a
+   <select> sized by its longest option, and transfer/pending pills
+   appear on some description cells but not others. Under the default
+   `table-layout: auto` the browser re-solves every column from the
+   widest cell in that column, so ANY of those swaps — opening one
+   row's editor, a pill rendering, a longer merchant name arriving on
+   the next page — shoved all seven columns sideways at once. Worse,
+   when the widened table crossed the .table-wrapper boundary the
+   horizontal scrollbar popped in, which changed the available width,
+   which re-ran layout: the visible "rows jumping around" loop.
+
+   Fixing the geometry means cell content can never move a column.
+   Scoped to min-width 481px so the phone card layout below (which
+   turns the table into display:block cards) is unaffected. */
+@media (min-width: 481px) {
+  .txn-table {
+    table-layout: fixed;
+    width: 100%;
+    /* Narrower than this the fixed columns would crush their controls,
+       so the wrapper scrolls instead — a steady scrollbar rather than
+       one that appears and disappears. */
+    min-width: 880px;
+  }
+  /* Widths are read from the header row under table-layout: fixed. */
+  .txn-table th:nth-child(1) { width: 34px; }  /* bulk-select checkbox */
+  .txn-table th:nth-child(2) { width: 9%; }    /* date */
+  .txn-table th:nth-child(3) { width: 30%; }   /* description */
+  .txn-table th:nth-child(4) { width: 21%; }   /* category (widest when editing) */
+  .txn-table th:nth-child(5) { width: 12%; }   /* business */
+  .txn-table th:nth-child(6) { width: 14%; }   /* account */
+  .txn-table th:nth-child(7) { width: 11%; }   /* amount */
+
+  /* Long merchant/account names truncate instead of wrapping to a
+     second line — row-height jitter is the vertical version of the
+     same bug. */
+  .txn-table td { overflow: hidden; }
+  .txn-table .txn-merchant,
+  .txn-table .txn-subname,
+  .txn-table td:nth-child(6) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* A flex item defaults to min-width:auto, which refuses to shrink
+       below its text — without this the ellipsis never engages and the
+       name pushes the row wide again. */
+    min-width: 0;
+  }
+  /* Transfer / Pending pills keep their size; only the name gives way. */
+  .txn-table .pill { flex-shrink: 0; }
+
+  /* Controls must live inside their column, never widen it. */
+  .txn-table td select { max-width: 100%; }
+
+  /* Date and amount are numeric columns: tabular figures stop the
+     digits from shimmering as values change row to row. */
+  .txn-table td:nth-child(2),
+  .txn-table td:nth-child(7) { font-variant-numeric: tabular-nums; }
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

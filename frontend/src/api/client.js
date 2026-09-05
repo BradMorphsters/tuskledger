@@ -161,6 +161,20 @@ export const getCustomCategoryUsage = (id) =>
 export const getRules = () => request('/analytics/rules');
 export const createRule = (data) =>
   request('/analytics/rules', { method: 'POST', body: JSON.stringify(data) });
+// Transfer rules — payee patterns the user has declared to be transfers.
+export const getTransferRules = () => request('/analytics/transfer-rules');
+export const createTransferRule = (pattern) =>
+  request('/analytics/transfer-rules', { method: 'POST', body: JSON.stringify({ pattern }) });
+export const deleteTransferRule = (id) =>
+  request(`/analytics/transfer-rules/${id}`, { method: 'DELETE' });
+export const previewTransferRule = (pattern, excludeId) =>
+  request(`/analytics/transfer-rules/preview?pattern=${encodeURIComponent(pattern)}` +
+    (excludeId != null ? `&exclude_id=${excludeId}` : ''));
+// Dry-run for the post-recategorize suggestion: what would `pattern → category`
+// touch across all history? excludeId = the row the user just fixed.
+export const previewRule = (pattern, category, excludeId) =>
+  request(`/analytics/rules/preview?pattern=${encodeURIComponent(pattern)}&category=${encodeURIComponent(category)}` +
+    (excludeId != null ? `&exclude_id=${excludeId}` : ''));
 export const deleteRule = (id) =>
   request(`/analytics/rules/${id}`, { method: 'DELETE' });
 export const getRecurring = () => request('/analytics/recurring');

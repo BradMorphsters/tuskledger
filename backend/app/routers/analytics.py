@@ -60,6 +60,148 @@ def create_rule(body: dict, db: Session = Depends(get_db)):
     return {"status": "ok", "pattern": pattern, "category": category, "retroactively_applied": applied}
 
 
+# ─── Transfer rules ──────────────────────────────────────────
+# Payee patterns the user has declared to be transfers. See
+# models/transfer_rule.py for why these exist alongside the detector.
+
+@router.get("/transfer-rules")
+def list_transfer_rules(db: Session = Depends(get_db)):
+    from app.models import TransferRule
+    rules = db.query(TransferRule).order_by(TransferRule.pattern).all()
+    return [{"id": r.id, "pattern": r.pattern} for r in rules]
+
+
+@router.post("/transfer-rules")
+def create_transfer_rule(body: dict, db: Session = Depends(get_db)):
+    """Create (or no-op on duplicate) and apply to history immediately.
+    Returns how many existing rows were flagged."""
+    from app.models import TransferRule
+    from app.services.transfer_detector import apply_transfer_rule
+    pattern = (body.get("pattern") or "").strip().lower()
+    if len(pattern) < 3:
+        raise HTTPException(400, "pattern must be at least 3 characters")
+    rule = db.query(TransferRule).filter_by(pattern=pattern).first()
+    if not rule:
+        rule = TransferRule(pattern=pattern)
+        db.add(rule)
+        db.commit()
+        db.refresh(rule)
+    flagged = apply_transfer_rule(db, pattern)
+    return {"id": rule.id, "pattern": pattern, "retroactively_flagged": flagged}
+
+
+@router.delete("/transfer-rules/{rule_id}")
+def delete_transfer_rule(rule_id: int, db: Session = Depends(get_db)):
+    """Delete the rule. Rows it already flagged stay flagged — un-flag them
+    on the Transactions page (or re-run the detector with reset=true)."""
+    from app.models import TransferRule
+    rule = db.query(TransferRule).filter_by(id=rule_id).first()
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    db.delete(rule)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/transfer-rules/preview")
+def preview_transfer_rule(
+    pattern: str = Query(..., min_length=3, max_length=128),
+    exclude_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """How many not-yet-flagged rows would `pattern` mark as transfers?"""
+    pat = pattern.strip().lower()
+    rows = db.query(
+        Transaction.id, Transaction.date, Transaction.amount,
+        Transaction.merchant_name, Transaction.name, Transaction.is_transfer,
+    ).all()
+    cands = []
+    already = 0
+    for r in rows:
+        if exclude_id is not None and r.id == exclude_id:
+            continue
+        if pat not in ((r.merchant_name or "") + " " + (r.name or "")).lower():
+            continue
+        if r.is_transfer:
+            already += 1
+            continue
+        cands.append({"id": r.id, "date": r.date.isoformat() if r.date else None, "amount": r.amount,
+                      "display_name": normalize_merchant(r.merchant_name or r.name) or r.name})
+    cands.sort(key=lambda c: c["date"] or "", reverse=True)
+    return {"pattern": pat, "candidates": cands, "already_transfers": already,
+            "total_amount": round(sum(c["amount"] for c in cands), 2), "sample": cands[:5]}
+
+
+@router.get("/rules/preview")
+def preview_rule(
+    pattern: str = Query(..., min_length=2, max_length=128),
+    category: str = Query(..., min_length=1, max_length=128),
+    exclude_id: Optional[int] = Query(None, description="The row the user just fixed; left out of the counts."),
+    db: Session = Depends(get_db),
+):
+    """What would `pattern → category` touch, across ALL history?
+
+    Backs the "you just recategorized X — apply to the rest?" suggestion.
+    The old suggestion only looked at rows loaded on the current page, so
+    a merchant with two years of history got a count of 3 and the rest
+    stayed wrong. Two numbers come back because two different actions hang
+    off the card:
+
+      - `candidates` — every row matching the pattern whose *effective*
+        category (custom_category or category) is not already `category`.
+        "Apply to N past" PATCHes exactly these ids, and carries each
+        row's prior custom_category so the action can be undone.
+      - `rule_would_update` — how many rows a saved rule would change,
+        using the rule engine's own (more conservative) semantics: it
+        never overrides a different hand-set custom_category.
+
+    Matching is the rule engine's: case-insensitive substring of
+    merchant_name + " " + name.
+    """
+    pat = pattern.strip().lower()
+    rows = db.query(
+        Transaction.id, Transaction.date, Transaction.amount,
+        Transaction.merchant_name, Transaction.name,
+        Transaction.category, Transaction.custom_category,
+    ).all()
+
+    candidates: list[dict] = []
+    rule_would_update = 0
+    already = 0
+    for r in rows:
+        if exclude_id is not None and r.id == exclude_id:
+            continue
+        hay = ((r.merchant_name or "") + " " + (r.name or "")).lower()
+        if pat not in hay:
+            continue
+        effective = r.custom_category or r.category
+        if r.custom_category is None or r.custom_category == category:
+            if effective != category:
+                rule_would_update += 1
+        if effective == category:
+            already += 1
+            continue
+        candidates.append({
+            "id": r.id,
+            "date": r.date.isoformat() if r.date else None,
+            "amount": r.amount,
+            "display_name": normalize_merchant(r.merchant_name or r.name) or r.name,
+            "current_category": effective,
+            "prior_custom_category": r.custom_category,   # None → "no override"
+        })
+
+    candidates.sort(key=lambda c: c["date"] or "", reverse=True)
+    return {
+        "pattern": pat,
+        "category": category,
+        "matched": len(candidates) + already,
+        "already_correct": already,
+        "candidates": candidates,
+        "rule_would_update": rule_would_update,
+        "sample": candidates[:5],
+    }
+
+
 @router.delete("/rules/{rule_id}")
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     rule = db.query(CategoryRule).filter_by(id=rule_id).first()
@@ -539,7 +681,7 @@ def monthly_report(
 
     def summarize(txns):
         spending = sum(t.amount for t in txns if t.amount > 0)
-        income = sum(abs(t.amount) for t in txns if t.amount < 0)
+        income = sum(abs(t.amount) for t in txns if t.amount < 0 and not t.is_refund)
         # Category attribution must honor splits: a $100 Costco charge
         # split into $60 Groceries / $40 Household should credit each
         # category, not dump $100 into the parent's original category.
@@ -822,8 +964,10 @@ def spending_patterns(
         Transaction.is_transfer.is_(False),
     ).all()
 
-    spending = [t for t in txns if t.amount > 0]
-    income = [t for t in txns if t.amount < 0]
+    # Refunds (negative, is_refund) are spend-side: they net against their
+    # category and never count as income. See services/refund_detector.py.
+    spending = [t for t in txns if t.amount > 0 or t.is_refund]
+    income = [t for t in txns if t.amount < 0 and not t.is_refund]
     total_spending = sum(t.amount for t in spending)
     total_income = sum(abs(t.amount) for t in income)
 
@@ -885,10 +1029,13 @@ def spending_patterns(
         {"label": "Net", "value": round(net, 2), "type": "net"},
     ]
 
-    # Income sources
+    # Income sources — keyed on the normalized payer, not the raw bank
+    # string. Payroll descriptors carry a per-deposit ACH trace number, so
+    # keying on the raw text made every paycheck its own "source" and the
+    # card never rolled up to the employer.
     sources = defaultdict(float)
     for t in income:
-        key = (t.merchant_name or t.name or "Unknown").strip()
+        key = (normalize_merchant(t.merchant_name or t.name) or "Unknown").strip()
         sources[key] += abs(t.amount)
     income_sources = sorted(
         [{"source": s, "amount": round(a, 2)} for s, a in sources.items()],
@@ -1055,7 +1202,7 @@ def cash_flow_forecast(
         m_start = month_start(y, m)
         m_end = month_end_exclusive(y, m)
         m_spend_txns = [t for t in txns if m_start <= t.date < m_end and t.amount > 0]
-        m_income_txns = [t for t in txns if m_start <= t.date < m_end and t.amount < 0]
+        m_income_txns = [t for t in txns if m_start <= t.date < m_end and t.amount < 0 and not t.is_refund]
         m_spend = sum(t.amount for t in m_spend_txns)
         # Skip months with very little data — likely the user hadn't
         # connected accounts yet. Threshold is intentionally low; we just
@@ -1638,7 +1785,7 @@ def cash_flow_health(db: Session = Depends(get_db)):
         .all()
     )
     spend_90 = sum(t.amount for t in txns if t.amount > 0)
-    income_90 = sum(abs(t.amount) for t in txns if t.amount < 0)
+    income_90 = sum(abs(t.amount) for t in txns if t.amount < 0 and not t.is_refund)
     avg_monthly_spend = round(spend_90 / 3, 2) if spend_90 else 0.0
     avg_monthly_income = round(income_90 / 3, 2) if income_90 else 0.0
 
@@ -2183,6 +2330,7 @@ def financial_pulse(
             Transaction.date >= last_90,
             Transaction.amount < 0,
             Transaction.is_transfer == False,  # noqa: E712
+            Transaction.is_refund == False,    # noqa: E712 — refunds are not income
         )
         .scalar()
         or 0.0
@@ -2819,7 +2967,8 @@ def year_over_year_comparison(
         
         for line in lines:
             friendly_cat = map_plaid_category(line.category) or line.category
-            if line.amount >= 0:
+            if line.amount >= 0 or line.is_refund:
+                # Spend, or a refund netting against its category.
                 categories[friendly_cat] += line.amount
                 total_spending += line.amount
             else:

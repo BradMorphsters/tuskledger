@@ -11,22 +11,49 @@ verifies:
   - Two-phase simulation always produces year_by_year of expected length.
 """
 import datetime
+import inspect
+from fastapi.params import Param
 from sqlalchemy.orm import Session
 
 from app.routers.retirement import retirement_projection
 
 
+def _project(**kwargs):
+    """Call the route directly after resolving FastAPI query defaults."""
+    parameters = inspect.signature(retirement_projection).parameters
+    unknown = set(kwargs) - set(parameters)
+    if unknown:
+        raise TypeError(f"unexpected retirement projection argument(s): {sorted(unknown)}")
+    if "db" not in kwargs:
+        raise TypeError("_project requires db")
+    db = kwargs.pop("db")
+    call = {}
+    for name, parameter in parameters.items():
+        if name == "db":
+            continue
+        if name in kwargs:
+            call[name] = kwargs[name]
+            continue
+        default = parameter.default
+        if isinstance(default, Param):
+            default = default.default
+        if default is not inspect.Parameter.empty:
+            call[name] = default
+    return retirement_projection(db=db, **call)
+
+
 def test_projection_with_empty_db(db: Session):
     """No accounts → starting balance 0, FI number based purely on
     desired_income/wd_rate, no crash."""
-    result = retirement_projection(
+    result = _project(
         current_age=39, retirement_age=65,
         desired_annual_income=80_000, db=db,
     )
     assert result["current_assets"] == 0.0
     assert result["fi_number"] == 80_000 / 0.04  # = 2,000,000
-    # Projection still runs — accumulation_years=26, withdrawal=45.
-    assert len(result["year_by_year"]) == 26 + 45
+    # Existing chart contract includes one row after the target age, 105.
+    assert len(result["year_by_year"]) == 105 - 39 + 1
+    assert result["year_by_year"][-1]["age"] == 106
 
 
 def test_projection_with_assets_grows_over_time(db: Session, factory):
@@ -42,7 +69,7 @@ def test_projection_with_assets_grows_over_time(db: Session, factory):
     db.query(Account).update({Account.tax_bucket: "tax_deferred"})
     db.commit()
 
-    result = retirement_projection(
+    result = _project(
         current_age=39, retirement_age=65,
         desired_annual_income=80_000,
         annual_contribution=20_000,
@@ -61,12 +88,12 @@ def test_projection_with_assets_grows_over_time(db: Session, factory):
 def test_pension_reduces_effective_fi_number(db: Session):
     """Adding a pension should reduce effective_fi_number vs. base
     fi_number (the portfolio only has to fund the gap)."""
-    no_pension = retirement_projection(
+    no_pension = _project(
         current_age=50, retirement_age=65,
         desired_annual_income=80_000,
         db=db,
     )
-    with_pension = retirement_projection(
+    with_pension = _project(
         current_age=50, retirement_age=65,
         desired_annual_income=80_000,
         pension_annual=30_000,
@@ -82,13 +109,13 @@ def test_pension_reduces_effective_fi_number(db: Session):
 def test_ss_haircut_reduces_at_start_value(db: Session):
     """SS reduction percent should reduce the at-start value of every
     SS stream proportionally — used to model Trust Fund depletion."""
-    full = retirement_projection(
+    full = _project(
         current_age=50, retirement_age=65,
         desired_annual_income=80_000,
         ss_annual=30_000, ss_start_age=67,
         db=db,
     )
-    haircut = retirement_projection(
+    haircut = _project(
         current_age=50, retirement_age=65,
         desired_annual_income=80_000,
         ss_annual=30_000, ss_start_age=67,
@@ -104,7 +131,7 @@ def test_year_by_year_length_matches_accumulation_plus_horizon(db: Session):
     """Sanity: chart horizon now ties to max_sustainable_target_age
     (default 105) instead of a fixed 45-yr post-retirement window. The
     accumulation_years + horizon should reach exactly target_age."""
-    result = retirement_projection(
+    result = _project(
         current_age=30, retirement_age=60,
         desired_annual_income=60_000,
         db=db,
@@ -119,7 +146,7 @@ def test_year_by_year_length_matches_accumulation_plus_horizon(db: Session):
 def test_year_by_year_horizon_floors_at_30(db: Session):
     """If the user picks an unreasonably low target age, the chart
     floor (30 years) prevents a useless stub."""
-    result = retirement_projection(
+    result = _project(
         current_age=55, retirement_age=60,
         desired_annual_income=60_000,
         max_sustainable_target_age=70,  # absurdly low
@@ -135,7 +162,7 @@ def test_invalid_retirement_age_raises_400(db: Session):
     import pytest
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        retirement_projection(
+        _project(
             current_age=65, retirement_age=60,
             desired_annual_income=80_000,
             db=db,
@@ -146,7 +173,7 @@ def test_invalid_retirement_age_raises_400(db: Session):
 def test_monte_carlo_returns_aggregated_results(db: Session):
     """When monte_carlo_runs > 0, the response should include a
     monte_carlo dict with success_probability and percentile bands."""
-    result = retirement_projection(
+    result = _project(
         current_age=50, retirement_age=65,
         desired_annual_income=80_000,
         monte_carlo_runs=20,  # small N for speed
@@ -184,7 +211,7 @@ def test_buckets_aggregate_into_four_categories(db: Session, factory):
     db.query(Account).filter_by(name="Borrowed").update({"tax_bucket": "excluded"})
     db.commit()
 
-    result = retirement_projection(
+    result = _project(
         current_age=39, retirement_age=65,
         desired_annual_income=60_000, db=db,
     )
@@ -211,7 +238,7 @@ def test_roth_split_pct_routes_fraction_to_roth_bucket(db: Session, factory):
     })
     db.commit()
 
-    result = retirement_projection(
+    result = _project(
         current_age=39, retirement_age=65,
         desired_annual_income=60_000, db=db,
     )
@@ -235,12 +262,12 @@ def test_roth_conversion_shifts_td_to_roth(db: Session, factory):
     db.query(Account).update({"tax_bucket": "tax_deferred"})
     db.commit()
 
-    no_conv = retirement_projection(
+    no_conv = _project(
         current_age=55, retirement_age=60,
         desired_annual_income=80_000,
         db=db,
     )
-    with_conv = retirement_projection(
+    with_conv = _project(
         current_age=55, retirement_age=60,
         desired_annual_income=80_000,
         roth_conversion_amount=20_000,
@@ -272,11 +299,11 @@ def test_hsa_contribution_lands_in_hsa_bucket_not_td(db: Session, factory):
     db.query(Account).update({"tax_bucket": "hsa"})
     db.commit()
 
-    no_hsa_contrib = retirement_projection(
+    no_hsa_contrib = _project(
         current_age=39, retirement_age=56,
         desired_annual_income=80_000, db=db,
     )
-    with_hsa_contrib = retirement_projection(
+    with_hsa_contrib = _project(
         current_age=39, retirement_age=56,
         desired_annual_income=80_000,
         hsa_annual_contribution=5_000,  # 17 years × $5k
@@ -306,7 +333,7 @@ def test_hsa_pays_healthcare_bridge_tax_free(db: Session, factory):
     db.query(Account).filter_by(name="401k").update({"tax_bucket": "tax_deferred"})
     db.commit()
 
-    result = retirement_projection(
+    result = _project(
         current_age=55, retirement_age=56,
         desired_annual_income=80_000,
         healthcare_pre_medicare=15_000,
@@ -332,7 +359,7 @@ def test_contribution_step_increases_savings_at_age(db: Session, factory):
     db.commit()
 
     import json
-    result = retirement_projection(
+    result = _project(
         current_age=39, retirement_age=65,
         desired_annual_income=80_000,
         annual_contribution=20_000,
@@ -359,7 +386,7 @@ def test_spending_step_with_duration_expires(db: Session, factory):
     db.commit()
 
     import json
-    result = retirement_projection(
+    result = _project(
         current_age=55, retirement_age=56,
         desired_annual_income=80_000,
         step_events_json=json.dumps([
@@ -391,24 +418,26 @@ def test_negative_one_time_event_lands_in_taxable(db: Session, factory):
     db.commit()
 
     import json
-    no_inh = retirement_projection(
+    no_inh = _project(
         current_age=55, retirement_age=56,
-        desired_annual_income=80_000, db=db,
+        desired_annual_income=0, annual_contribution=0, retirement_return_rate=0, db=db,
     )
-    with_inh = retirement_projection(
+    with_inh = _project(
         current_age=55, retirement_age=56,
-        desired_annual_income=80_000,
+        desired_annual_income=0, annual_contribution=0, retirement_return_rate=0,
         one_time_expenses_json=json.dumps([
             {"age": 60, "amount": -200_000, "label": "inheritance"},
         ]),
         db=db,
     )
-    # End balance should be substantially higher with the inheritance.
-    end_no = no_inh["year_by_year"][-1]["balance"]
-    end_with = with_inh["year_by_year"][-1]["balance"]
-    # $200k inflow at age 60 + ~40 years of compounding at 2.5% real
-    # ≈ $537k. Allow generous range.
-    assert end_with - end_no > 200_000
+    # Isolate the inflow in its event year, before decades of withdrawals
+    # could consume it. Other buckets must not receive the inheritance.
+    before = next(row for row in no_inh["year_by_year"] if row["age"] == 60)
+    after = next(row for row in with_inh["year_by_year"] if row["age"] == 60)
+    import pytest
+    assert after["balance_taxable"] - before["balance_taxable"] == pytest.approx(200_000)
+    assert after["balance_roth"] == before["balance_roth"]
+    assert after["balance_tax_deferred"] == before["balance_tax_deferred"]
 
 
 # ─── Max sustainable bisection ──────────────────────────────────────
@@ -424,7 +453,7 @@ def test_max_sustainable_returns_safe_amount(db: Session, factory):
     db.query(Account).update({"tax_bucket": "tax_deferred"})
     db.commit()
 
-    result = retirement_projection(
+    result = _project(
         current_age=55, retirement_age=60,
         desired_annual_income=80_000,
         max_sustainable_target_age=100,

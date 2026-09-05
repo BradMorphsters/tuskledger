@@ -41,7 +41,9 @@ export default function TransactionRow({ tx, showAccount = true }: Props) {
     .filter(Boolean)
     .join(' · ');
 
-  const amountColor = tx.is_transfer
+  // A refund is money back against a category, not income: keep it
+  // neutral so the row doesn't read like a paycheck.
+  const amountColor = tx.is_transfer || tx.is_refund
     ? colors.textMuted
     : isIncome
       ? colors.income
@@ -50,7 +52,7 @@ export default function TransactionRow({ tx, showAccount = true }: Props) {
   return (
     <View
       style={[styles.row, tx.pending && styles.pendingRow]}
-      accessibilityLabel={`${tx.effective_name}, ${formatCurrency(Math.abs(tx.amount))}${isIncome ? ' received' : ''}, ${meta}${tx.pending ? ', pending' : ''}`}>
+      accessibilityLabel={`${tx.effective_name}, ${formatCurrency(Math.abs(tx.amount))}${tx.is_refund ? ' refunded' : isIncome ? ' received' : ''}, ${meta}${tx.pending ? ', pending' : ''}`}>
       <View style={[styles.glyph, { backgroundColor: glyph.bg }]}>
         {glyph.emoji ? (
           <Text style={styles.glyphEmoji}>{glyph.emoji}</Text>
@@ -66,6 +68,7 @@ export default function TransactionRow({ tx, showAccount = true }: Props) {
         </Text>
         <Text style={[type.small, styles.meta]} numberOfLines={1}>
           {meta}
+          {tx.is_refund ? ' · refund' : ''}
           {tx.pending ? ' · pending' : ''}
         </Text>
       </View>

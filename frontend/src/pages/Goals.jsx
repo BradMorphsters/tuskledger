@@ -3,6 +3,7 @@ import { Plus, Trash2, Trophy, Target, Plane, Home as HomeIcon, ShieldCheck, Bri
 import { getGoals, createGoal, updateGoal, deleteGoal } from '../api/client'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
 import { useAccounts } from '../hooks/useAccounts'
+import { SkeletonPage } from '../components/Skeleton'
 
 const INPUT_STYLE = {
   width: '100%',
@@ -354,7 +355,7 @@ export default function Goals() {
     reload()
   }
 
-  if (goals === null) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
+  if (goals === null) return <SkeletonPage stats={3} cards={2} rows={3} />
 
   return (
     <div>

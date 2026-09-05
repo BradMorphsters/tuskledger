@@ -546,6 +546,9 @@ function ValueByAccountCard({ accounts, holdings, totals, activeFilter, onFilter
           <div
             key={a.account_id}
             title={`${a.name}: ${formatPctCompact(a.pct_of_portfolio)}`}
+            role="button" tabIndex={0}
+            aria-label={`Filter to ${a.name} (${formatPctCompact(a.pct_of_portfolio)} of portfolio)`}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFilter(a.account_id) } }}
             onClick={() => onFilter(a.account_id)}
             style={{
               width: `${a.pct_of_portfolio}%`,

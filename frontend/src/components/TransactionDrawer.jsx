@@ -9,6 +9,8 @@ import {
 import Pill from './Pill'
 import { formatCurrencyZero } from '../lib/format'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import CategorySuggestion from './CategorySuggestion'
+import TransferSuggestion from './TransferSuggestion'
 
 /**
  * Slide-in drawer that shows the transactions making up a summary amount.
@@ -96,6 +98,8 @@ export default function TransactionDrawer({
 
   // Lock background scroll while open — without this the page jumps when
   // the drawer takes focus.
+  useEffect(() => { if (!open) { setSuggestion(null); setTransferSuggestion(null) } }, [open])
+
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
@@ -104,24 +108,69 @@ export default function TransactionDrawer({
   }, [open])
 
   // Summary stats over the currently-loaded transactions.
+  //
+  // Transfers are EXCLUDED from every figure here, which is what makes
+  // this bar agree with the page that opened the drawer. Every
+  // aggregation endpoint (category-breakdown, income-vs-spending,
+  // spending-summary, /totals) filters is_transfer=False, so a CC
+  // autopay credit that Plaid happens to label "Income" must not be
+  // counted in the drill-down either — it would inflate Count and
+  // hijack Largest while the pie slice behind it stayed unchanged.
+  // The rows themselves still render (badged) so they can be inspected
+  // and re-categorized; `transfersHidden` tells the user how many of
+  // the listed rows sit outside these numbers.
   const summary = useMemo(() => {
     if (!transactions.length) return null
     // In this DB, spending amounts are positive, income negative.
-    let spend = 0, income = 0, count = 0, largest = 0
+    let spend = 0, income = 0, count = 0, largest = 0, transfersHidden = 0
     for (const t of transactions) {
+      if (t.is_transfer) { transfersHidden += 1; continue }
       count += 1
       if (t.amount > 0) spend += t.amount
       else income += Math.abs(t.amount)
       if (Math.abs(t.amount) > Math.abs(largest)) largest = t.amount
     }
     const net = spend - income
-    return { spend, income, net, count, largest, avg: spend / Math.max(count, 1) }
+    // An income drill-down has no spending at all; show the money that
+    // actually moved rather than a column of $0.
+    const isIncomeScope = income > 0 && spend === 0
+    const gross = isIncomeScope ? income : spend
+    return {
+      spend: gross,
+      spendLabel: isIncomeScope ? 'Income' : 'Spend',
+      income,
+      net,
+      count,
+      largest,
+      avg: gross / Math.max(count, 1),
+      transfersHidden,
+    }
   }, [transactions])
+
+  // Post-recategorize suggestion ({ txn, category }) — same card the
+  // Transactions page shows. Most fixes actually happen here, reached from
+  // a Spending & Income slice or a Budgets row, so the drawer needs it too.
+  const [suggestion, setSuggestion] = useState(null)
+  const [transferSuggestion, setTransferSuggestion] = useState(null)
+
+  const toggleTransfer = async (t) => {
+    const next = !t.is_transfer
+    try {
+      await updateTransaction(t.id, { is_transfer: next })
+      if (next && t.amount > 0) setTransferSuggestion(t)
+      await reload()
+      onDataChanged && onDataChanged()
+    } catch (e) {
+      console.error('Transfer toggle failed:', e)
+    }
+  }
 
   const commitCategory = async (txnId) => {
     try {
+      const txn = transactions.find(t => t.id === txnId)
       await updateTransaction(txnId, { custom_category: editCategory })
       setEditingId(null)
+      if (txn) setSuggestion({ txn, category: editCategory })
       await reload()
       onDataChanged && onDataChanged()
     } catch (e) {
@@ -161,6 +210,26 @@ export default function TransactionDrawer({
 
   return (
     <>
+      {/* Sits above the drawer panel (zIndex 901) so the buttons are
+          reachable; the drawer's focus trap ignores it, which is fine —
+          it's a transient card, not a modal. */}
+      {transferSuggestion && (
+        <TransferSuggestion
+          txn={transferSuggestion}
+          zIndex={950}
+          onApplied={() => { reload(); onDataChanged && onDataChanged() }}
+          onDismiss={() => setTransferSuggestion(null)}
+        />
+      )}
+      {suggestion && (
+        <CategorySuggestion
+          txn={suggestion.txn}
+          category={suggestion.category}
+          zIndex={950}
+          onApplied={() => { reload(); onDataChanged && onDataChanged() }}
+          onDismiss={() => setSuggestion(null)}
+        />
+      )}
       {/* Overlay */}
       <div
         onClick={onClose}
@@ -223,7 +292,7 @@ export default function TransactionDrawer({
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{summary.count}</div>
             </div>
             <div>
-              <div>Spend</div>
+              <div>{summary.spendLabel}</div>
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(summary.spend)}</div>
             </div>
             <div>
@@ -236,6 +305,11 @@ export default function TransactionDrawer({
                 {formatCurrency(Math.abs(summary.largest))}
               </div>
             </div>
+            {summary.transfersHidden > 0 && (
+              <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-muted)' }}>
+                ↔ {summary.transfersHidden} transfer{summary.transfersHidden === 1 ? '' : 's'} listed below but excluded from these totals
+              </div>
+            )}
           </div>
         )}
 
@@ -262,9 +336,20 @@ export default function TransactionDrawer({
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ fontWeight: 500, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span>{t.display_name || t.merchant_name || t.name}</span>
-                          {t.is_transfer && (
-                            <Pill tone="info" title="Transfer or bill payment — excluded from spending totals">
-                              ↔ Transfer
+                          <button
+                            onClick={() => toggleTransfer(t)}
+                            aria-pressed={!!t.is_transfer}
+                            aria-label={t.is_transfer ? 'Unmark as transfer' : 'Mark as transfer'}
+                            title={t.is_transfer
+                              ? 'Transfer or bill payment — excluded from these totals. Click to unmark.'
+                              : 'Mark as a transfer so it stops counting as spending.'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', opacity: t.is_transfer ? 1 : 0.35, lineHeight: 0 }}
+                          >
+                            <Pill tone="info">↔ {t.is_transfer ? 'Transfer' : 'transfer?'}</Pill>
+                          </button>
+                          {t.is_refund && (
+                            <Pill tone="success" title="Refund or credit — nets against this category's spending; not income">
+                              ↩ Refund
                             </Pill>
                           )}
                         </div>

@@ -5,7 +5,12 @@ from collections import defaultdict
 import pytest
 from sqlalchemy.orm import Session
 
-from app.routers.analytics import _classify_frequency, _classify_kind, FREQUENCY_BANDS
+from app.routers.analytics import (
+    FREQUENCY_BANDS,
+    _classify_frequency,
+    _classify_kind,
+    detect_recurring,
+)
 from app.models import Transaction, Account
 
 
@@ -53,11 +58,9 @@ def test_classify_kind_bill():
     assert _classify_kind("Comcast", 100.0, "monthly", None) == "bill"
 
 
-def test_classify_kind_salary():
-    """Salary detection with positive inflows (negative amounts)."""
-    # Inflow (negative amount) with weekly cadence is income → "salary"
-    assert _classify_kind("Employer Inc", 5000.0, "weekly", None) == "subscription"  # outflow path
-    # For income detection, _classify_frequency and sign-check happens before _classify_kind
+def test_classify_kind_unknown_high_value_weekly_outflow():
+    """An unknown high-value weekly outflow is not a subscription."""
+    assert _classify_kind("Employer Inc", 5000.0, "weekly", None) == "other"
 
 
 def test_recurring_detection_median_interval(db: Session, factory):
@@ -172,6 +175,10 @@ def test_recurring_detection_paycheck_classification(db: Session, factory):
     # frequency = weekly
     # Expected kind = "salary"
     # (logic: if is_income and frequency in ("weekly", "bi-weekly", "monthly"))
+    recurring = detect_recurring(db=db)["recurring"]
+    paycheck = next(r for r in recurring if r["merchant"] == "Employer Inc")
+    assert paycheck["is_income"] is True
+    assert paycheck["kind"] == "salary"
 
 
 def test_recurring_detection_salary_source_3_months_minimum(db: Session, factory):

@@ -6,6 +6,146 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Fixed — Pass 8 correctness and reliability
+- Safe-to-spend covers month/year boundaries, rejects stale income patterns,
+  nets budget refunds, and offsets confidently identified bill overlap without
+  reducing credit-card statement reserves or allowing negative usual spending.
+- Weekly Digest keeps the latest date request, opens the notified week, and
+  shows actual snapshot dates and current-record projection limitations.
+- Repair active test invocation, stale expectations, and date-sensitive fixtures;
+  all 845 active backend tests and 263 frontend tests pass. Parked tests remain
+  excluded; retirement and tax calculation behavior is unchanged.
+
+### Added — Safe to spend and weekly digest (pass 7)
+- Dashboard starts with a safe-to-spend estimate, with checking cash,
+  upcoming bills, usual spending, and excluded savings in its breakdown.
+  The tile-order key advances to v12, resetting saved tile order once.
+- Weekly Digest at `/digest` summarizes spending and income changes,
+  notable activity, upcoming bills, budget pace, and net-worth changes.
+  Browser notifications deliver the most recent Sunday digest once per
+  week when permission is already granted, including later-week visits.
+- Harden date validation, same-day payday bill boundaries, exact normalized
+  bill/account-alias matching, and the inclusive 90-day spending window.
+- Explain estimate limitations: income patterns do not confirm future
+  paychecks, bills can overlap with usual spending, and charge increases
+  are possible price hikes rather than confirmed price changes.
+
+### Changed — Mobile mirror (improve-loop pass 6)
+- The phone nets refunds the same way the laptop does: `/api/mobile/sync`
+  sends `is_refund`, the mirror schema is bumped to 6 (one-time re-pull),
+  and income / spending / category / budget sums match the web app again.
+  Transactions list marks refunds.
+- Mobile schema bumps now drop and re-create the mirror tables (the old
+  row-delete kept stale table shapes; adding a column crashed sync with
+  "has no column named …"), and missing columns are patched in place on
+  launch.
+
+### Added — Money that moved, not money you spent (improve-loop pass 5)
+- **Refunds net against spending.** A return, statement credit or
+  cash-back offer is no longer counted as income: it reduces the
+  category it came from (`is_refund`, derived automatically; ↩ Refund
+  pill). Migration 0021 backfills. `/transactions/totals` reports
+  `refunds` separately.
+- **Transfer rules.** Mark any outflow as a transfer with one click
+  (table or drawer) and choose **Always a transfer** for that payee —
+  the detector honours your rules alongside its built-in ones, fixing
+  history now and every future sync. New **Unpaired transfer-outs**
+  filter on Transactions. API: `/analytics/transfer-rules`.
+- **Keyboard review on Transactions** is discoverable: on-screen hint,
+  `?` legend, `c` for category, `t` to toggle transfer, highlighted row
+  scrolls into view.
+- **Background-job smoke test** (`test_background_jobs.py`): every
+  scheduled job the app promises is asserted to be registered.
+
+### Fixed
+- Business cards, Insights rows and Investments allocation segments are
+  reachable by keyboard; the Transactions merchant link is a real
+  button; icon-only close buttons are labelled.
+- Restored the Budgets "Unbudgeted" section and the Transactions
+  suggestion/undo wiring, which an earlier working-tree write had
+  overwritten.
+
+### Changed — Every page paints instantly (improve-loop pass 4)
+- Loading, empty and failed are now three visibly different states.
+  Skeleton placeholders replace bare "Loading…" text on NetWorth,
+  Cash Flow, Goals, Categories, Insights, Loans, Tax Prep Pack and the
+  Spending & Income recurring card; Transactions shows skeleton rows
+  until the first response and a Retry notice when the fetch fails
+  (it used to swallow errors and show "No transactions found").
+- Fixed three false empty states that flashed during the first fetch:
+  Transactions, Budgets ("No budget set" on months that had one) and
+  Business ("No businesses yet").
+- Cash Flow Forecast tile and the Cash Flow page's cumulative chart now
+  fit their Y axis to the data (`lib/chartScale`), like Net Worth.
+
+### Added — Fixes that stick (improve-loop pass 3)
+- **Recategorize once.** After changing a transaction's category (table
+  or drill-down drawer) the app checks ALL history for that merchant —
+  not just the rows on screen — and offers **Apply to N past** (with an
+  8-second Undo) or **Always**, which saves a category rule that applies
+  retroactively and on every future sync. New
+  `GET /analytics/rules/preview` backs the count.
+- **Undo for bulk edits.** Bulk recategorize and bulk transfer-toggle on
+  the Transactions page post an undo toast that restores every row's
+  prior state.
+
+### Changed
+- `PATCH /transactions/{id}` treats `custom_category: ""` as "clear the
+  override" (null still means unchanged), so an undo can put a row back
+  to the bank's category.
+
+### Added — Numbers that reconcile (improve-loop pass 2)
+- **One category taxonomy at every import path.** `canonical_category()` +
+  an alias table fold importer spellings ("Food & Drink", "Utilities",
+  "Healthcare", "Other", Plaid's `LOAN_DISBURSEMENTS`) onto the standard
+  list; migration 0020 backfills existing rows (both `category` and
+  importer-written `custom_category`; user overrides untouched).
+- **Unbudgeted spending section on the Budgets page** — every category
+  with spend but no line, its share of the month, and a one-click
+  **Set budget** (spend rounded up to the next $25, auto-saved). Rows on
+  the page now add up to Total spent.
+- **Income Sources roll up by payer** instead of one row per paycheck:
+  the card keys on the merchant normalizer, which now collapses the
+  doubled payer in ACH descriptors, multi-word `TYPE:` values and masked
+  IDs.
+
+### Fixed
+- A transaction flagged as a transfer whose bank category is "Income"
+  (CC autopay credits, account-to-account deposits) is relabelled
+  "Transfer" at flag time and backfilled, so it no longer appears in the
+  Income category list or drill-down.
+
+### Added — Budgets that keep working without you (improve-loop pass 1)
+- **Budgets carry forward automatically.** A new month with no budget is
+  cloned from the latest prior month — at startup, daily, and on first
+  load of the current month — so spending-summary, alerts, Ask Tusk and
+  the phone never see an empty month. The Budgets page labels the copy
+  ("Carried forward from August — edit any line or Save to make it this
+  month's own") until you save it. Migration 0019 adds
+  `budgets.inherited_from_budget_id` and a unique `(month, year)` index.
+- **Financial Pulse "budget adherence" is now measured**, not a constant:
+  pace-aware (limit × fraction of month elapsed, first week floored),
+  limit-weighted, Business line excluded. When no budget exists the
+  component drops out and the other three re-weight.
+- **Net Worth chart Y axis fits the data** (`lib/chartScale.js`) instead of
+  starting at zero, so a month's movement fills the plot; a caption
+  discloses the non-zero baseline.
+- `IMPROVE_LOOP.md` / `IMPROVE_LOG.md` — a re-runnable "best in class"
+  improvement loop with a 10-dimension scorecard, sibling to
+  `AUDIT_LOOP.md`.
+
+### Fixed
+- **Budget alerts never fired.** The monitor read field names the budgets
+  API doesn't return (`amount_limit` / `amount_spent`) across every month
+  ever saved. It now evaluates the current month's spending-summary rows
+  through a pure, tested `evaluateBudgetAlerts()`.
+- **Transaction drawer summary counted transfers.** A CC autopay credit
+  that Plaid labels "Income" inflated Count and hijacked Largest in the
+  Income drill-down while the pie slice was already clean; the summary
+  now skips transfers and says how many it skipped.
+- `tests/test_financial_pulse.py` asserted a response shape the endpoint
+  never had; two tests could not pass.
+
 ### Added — Long-term-hold research layer (new "Research" tab)
 - **PII-free research store** under `research/` (`<domain>.research.json` +
   `research.schema.json`, JSON Schema 2020-12). Seeded with the

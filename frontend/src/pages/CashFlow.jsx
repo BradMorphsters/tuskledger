@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { getRecurring, getCashFlowForecast, getCashFlowHealth } from '../api/client'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
+import { niceDomain, currencyTickFormatter } from '../lib/chartScale'
+import { SkeletonPage } from '../components/Skeleton'
 
 const INPUT_STYLE = {
   width: '100%',
@@ -73,9 +75,12 @@ function ForecastView() {
       <button onClick={() => setReloadKey(k => k + 1)} className="btn btn-secondary" style={{ fontSize: 12 }}>Retry</button>
     </div>
   )
-  if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
+  if (!data) return <SkeletonPage stats={4} cards={1} rows={5} />
 
   const series = data.series ?? []
+  // Include 0 explicitly: the chart is "change from today", and today is
+  // the origin even if the first plotted point is already non-zero.
+  const cumScale = niceDomain([0, ...series.map(p => p.cumulative_delta)])
   const upcomingEvents = data.upcoming_events ?? []
   const totalOut = series.reduce((s, x) => s + x.projected_outflow, 0)
   const totalIn = series.reduce((s, x) => s + x.projected_inflow, 0)
@@ -301,7 +306,14 @@ function ForecastView() {
               tickFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               minTickGap={32}
             />
-            <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(1)}k`} />
+            {/* Fitted to the series (today = $0 is always a data point, so
+                zero stays on the chart); tick precision follows the span
+                instead of a fixed one-decimal "k". */}
+            <YAxis
+              tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+              domain={cumScale.domain}
+              tickFormatter={currencyTickFormatter(cumScale.span)}
+            />
             <Tooltip
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
               labelFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -383,7 +395,7 @@ function SubscriptionsView() {
       <button onClick={() => setReloadKey(k => k + 1)} className="btn btn-secondary" style={{ fontSize: 12 }}>Retry</button>
     </div>
   )
-  if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading...</p>
+  if (!data) return <SkeletonPage stats={4} cards={1} rows={6} />
 
   return (
     <div>

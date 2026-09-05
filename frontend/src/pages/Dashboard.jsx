@@ -16,8 +16,8 @@ import StaleBalanceAlert from '../components/StaleBalanceAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
-import { FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview, SpendingPace } from '../components/DashboardTiles'
-import { Wallet, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
+import { SafeToSpend, FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview, SpendingPace } from '../components/DashboardTiles'
+import { Wallet, ChevronDown, ChevronUp, ChevronRight, CalendarClock } from 'lucide-react'
 import { formatCurrencyZero, cleanMerchantName } from '../lib/format'
 
 /** First/last day of a month as ISO yyyy-mm-dd. `month` is 1-12. */
@@ -49,23 +49,26 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v11. Added SpendingPace tile (this month's cumulative spend vs a
-// 4-month moving-average baseline, by day-of-month) and placed it right after
-// Forecast so the two cash-trajectory charts sit together.
-//   Row 1: Pulse | Accounts | Cash
-//   Row 2: HSA | Portfolio | Forecast
-//   Row 3: Pace | DCFSA | Loans
-//   Row 4: Snapshot
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v11'
-// 'accounts' lands second in the default order, right after Pulse,
+// Bumped to v12. Added the SafeToSpend tile ("can I buy this?" — checking
+// cash minus bills due minus usual spending before payday) and put it
+// FIRST: it's the one number this dashboard exists to answer, so it
+// shouldn't need scrolling past Pulse to find. Bumping the order-array
+// length resets any previously saved custom order — expected, and noted
+// in the plan, since the validation below rejects orders missing a key.
+//   Row 1: Safe | Pulse | Accounts
+//   Row 2: Cash | HSA | Portfolio
+//   Row 3: Forecast | Pace | DCFSA
+//   Row 4: Loans | Snapshot
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v12'
+// 'accounts' lands third in the default order, right after Pulse,
 // because "what's the balance on each of my accounts" is the most
 // common reason a user opens the dashboard. Existing users with a
 // stored tile order will fall back to this default — the saved-order
 // validation rejects orders that don't include every key, which is
 // exactly what we want when adding a new tile.
-const DEFAULT_TILE_ORDER = ['pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'pace', 'dcfsa', 'loans', 'snapshot']
+const DEFAULT_TILE_ORDER = ['safe', 'pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'pace', 'dcfsa', 'loans', 'snapshot']
 const TILE_LABELS = {
-  pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
+  safe: 'Safe to spend', pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',
   cash: 'Cash', accounts: 'Accounts', pace: 'Pace',
 }
@@ -93,6 +96,7 @@ function HealthTilesRow() {
   }
 
   const tileFor = (key) => {
+    if (key === 'safe') return <SafeToSpend />
     if (key === 'pulse') return <FinancialPulse />
     if (key === 'forecast') return <CashFlowForecast />
     if (key === 'snapshot') return <DailySnapshot />
@@ -482,7 +486,19 @@ export default function Dashboard() {
 
       {/* Health-at-a-glance — pulse score, cash flow forecast, daily
           snapshot. Order is user-customizable via localStorage so each
-          person can put their most-glanced-at tile first. */}
+          person can put their most-glanced-at tile first. The digest
+          link sits right above it (rather than buried in a menu) since
+          it's the other "read this and you're caught up" surface this
+          row summarizes into tiles. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <a
+          href="/digest"
+          className="btn btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', fontSize: 12 }}
+        >
+          <CalendarClock size={13} /> Weekly digest
+        </a>
+      </div>
       <HealthTilesRow />
 
 

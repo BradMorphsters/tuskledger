@@ -85,6 +85,7 @@ import {
   aggregateWindow, periodDeltaPct,
 } from '../lib/rangeStats'
 import { SpendingHeatmap } from '../components/SpendingExtras'
+import { SkeletonRows } from '../components/Skeleton'
 
 const COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f472b6', '#22d3ee', '#c084fc']
 
@@ -339,7 +340,7 @@ function RecurringCard({ data, onRulesChanged }) {
             Recurring & Subscriptions
           </span>
         </div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Loading…</div>
+        <SkeletonRows rows={4} />
       </div>
     )
   }

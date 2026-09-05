@@ -31,6 +31,15 @@ class Transaction(Base):
     # spending summaries, category breakdowns, and budget totals.
     is_transfer = Column(Boolean, default=False, nullable=False)
 
+    # Refund flag — true for an inflow (amount < 0) that is NOT a transfer
+    # and sits in a spending category: a store return, a statement credit,
+    # a cash-back offer. Every peer nets these against the category they
+    # came from; counting them as income inflated Income and left the
+    # category's spend overstated. Computed by
+    # app.services.refund_detector (after each sync and whenever a row's
+    # category changes) — not a user toggle.
+    is_refund = Column(Boolean, default=False, nullable=False, server_default="0")
+
     # Business tagging
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)
     business = relationship("Business")

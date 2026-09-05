@@ -25,7 +25,24 @@ const editBtnStyle = {
   border: '1px solid var(--border)', borderRadius: 3, cursor: 'pointer',
 }
 
-function ComponentBar({ label, score, color }) {
+function ComponentBar({ label, score, color, note }) {
+  // A component the backend couldn't measure (no budget this month)
+  // comes back with score null and weight 0. Show it as "not scored"
+  // rather than a 0 bar — 0 would read as "terrible", which is the
+  // opposite of "unknown".
+  if (score === null || score === undefined) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: '0 0 130px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+          {label}
+        </div>
+        <div style={{ flex: 1, fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          {note || 'not scored'}
+        </div>
+        <div style={{ flex: '0 0 36px', textAlign: 'right', fontSize: 11, color: 'var(--text-muted)' }}>—</div>
+      </div>
+    )
+  }
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: '0 0 130px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
@@ -147,8 +164,23 @@ export function FinancialPulse() {
       {/* Component bars */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {Object.entries(components).map(([key, c]) => (
-          <ComponentBar key={key} label={c.label || key} score={c.score} color={pulseColor(c.score)} />
+          <ComponentBar
+            key={key}
+            label={c.label || key}
+            score={c.score}
+            color={pulseColor(c.score)}
+            note={key === 'budget' && c.available === false ? 'no budget this month — set one on Budgets' : undefined}
+          />
         ))}
+        {/* Budget adherence is pace-aware: "on pace" means at or under
+            limit × (fraction of month elapsed). Spell out the count so
+            the bar isn't a mystery number. */}
+        {components.budget?.available && (
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', paddingLeft: 140 }}>
+            {components.budget.on_pace} of {components.budget.lines} budget lines on pace
+            {' '}({components.budget.elapsed_pct}% of the month elapsed)
+          </div>
+        )}
       </div>
       {/* Savings rate detail — shown under the component bars when
           payroll deferral is set OR when the user is editing the value.

@@ -285,7 +285,8 @@ def test_totals_respects_filters(client, db, factory):
     r = client.get(f"/api/transactions/totals?q=Starbucks&account_id={acct1.id}")
     assert r.status_code == 200
     assert r.json() == {
-        "count": 2, "spending": 12.0, "income": 0.0, "transfers_excluded": 0,
+        "count": 2, "spending": 12.0, "income": 0.0, "refunds": 0.0,
+        "transfers_excluded": 0,
     }
 
 
@@ -297,5 +298,6 @@ def test_totals_empty_filter_returns_zeros(client, db, factory):
     r = client.get("/api/transactions/totals?q=nothing-matches-this")
     assert r.status_code == 200
     assert r.json() == {
-        "count": 0, "spending": 0.0, "income": 0.0, "transfers_excluded": 0,
+        "count": 0, "spending": 0.0, "income": 0.0, "refunds": 0.0,
+        "transfers_excluded": 0,
     }

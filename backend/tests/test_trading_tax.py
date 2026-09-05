@@ -84,17 +84,27 @@ def test_partial_sell_leaves_open_lot():
     assert p.cost_basis == 600.0
 
 
-def test_oversell_is_silently_ignored():
-    """Selling more than you own — conservative behavior is to ignore
-    the un-covered portion rather than fabricate basis. Regression
-    guard: a single bad row shouldn't crash the whole YTD computation."""
+def test_oversell_emits_zero_basis_warning():
+    """Selling more than imported lots cover emits a visible zero-basis row.
+
+    Unknown basis must remain visible in the tax output so a missing buy can
+    be corrected instead of silently erasing the sale's proceeds.
+    """
     txns = [
         _txn(D(2026, 1, 10), "buy", 5, 100.0),
         _txn(D(2026, 4, 1), "sell", 10, 120.0),
     ]
     r = compute_realized_pnl(txns)
-    # Only 5 shares matched; the other 5 were dropped silently.
-    assert sum(m.quantity for m in r["matches"]) == 5
+    covered = [m for m in r["matches"] if m.buy_txn_id is not None]
+    unknown = [m for m in r["matches"] if m.buy_txn_id is None]
+    assert len(covered) == 1 and covered[0].quantity == 5
+    assert len(unknown) == 1
+    assert unknown[0].quantity == 5
+    assert unknown[0].basis == 0.0
+    assert unknown[0].proceeds == 600.0
+    assert unknown[0].gain_loss == 600.0
+    assert r["unmatched_sells"][0]["unmatched_quantity"] == 5
+    assert r["unmatched_sells"][0]["proceeds"] == 600.0
 
 
 # ─── Multi-lot FIFO ──────────────────────────────────────────────────
@@ -794,9 +804,8 @@ def test_inter_account_transfer_preserves_account_attribution():
     assert m.gain_loss == 2000.0  # ($100 - $80) × 100
 
 
-def test_partial_inter_account_pull_when_insufficient():
-    """Oversell exceeds combined open shares — pull what's available,
-    drop the rest silently. Defense against the data-error case."""
+def test_partial_inter_account_pull_emits_zero_basis_warning():
+    """Pull available shares across accounts and expose any remainder."""
     txns = [
         _txn_a(D(2026, 1, 1), "buy", 50, 80.0, account_id=1, txn_id="b1"),
         # Account 2 oversells by 100: bought 0, sold 100. Only 50 available
@@ -804,9 +813,17 @@ def test_partial_inter_account_pull_when_insufficient():
         _txn_a(D(2026, 3, 1), "sell", 100, 100.0, account_id=2, txn_id="s2"),
     ]
     r = compute_realized_pnl(txns)
-    # 50 shares consumed cross-account; the other 50 silently dropped.
-    total_matched = sum(m.quantity for m in r["matches"])
-    assert abs(total_matched - 50) < 1e-6
+    covered = [m for m in r["matches"] if m.buy_txn_id is not None]
+    unknown = [m for m in r["matches"] if m.buy_txn_id is None]
+    assert len(covered) == 1 and covered[0].quantity == 50
+    assert covered[0].account_id == 2
+    assert len(unknown) == 1
+    assert unknown[0].quantity == 50
+    assert unknown[0].basis == 0.0
+    assert unknown[0].proceeds == 5000.0
+    assert unknown[0].gain_loss == 5000.0
+    assert r["unmatched_sells"][0]["unmatched_quantity"] == 50
+    assert r["unmatched_sells"][0]["proceeds"] == 5000.0
 
 
 def test_inter_account_pull_does_not_fire_when_local_lots_available():

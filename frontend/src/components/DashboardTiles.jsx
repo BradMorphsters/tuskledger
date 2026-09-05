@@ -5,6 +5,7 @@
  * This module re-exports every named export so existing importers
  * (Dashboard.jsx and any others) need no changes.
  */
+export { SafeToSpend }          from './tiles/SafeToSpend'
 export { FinancialPulse }       from './tiles/FinancialPulse'
 export { CashFlowForecast }     from './tiles/CashFlowForecast'
 export { DailySnapshot }        from './tiles/DailySnapshot'

@@ -102,6 +102,7 @@ class TransactionOut(BaseModel):
     custom_category: Optional[str] = None
     business_id: Optional[int] = None
     is_transfer: bool = False
+    is_refund: bool = False                     # inflow that nets against its category (refund_detector)
     notes: Optional[str] = None                 # user-entered free-text, editable via PATCH
     splits: List[TransactionSplitOut] = []
 

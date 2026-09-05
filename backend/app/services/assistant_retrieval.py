@@ -591,7 +591,7 @@ def recent_transactions(db, start, end, label, question: str = "", *, limit: int
 def income_total(db, start, end, label, question: str = "") -> dict:
     """Deposits (money in, non-transfer) over the window — 'how much did I make/earn'."""
     rows = (db.query(Transaction)
-            .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False),
+            .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.is_refund.is_(False),
                     Transaction.date >= start, Transaction.date <= end)
             .with_entities(Transaction.amount).all())
     if not rows:
@@ -609,7 +609,7 @@ def cash_flow(db, start, end, label, question: str = "") -> dict:
     out_rows = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end)
                 .with_entities(Transaction.amount).all())
     in_rows = (db.query(Transaction)
-               .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False),
+               .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.is_refund.is_(False),
                        Transaction.date >= start, Transaction.date <= end)
                .with_entities(Transaction.amount).all())
     outflow = round(sum(float(a) for (a,) in out_rows), 2)
@@ -1072,7 +1072,7 @@ def cash_flow_forecast(db, start, end, label, question: str = "") -> dict:
     since = today - _td(days=90)
     out = sum(float(a) for (a,) in _spend_q(db).filter(Transaction.date >= since).with_entities(Transaction.amount).all())
     inc = sum(-float(a) for (a,) in db.query(Transaction)
-              .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.date >= since)
+              .filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.is_refund.is_(False), Transaction.date >= since)
               .with_entities(Transaction.amount).all())
     monthly_net = round((inc - out) / 3.0, 2)
     if cash <= 0 and not out and not inc:
@@ -1684,7 +1684,7 @@ def monthly_average(db, start, end, label, question: str = "", *, months: int = 
     since = _date.today() - _td(days=months * 30)
     income = bool(re.search(r"\b(income|earn|made|paycheck|deposit)\b", q)) and not re.search(r"\bspend", q)
     if income:
-        rows = (db.query(Transaction).filter(Transaction.amount < 0, Transaction.is_transfer.is_(False),
+        rows = (db.query(Transaction).filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.is_refund.is_(False),
                                              Transaction.date >= since).with_entities(Transaction.amount).all())
         tot = sum(-float(a) for (a,) in rows)
         kind = "income"

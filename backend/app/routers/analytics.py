@@ -29,6 +29,8 @@ from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.tax import HSA_LIMITS, hsa_limit
 from app.services.transaction_view import expand
 from app.services.budget_health import budget_adherence
+from app.services.safe_to_spend import compute_safe_to_spend
+from app.services.weekly_digest import compute_weekly_digest
 from app.utils import month_end_exclusive, month_start, shift_month, utcnow
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -1552,6 +1554,31 @@ def _payment_from_recurring_match(db: Session, name: str, months: int = 6) -> Op
     # Approximate by spreading across the lookback window — undercounts if
     # the user's only had this loan for part of that window, but close enough.
     return total / months
+
+
+@router.get("/safe-to-spend")
+def safe_to_spend(db: Session = Depends(get_db)):
+    """How much can I spend before my next paycheck without touching bills
+    or my usual budget? See app/services/safe_to_spend.py for the math —
+    this handler just supplies "today" so the service stays pure/testable.
+    """
+    return compute_safe_to_spend(db, today=date.today())
+
+
+@router.get("/weekly-digest")
+def weekly_digest(
+    week_ending: Optional[date] = Query(
+        default=None,
+        description="ISO date (YYYY-MM-DD) the digest's 7-day window ends on. Defaults to today.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """One-page "what happened / what's coming / what changed this week"
+    summary. See app/services/weekly_digest.py — this handler only parses
+    the query param and supplies "today" as the default week_ending.
+    """
+    week_end = week_ending or date.today()
+    return compute_weekly_digest(db, week_ending=week_end)
 
 
 @router.get("/debt-payoff")

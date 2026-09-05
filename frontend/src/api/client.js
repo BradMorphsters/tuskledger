@@ -367,6 +367,13 @@ export const getFinancialPulse = (monthlyPayrollDeferral = 0) =>
 // localStorage) and computes the remaining headroom + tax savings.
 export const getHsaStatus = (year) =>
   request(`/analytics/hsa-status${year ? `?year=${year}` : ''}`);
+// "Safe to spend until <next paycheck>" — checking cash minus bills due
+// and usual budget spend before payday. See services/safe_to_spend.py.
+export const getSafeToSpend = () => request('/analytics/safe-to-spend');
+// Weekly digest — what happened / what's coming / what changed this
+// week. weekEnding is an optional ISO date (YYYY-MM-DD); omit for today.
+export const getWeeklyDigest = (weekEnding) =>
+  request(`/analytics/weekly-digest${weekEnding ? `?week_ending=${weekEnding}` : ''}`);
 // Cross-cutting search — fans out across transactions + accounts.
 export const globalSearch = (q, limit = 20) =>
   request(`/transactions/search?q=${encodeURIComponent(q)}&limit=${limit}`);

@@ -910,6 +910,7 @@ def _build_income_total_bundle(db: Session, horizon: str, *, today: Optional[dat
             Transaction.date <= end,
             Transaction.amount < 0,
             Transaction.is_transfer.is_(False),
+            Transaction.is_refund.is_(False),   # refunds net against spend, not income
         )
         .all()
     )
@@ -1042,6 +1043,7 @@ def _build_savings_rate_bundle(db: Session, horizon: str, *, today: Optional[dat
             Transaction.date <= today,
             Transaction.amount < 0,
             Transaction.is_transfer.is_(False),
+            Transaction.is_refund.is_(False),   # refunds net against spend, not income
         )
         .scalar()
         or 0.0

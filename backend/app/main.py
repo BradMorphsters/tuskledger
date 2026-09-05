@@ -78,6 +78,72 @@ def _carry_forward_budget_job():
         db.close()
 
 
+# Background jobs, registered in one place so a test can assert every
+# job the app promises actually gets scheduled (audit finding: budget
+# alerts shipped wired to fields that didn't exist and no test noticed).
+# Keep this list in sync with the ids below — the test checks them.
+EXPECTED_JOB_IDS = (
+    "plaid_sync",
+    "research_warm_prices",
+    "research_warm_flows",
+    "budget_carry_forward",
+)
+
+
+def register_background_jobs(scheduler, settings):
+    """Add every scheduled job to `scheduler`. Pure registration — no I/O,
+    nothing starts until the caller calls scheduler.start()."""
+    scheduler.add_job(
+        scheduled_sync,
+        "interval",
+        hours=settings.SYNC_INTERVAL_HOURS,
+        id="plaid_sync",
+    )
+    # Research market-data warm. The daily briefing refreshes the research FILE + analyst
+    # targets, but NOTHING warmed the market caches (prices/theme/finnhub/signals/edgar), so
+    # they drifted stale and could feed the synthesis/alerts a false "current" read.
+    #   • prices+theme+finnhub: every few hours (Twelve Data free tier; the refresh is now
+    #     stalest-first so coverage rotates), with a first pass ~25s after boot so the app
+    #     opens fresh.
+    #   • Quiver signals + EDGAR: once a day (cron) to respect Quiver's metered quota / SEC.
+    # Broad guards — a warm failure must never affect the API or boot.
+    from datetime import datetime as _dt, timedelta as _td
+
+    def _active_domain():
+        from app.services import research_store as _rs
+        return _rs.get_active_domain() or (_rs.list_domains() or [None])[0]
+
+    def _warm_prices():
+        try:
+            dom = _active_domain()
+            if dom:
+                from app.routers.research import refresh_research_prices
+                refresh_research_prices(dom, months=14, update_fundamentals=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _warm_flows():
+        try:
+            dom = _active_domain()
+            if not dom:
+                return
+            for mod, fn in (("app.routers.signals", "signals_refresh"),
+                            ("app.routers.edgar", "edgar_refresh")):
+                try:
+                    getattr(__import__(mod, fromlist=[fn]), fn)(dom)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    scheduler.add_job(_warm_prices, "interval", hours=max(3, settings.SYNC_INTERVAL_HOURS),
+                      id="research_warm_prices", next_run_time=_dt.now() + _td(seconds=25))
+    scheduler.add_job(_warm_flows, "cron", hour=5, minute=20, id="research_warm_flows")
+    # New month → new budget, without waiting for the next page load.
+    scheduler.add_job(_carry_forward_budget_job, "cron", hour=0, minute=10,
+                      id="budget_carry_forward")
+
+
 def _detect_listen_host() -> str | None:
     """Best-effort read of the host this uvicorn process is bound to.
 
@@ -294,55 +360,7 @@ async def lifespan(app: FastAPI):
     # (someone supplying their own PLAID_CLIENT_ID env var to a hosted
     # demo could cause unexpected outbound calls).
     if settings.PLAID_CLIENT_ID and not settings.DEMO_LOCKED:
-        scheduler.add_job(
-            scheduled_sync,
-            "interval",
-            hours=settings.SYNC_INTERVAL_HOURS,
-            id="plaid_sync",
-        )
-        # Research market-data warm. The daily briefing refreshes the research FILE + analyst
-        # targets, but NOTHING warmed the market caches (prices/theme/finnhub/signals/edgar), so
-        # they drifted stale and could feed the synthesis/alerts a false "current" read.
-        #   • prices+theme+finnhub: every few hours (Twelve Data free tier; the refresh is now
-        #     stalest-first so coverage rotates), with a first pass ~25s after boot so the app
-        #     opens fresh.
-        #   • Quiver signals + EDGAR: once a day (cron) to respect Quiver's metered quota / SEC.
-        # Broad guards — a warm failure must never affect the API or boot.
-        from datetime import datetime as _dt, timedelta as _td
-
-        def _active_domain():
-            from app.services import research_store as _rs
-            return _rs.get_active_domain() or (_rs.list_domains() or [None])[0]
-
-        def _warm_prices():
-            try:
-                dom = _active_domain()
-                if dom:
-                    from app.routers.research import refresh_research_prices
-                    refresh_research_prices(dom, months=14, update_fundamentals=True)
-            except Exception:  # noqa: BLE001
-                pass
-
-        def _warm_flows():
-            try:
-                dom = _active_domain()
-                if not dom:
-                    return
-                for mod, fn in (("app.routers.signals", "signals_refresh"),
-                                ("app.routers.edgar", "edgar_refresh")):
-                    try:
-                        getattr(__import__(mod, fromlist=[fn]), fn)(dom)
-                    except Exception:  # noqa: BLE001
-                        pass
-            except Exception:  # noqa: BLE001
-                pass
-
-        scheduler.add_job(_warm_prices, "interval", hours=max(3, settings.SYNC_INTERVAL_HOURS),
-                          id="research_warm_prices", next_run_time=_dt.now() + _td(seconds=25))
-        scheduler.add_job(_warm_flows, "cron", hour=5, minute=20, id="research_warm_flows")
-        # New month → new budget, without waiting for the next page load.
-        scheduler.add_job(_carry_forward_budget_job, "cron", hour=0, minute=10,
-                          id="budget_carry_forward")
+        register_background_jobs(scheduler, settings)
         scheduler.start()
 
     # Bonjour / mDNS advertisement for the mobile app's auto-discovery.

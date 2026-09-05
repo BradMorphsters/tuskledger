@@ -109,13 +109,27 @@ _NOISE_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bACH\s+TRANSACTION\b", re.IGNORECASE),
     re.compile(r"\bDATA:\s*.+?(?=\s+CO:|\s*$)", re.IGNORECASE),
     re.compile(r"\bNAME:\s*.+?(?=\s+%%|\s*$)", re.IGNORECASE),
-    re.compile(r"\bID:\s*\*?\d+"),
-    re.compile(r"\bTYPE:\s*\S+"),
+    # Bank IDs are digits, star-prefixed digits, or X-masked ("XXXXXX0000").
+    re.compile(r"\bID:\s*\*?[X\d]+", re.IGNORECASE),
+    # "TYPE:" values can be multi-word ("TAX REF", "DIRECT-PAY"); consume
+    # up to the next metadata token rather than a single word.
+    re.compile(r"\bTYPE:\s*.+?(?=\s+(?:ID|CO|DATA|NAME):|\s*%%|\s*$)", re.IGNORECASE),
     re.compile(r"\bCO:\s*", re.IGNORECASE),
     re.compile(r"\bWEB\s+ID:\s*\S+", re.IGNORECASE),
     re.compile(r"^(WITHDRAWAL|DEPOSIT|DEBIT|CREDIT)\s+", re.IGNORECASE),
     re.compile(r"%%"),
 ]
+
+
+def _collapse_repeat(text: str) -> str:
+    """'A B A B' → 'A B' when the string is exactly two identical halves
+    (case-insensitive). Anything else is returned unchanged."""
+    words = text.split()
+    if len(words) >= 2 and len(words) % 2 == 0:
+        half = len(words) // 2
+        if [w.upper() for w in words[:half]] == [w.upper() for w in words[half:]]:
+            return " ".join(words[:half])
+    return text
 
 
 def normalize(raw: Optional[str]) -> Optional[str]:
@@ -141,6 +155,17 @@ def normalize(raw: Optional[str]) -> Optional[str]:
 
     if not cleaned:
         return raw  # Nothing left after stripping — safer to return the original.
+
+    # ACH descriptors name the payer twice — once up front, once after
+    # "CO:" — so stripping the metadata leaves "ACME WIDGETS ACME
+    # WIDGETS". Collapse an exact repeated half into one.
+    cleaned = _collapse_repeat(cleaned)
+
+    # "ACH/<payer> - PAYROLL" is the same payer as the "DEPOSIT <payer> …
+    # TYPE: PAYROLL" form; drop the channel prefix and the trailing type
+    # word so both roll up together.
+    cleaned = re.sub(r"^ACH/\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*-\s*(PAYROLL|DIRECT[- ]?PAY|DISBURSE)$", "", cleaned, flags=re.IGNORECASE).strip(" -")
 
     # Title-case, but preserve runs that already have mixed case (likely
     # intentional, like "Venmo" or "PayPal"). Only title-case when the

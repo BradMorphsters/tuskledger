@@ -31,6 +31,7 @@ import {
   deleteCustomCategory,
   getCustomCategoryUsage,
 } from '../api/client'
+import { SkeletonCard } from '../components/Skeleton'
 
 export default function Categories() {
   const [items, setItems] = useState(null)
@@ -129,7 +130,7 @@ export default function Categories() {
     return (
       <div className="page">
         <h1><Tag size={22} style={{ verticalAlign: '-3px', marginRight: 8 }} />Categories</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+        <SkeletonCard titleWidth="30%" rows={8} />
       </div>
     )
   }

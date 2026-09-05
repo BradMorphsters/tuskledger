@@ -64,3 +64,38 @@ export function SkeletonStatsGrid({ count = 4 }) {
     </div>
   )
 }
+
+/** Table-body placeholder: N rows of M cells. Drop inside <tbody> while the
+ *  first page of rows is in flight so the table never flashes its
+ *  "No results" empty state before data has had a chance to arrive. */
+export function SkeletonTableRows({ rows = 6, cols = 5, cellPadding = '10px 12px' }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <tr key={r} aria-hidden="true">
+          {Array.from({ length: cols }).map((_, c) => (
+            <td key={c} style={{ padding: cellPadding }}>
+              <Skeleton width={`${55 + ((r * 7 + c * 13) % 40)}%`} height={12} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  )
+}
+
+/** Whole-page placeholder for pages that fetch everything up front: a
+ *  stats row plus one or two cards. Replaces the bare "Loading…" text
+ *  that used to sit in the middle of an otherwise empty page. */
+export function SkeletonPage({ stats = 4, cards = 2, rows = 4 }) {
+  return (
+    <div aria-busy="true" aria-label="Loading">
+      {stats > 0 && <SkeletonStatsGrid count={stats} />}
+      {Array.from({ length: cards }).map((_, i) => (
+        <div key={i} style={{ marginTop: i === 0 && stats > 0 ? 20 : 0, marginBottom: 20 }}>
+          <SkeletonCard titleWidth={i === 0 ? '30%' : '40%'} rows={rows} />
+        </div>
+      ))}
+    </div>
+  )
+}

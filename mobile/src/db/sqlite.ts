@@ -51,10 +51,14 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return _db;
 }
 
-async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
-  // Tracking schema version explicitly (rather than relying on PRAGMA
-  // user_version) keeps it inspectable from the Settings screen.
-  await db.execAsync(`
+// Every mirrored table (everything except `meta`). Dropped and re-created
+// on a SCHEMA_VERSION bump — see migrate().
+const MIRROR_TABLES = [
+  'accounts', 'transactions', 'securities', 'holdings', 'net_worth_snapshots',
+  'manual_assets', 'budgets', 'budget_categories', 'upcoming_bills',
+];
+
+const SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -159,7 +163,12 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
       minimum REAL,
       note TEXT
     );
-  `);
+  `;
+
+async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
+  // Tracking schema version explicitly (rather than relying on PRAGMA
+  // user_version) keeps it inspectable from the Settings screen.
+  await db.execAsync(SCHEMA_SQL);
 
   const row = await db.getFirstAsync<{ value: string }>(
     'SELECT value FROM meta WHERE key = ?',
@@ -171,20 +180,16 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
     // schema bump rather than hand-writing migration SQL — phone
     // mirrors are disposable, the source of truth is the laptop.
     if (installed !== 0) {
-      // Clear every mirrored table — the SCHEMA_VERSION bump means the
-      // shape changed; safer to repopulate from the source of truth than
-      // to hand-write per-version migrations on a disposable mirror.
-      await db.execAsync(`
-        DELETE FROM accounts;
-        DELETE FROM transactions;
-        DELETE FROM securities;
-        DELETE FROM holdings;
-        DELETE FROM net_worth_snapshots;
-        DELETE FROM manual_assets;
-        DELETE FROM budgets;
-        DELETE FROM budget_categories;
-        DELETE FROM upcoming_bills;
-      `);
+      // DROP and re-create every mirrored table — the SCHEMA_VERSION bump
+      // means the shape changed. (This used to DELETE rows only, which
+      // kept the OLD table definition: CREATE TABLE IF NOT EXISTS is a
+      // no-op on an existing table, so a bump that added a COLUMN — v6's
+      // is_refund — left the phone with the new INSERT and the old
+      // table, and every sync failed with "has no column named …".)
+      await db.execAsync(
+        MIRROR_TABLES.map((t) => `DROP TABLE IF EXISTS ${t};`).join('\n'),
+      );
+      await db.execAsync(SCHEMA_SQL);
       // Also clear the sync cursor so the next sync does a full pull
       // against the now-empty tables. Without this, the incremental
       // cursor would point past most history and near-nothing would
@@ -198,6 +203,24 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
       'INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)',
       ['schema_version', String(SCHEMA_VERSION)],
     );
+  }
+
+  // Belt and braces: a phone that recorded v6 during a launch where the
+  // INSERT then failed has the version row but not the column. Check the
+  // actual table shape every launch and patch it in place — cheap, and it
+  // means a bad bump can never wedge the app until reinstall.
+  await ensureColumn(db, 'transactions', 'is_refund', 'INTEGER NOT NULL DEFAULT 0');
+}
+
+async function ensureColumn(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
+  const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (!cols.some((c) => c.name === column)) {
+    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
   }
 }
 

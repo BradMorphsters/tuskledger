@@ -11,6 +11,10 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
   sends `is_refund`, the mirror schema is bumped to 6 (one-time re-pull),
   and income / spending / category / budget sums match the web app again.
   Transactions list marks refunds.
+- Mobile schema bumps now drop and re-create the mirror tables (the old
+  row-delete kept stale table shapes; adding a column crashed sync with
+  "has no column named …"), and missing columns are patched in place on
+  launch.
 
 ### Added — Money that moved, not money you spent (improve-loop pass 5)
 - **Refunds net against spending.** A return, statement credit or

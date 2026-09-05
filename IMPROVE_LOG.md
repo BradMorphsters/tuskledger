@@ -83,6 +83,14 @@ manifest `schema_version` left at 4 (additive field; nothing on the phone gates 
 **Verification:** `test_mobile_sync.py` 10/10; `@babel/parser` (typescript plugin) pass on the
 four touched `.ts/.tsx` files. Needs an EAS build to reach the phone.
 
+**Field bug, same day:** the first v6 build failed on the phone with *"table transactions has no
+column named is_refund"*. Root cause: the schema-bump path only ever `DELETE`d rows, and
+`CREATE TABLE IF NOT EXISTS` is a no-op on an existing table — every earlier bump had added
+*tables*, so an added *column* was the first time this mattered. Fix: on a bump the mirror
+tables are `DROP`ped and re-created from one `SCHEMA_SQL`, and `ensureColumn()` checks the
+real table shape on every launch and `ALTER TABLE … ADD COLUMN`s what's missing — which also
+repairs a phone that already recorded v6 during the failed launch. No reinstall needed.
+
 **Next-pass candidates:** D9 text summaries under charts + contrast audit; D6 restore-from-
 backup drill as a test; D7 clean-machine `start-demo.sh` timing; D10 exercise Ask Tusk against
 the new refund/transfer semantics (its income retrievers already exclude refunds).

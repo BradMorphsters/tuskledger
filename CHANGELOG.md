@@ -6,6 +6,20 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Safe to spend and weekly digest (pass 7)
+- Dashboard starts with a safe-to-spend estimate, with checking cash,
+  upcoming bills, usual spending, and excluded savings in its breakdown.
+  The tile-order key advances to v12, resetting saved tile order once.
+- Weekly Digest at `/digest` summarizes spending and income changes,
+  notable activity, upcoming bills, budget pace, and net-worth changes.
+  Browser notifications deliver the most recent Sunday digest once per
+  week when permission is already granted, including later-week visits.
+- Harden date validation, same-day payday bill boundaries, exact normalized
+  bill/account-alias matching, and the inclusive 90-day spending window.
+- Explain estimate limitations: income patterns do not confirm future
+  paychecks, bills can overlap with usual spending, and charge increases
+  are possible price hikes rather than confirmed price changes.
+
 ### Changed — Mobile mirror (improve-loop pass 6)
 - The phone nets refunds the same way the laptop does: `/api/mobile/sync`
   sends `is_refund`, the mirror schema is bumped to 6 (one-time re-pull),

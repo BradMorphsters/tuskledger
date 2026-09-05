@@ -44,11 +44,17 @@ def collect_upcoming_bills(
     db: Session,
     days_ahead: int = 60,
     include_overdue: bool = True,
+    today: Optional[datetime.date] = None,
 ) -> list[UpcomingBill]:
     """The reusable core of /api/bills/upcoming — also consumed by the
     mobile /sync payload (schema v4), so the phone's teaser card and the
-    web Dashboard tile can never disagree about what's due."""
-    today = datetime.date.today()
+    web Dashboard tile can never disagree about what's due.
+
+    `today` defaults to the real date; the safe-to-spend and weekly-digest
+    services pass an explicit value so their tests are deterministic
+    without needing to fake the wall clock.
+    """
+    today = today or datetime.date.today()
     cutoff = today + datetime.timedelta(days=days_ahead)
     bills: list[UpcomingBill] = []
 

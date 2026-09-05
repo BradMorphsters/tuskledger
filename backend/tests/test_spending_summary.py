@@ -19,6 +19,13 @@ def _april(day: int) -> _dt.date:
     return _dt.date(2026, 4, day)
 
 
+def _summary(**kwargs):
+    """Call the route directly with FastAPI's optional query defaults resolved."""
+    kwargs.setdefault("start_date", None)
+    kwargs.setdefault("end_date", None)
+    return spending_summary(**kwargs)
+
+
 def test_spending_summary_default_includes_everything(db, factory):
     """Default business_filter='all' = legacy behavior: business spend
     is mixed in with personal categories. business_total is still
@@ -34,7 +41,7 @@ def test_spending_summary_default_includes_everything(db, factory):
                         business_id=biz.id)
     factory.commit()
 
-    out = spending_summary(month=4, year=2026, business_filter="all", db=db)
+    out = _summary(month=4, year=2026, business_filter="all", db=db)
 
     cats = {c.category: c.total for c in out.categories}
     assert cats == {"Food & Dining": 200.0, "Services": 100.0}
@@ -61,7 +68,7 @@ def test_spending_summary_personal_excludes_business_from_categories(db, factory
                         category="Services", merchant_name="Personal SaaS")
     factory.commit()
 
-    out = spending_summary(month=4, year=2026, business_filter="personal", db=db)
+    out = _summary(month=4, year=2026, business_filter="personal", db=db)
 
     cats = {c.category: c.total for c in out.categories}
     assert cats == {"Food & Dining": 200.0, "Services": 50.0}
@@ -86,7 +93,7 @@ def test_spending_summary_business_only(db, factory):
                         business_id=biz.id)
     factory.commit()
 
-    out = spending_summary(month=4, year=2026, business_filter="business", db=db)
+    out = _summary(month=4, year=2026, business_filter="business", db=db)
 
     cats = {c.category: c.total for c in out.categories}
     assert cats == {"Services": 100.0, "Travel": 300.0}
@@ -113,7 +120,7 @@ def test_spending_summary_excludes_transfers_regardless_of_filter(db, factory):
                         category="Food & Dining", merchant_name="Real spend")
     factory.commit()
 
-    out = spending_summary(month=4, year=2026, business_filter="all", db=db)
+    out = _summary(month=4, year=2026, business_filter="all", db=db)
     cats = {c.category: c.total for c in out.categories}
     assert cats == {"Food & Dining": 200.0}
     assert out.business_total == 0.0
@@ -133,7 +140,7 @@ def test_business_total_populated_when_personal_filter(db, factory):
                         business_id=biz.id)
     factory.commit()
 
-    out_personal = spending_summary(month=4, year=2026, business_filter="personal", db=db)
+    out_personal = _summary(month=4, year=2026, business_filter="personal", db=db)
     assert out_personal.business_total == 350.0
     # ...and the categories list does NOT include the business txn
     assert all(c.total != 350.0 or c.category != "Services" for c in out_personal.categories)
@@ -162,7 +169,7 @@ def test_business_budget_limit_pulled_from_synthetic_category(db, factory):
     db.add(BudgetCategory(budget_id=budget.id, category="Business", limit_amount=500.0))
     factory.commit()
 
-    out = spending_summary(month=4, year=2026, business_filter="personal", db=db)
+    out = _summary(month=4, year=2026, business_filter="personal", db=db)
     # Personal category gets its limit attached as before
     food = next(c for c in out.categories if c.category == "Food & Dining")
     assert food.budget_limit == 300.0

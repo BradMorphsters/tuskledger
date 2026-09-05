@@ -6,7 +6,7 @@ from app.routers.analytics import get_insights
 
 def test_insights_empty_db(db, factory):
     """Empty database returns no insight cards."""
-    response = get_insights(db=db)
+    response = get_insights(limit=5, db=db)
     assert response.cards == []
     assert response.generated_at is not None
 
@@ -27,7 +27,7 @@ def test_insights_category_up(db, factory):
         factory.transaction(
             account_id=acct.id,
             amount=100.0,
-            date=datetime.date(y, m, 15),
+            date=datetime.date(y, m, 1),
             merchant_name="Store",
             category="Shopping",
         )
@@ -43,7 +43,7 @@ def test_insights_category_up(db, factory):
     )
     factory.commit()
 
-    response = get_insights(db=db)
+    response = get_insights(limit=5, db=db)
 
     # Should have at least one category_up card
     category_up_cards = [c for c in response.cards if c.type == "category_up"]
@@ -78,7 +78,7 @@ def test_insights_new_merchant_below_threshold(db, factory):
     )
     factory.commit()
 
-    response = get_insights(db=db)
+    response = get_insights(limit=5, db=db)
 
     # Should NOT fire a new_merchant card for the small transaction
     new_merch_cards = [c for c in response.cards if c.type == "new_merchant"]
@@ -101,7 +101,7 @@ def test_insights_new_merchant_fires(db, factory):
     )
     factory.commit()
 
-    response = get_insights(db=db)
+    response = get_insights(limit=5, db=db)
 
     # Should fire a new_merchant card
     new_merch_cards = [c for c in response.cards if c.type == "new_merchant"]
@@ -145,7 +145,7 @@ def test_insights_transfers_excluded(db, factory):
     )
     factory.commit()
 
-    response = get_insights(db=db)
+    response = get_insights(limit=5, db=db)
 
     # Transfer should not contribute to any card
     assert all(c.merchant != "Another Account" for c in response.cards)

@@ -40,8 +40,7 @@ def test_yoy_recent_only_returns_current_no_priors(db: Session):
 
 
 def test_yoy_pairs_current_with_priors(db: Session):
-    """When ≥1y of history exists, every current row gets a paired
-    prior_year value drawn from the closest snapshot ≤365 days earlier."""
+    """When prior history exists, each available prior row aligns by date."""
     today = datetime.date.today()
     # Build 400 days of monotonic snapshots so we have material on both
     # sides of the 365-day boundary.
@@ -50,15 +49,17 @@ def test_yoy_pairs_current_with_priors(db: Session):
     db.commit()
 
     result = networth_yoy(db=db)
-    # current covers the last 365 days; prior_year is anchored to those
-    # same dates with values from 365 days earlier.
+    # Current covers the last 365 days. Early current dates may have no
+    # one-year prior, so the endpoint returns only available aligned rows.
     assert len(result["current"]) > 0
-    assert len(result["prior_year"]) == len(result["current"])
+    assert result["prior_year"]
+    current_by_date = {row["date"]: row["value"] for row in result["current"]}
+    prior_by_date = {row["date"]: row["value"] for row in result["prior_year"]}
+    assert set(prior_by_date) <= set(current_by_date)
     # Each prior_year value should be lower than the matching current
     # value because the underlying snapshots are monotonically growing.
-    for current_row, prior_row in zip(result["current"], result["prior_year"]):
-        assert current_row["date"] == prior_row["date"]
-        assert current_row["value"] > prior_row["value"]
+    for date, prior_value in prior_by_date.items():
+        assert current_by_date[date] > prior_value
 
 
 def test_yoy_falls_back_to_closest_prior_when_exact_date_missing(db: Session):

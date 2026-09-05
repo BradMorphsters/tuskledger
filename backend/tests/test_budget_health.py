@@ -104,6 +104,47 @@ def test_custom_category_override_counts_toward_its_budget_line(db: Session, fac
     assert abs(got["detail"][0]["score"] - 20.0) < 0.1
 
 
+def test_refund_nets_against_category_spend_and_clamps_at_zero(db: Session, factory):
+    today = datetime.date(2026, 9, 15)
+    acct = factory.account(name="Checking")
+    business = factory.business()
+    _budget(db, 9, 2026, {"Shopping": 500.0, "Home": 500.0})
+    factory.transaction(
+        account_id=acct.id, amount=100.0, date=datetime.date(2026, 9, 3),
+        category="Shopping",
+    )
+    refund = factory.transaction(
+        account_id=acct.id, amount=-40.0, date=datetime.date(2026, 9, 10),
+        category="Shopping",
+    )
+    refund.is_refund = True
+    # Ordinary income is excluded even when it shares a budget category.
+    factory.transaction(
+        account_id=acct.id, amount=-500.0, date=datetime.date(2026, 9, 11),
+        category="Shopping",
+    )
+    # Business spend is excluded from personal budget adherence.
+    factory.transaction(
+        account_id=acct.id, amount=100.0, date=datetime.date(2026, 9, 12),
+        category="Shopping", business_id=business.id,
+    )
+    home_refund = factory.transaction(
+        account_id=acct.id, amount=-150.0, date=datetime.date(2026, 9, 13),
+        category="Home",
+    )
+    home_refund.is_refund = True
+    factory.commit()
+
+    got = budget_adherence(db, today=today)
+
+    spent = {line["category"]: line["spent"] for line in got["detail"]}
+    # Refunds net against personal spend; ordinary income and business lines
+    # remain excluded. A refund-only category clamps at zero like
+    # spending_summary.
+    assert spent["Shopping"] == 60.0
+    assert spent["Home"] == 0.0
+
+
 # ── financial-pulse wiring ───────────────────────────────────
 
 def test_pulse_drops_and_reweights_budget_component_when_no_budget(db: Session):

@@ -16,6 +16,20 @@ it('delivers the Sunday digest on Monday and does not repeat on remount', async 
   const view = render(<DigestNotifier />)
   await waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
   expect(getWeeklyDigest).toHaveBeenCalledWith('2026-09-06')
+  const location = window.location
+  const focus = window.focus
+  try {
+    window.focus = vi.fn()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { href: 'http://localhost/' },
+    })
+    notify.mock.instances[0].onclick()
+    expect(window.location.href).toBe('/digest?week_ending=2026-09-06')
+  } finally {
+    Object.defineProperty(window, 'location', { configurable: true, value: location })
+    window.focus = focus
+  }
   view.unmount()
   render(<DigestNotifier />)
   expect(getWeeklyDigest).toHaveBeenCalledTimes(1)

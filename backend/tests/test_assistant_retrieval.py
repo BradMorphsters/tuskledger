@@ -470,9 +470,10 @@ def test_investment_transactions_uses_investment_table(factory, db):
 
 def test_day_of_week_average(factory):
     acct = factory.account()
+    monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
     # two Mondays of $50 each → average ~$50/Monday
-    factory.transaction(account_id=acct.id, amount=50.0, date=datetime.date(2026, 6, 1), merchant_name="A")   # Mon
-    factory.transaction(account_id=acct.id, amount=50.0, date=datetime.date(2026, 6, 8), merchant_name="B")   # Mon
+    factory.transaction(account_id=acct.id, amount=50.0, date=monday - datetime.timedelta(days=7), merchant_name="A")
+    factory.transaction(account_id=acct.id, amount=50.0, date=monday, merchant_name="B")
     factory.commit()
     r = ret.day_of_week(factory.db, None, None, "now", "what's my typical Monday spending")
     assert "Monday" in r["answer"] and "$50" in r["answer"]

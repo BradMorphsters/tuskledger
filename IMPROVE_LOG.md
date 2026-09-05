@@ -64,6 +64,63 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 ## Passes
 
+### 2026-09-05 — Pass 8 · Finish correctness and test repairs
+
+Completed the in-progress batch with Luna implementation and coordinator review.
+Safe-to-spend covers each calendar month before payday, ignores stale income
+streams after two cadence intervals plus three days, and nets refunds through
+budget_health consistently with spending_summary. Confirmed bill/category
+matches reduce overlapping allowances within the same month; credit-card
+statements and ambiguous matches remain separately reserved. Trailing overlap
+uses the same 90-day window and is capped so usual spending cannot go negative.
+Mortgage aliases use account IDs rather than guessing among display names.
+
+Digest date changes use latest-request protection, notification links select the
+matching week, and comparison text shows actual snapshot dates. Mixed spending
+sources and historical bill-record limitations are explicit.
+
+Repaired active tests without changing tax/retirement production calculations:
+primitive defaults for direct route calls, current unmatched-sale/refund API
+contracts, sparse YoY alignment, and stable time-window fixtures. Three further
+assertion problems surfaced after repairing invocation: same-fraction spending
+history, the current retirement chart horizon, and inheritance event-year timing.
+
+Final verification: **845 active backend tests passed**, **263 frontend tests
+passed**, production build passed, git diff --check clean. Existing parked tests
+remain parked and are excluded with --ignore=tests/_disabled. Both live endpoints
+returned 200; safe-to-spend arithmetic and nonnegative allowance checked locally
+without exposing financial values. No new dependencies or real-data edits.
+
+Remaining separate work: phone build/install and device verification, external
+savings classification, identified-folder cleanup, and later roadmap candidates.
+Unmatched bills can still overlap with usual spending conservatively; projections
+remain estimates. No push/deployment performed.
+
+### 2026-09-05 — Pass 7 · Safe-to-spend estimate and weekly digest
+
+Committed locally as `9596f9d` after reviewing the implementation. Added the
+Dashboard estimate and breakdown, Weekly Digest page/date picker, both analytics
+endpoints, and a once-weekly browser notification. The Dashboard order key moves
+to v12, resetting stored tile order once.
+
+Review fixed invalid digest-date handling, same-day payday bill boundaries,
+substring-based bill suppression, and the inclusive 90-day window. Notifications
+also deliver the most recent Sunday digest when the app opens later in the week.
+Price-hike language is explicitly tentative. Budget/bill overlap and stale income
+remain known estimate limitations for the next correctness pass.
+
+Verification at this checkpoint: 42 focused backend tests; full backend 827 passed
+and 39 failures unchanged from the pre-review baseline; frontend 258 passed and
+production build succeeded. The full run included four parked `_disabled` tests,
+so 35 failures were active. Node 25 needs experimental web storage disabled for
+these frontend tests; the repository specifies Node 22. Live endpoints and basic
+Dashboard/digest interactions passed without exporting financial values.
+
+Record correction: Passes 1–6 below were subsequently committed (latest Pass 6
+commit `6ebbcae`); the mobile schema repair is committed as `8d6732a`. Their original
+"Not committed" statements describe the earlier handoff, not current Git state.
+The phone still requires build/install verification.
+
 ### 2026-09-05 — Pass 6 · Mobile mirror learns `is_refund`
 
 Small, consistency-driven pass: Pass 5 made the laptop net refunds against spend, so the phone

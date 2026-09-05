@@ -5,7 +5,8 @@ import { toLocalISODate } from '../lib/format'
 /**
  * DigestNotifier — side-effect-only component, mounted once at the App
  * root next to BudgetAlertsMonitor. Fires at most one browser
- * notification per calendar week pointing the user at /digest, so a
+ * notification per calendar week pointing the user at the matching /digest
+ * query date, so a
  * once-a-week user gets pulled back in without needing to remember the
  * page exists. No UI of its own.
  *
@@ -50,7 +51,7 @@ export default function DigestNotifier() {
         })
         notification.onclick = () => {
           window.focus()
-          window.location.href = '/digest'
+          window.location.href = `/digest?week_ending=${weekKey}`
         }
 
         try { localStorage.setItem(STORAGE_KEY, weekKey) } catch { /* best effort */ }

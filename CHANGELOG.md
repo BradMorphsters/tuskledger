@@ -6,6 +6,16 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Fixed — Pass 8 correctness and reliability
+- Safe-to-spend covers month/year boundaries, rejects stale income patterns,
+  nets budget refunds, and offsets confidently identified bill overlap without
+  reducing credit-card statement reserves or allowing negative usual spending.
+- Weekly Digest keeps the latest date request, opens the notified week, and
+  shows actual snapshot dates and current-record projection limitations.
+- Repair active test invocation, stale expectations, and date-sensitive fixtures;
+  all 845 active backend tests and 263 frontend tests pass. Parked tests remain
+  excluded; retirement and tax calculation behavior is unchanged.
+
 ### Added — Safe to spend and weekly digest (pass 7)
 - Dashboard starts with a safe-to-spend estimate, with checking cash,
   upcoming bills, usual spending, and excluded savings in its breakdown.

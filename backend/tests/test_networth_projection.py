@@ -47,11 +47,13 @@ def test_projection_uses_daily_pace_fallback_at_14_days(db: Session):
     """Sub-monthly history with ≥14 days → daily-pace × 30 fallback,
     low confidence but real numbers. This is the path that would
     otherwise have returned empty (the original bug)."""
-    today = datetime.date.today()
+    # Anchor to the end of the previous month so all 20 snapshots stay in a
+    # single calendar bucket regardless of when the test runs.
+    anchor = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
     # 20 daily snapshots, $1k/day growth → monthly pace ≈ $30k
     for i in range(20):
         _add_snapshot(
-            db, today - datetime.timedelta(days=19 - i), 100_000 + i * 1_000
+            db, anchor - datetime.timedelta(days=19 - i), 100_000 + i * 1_000
         )
     db.commit()
 

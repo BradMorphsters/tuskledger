@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CalendarDays, TrendingUp, TrendingDown } from 'lucide-react'
 import { getWeeklyDigest, getSafeToSpend } from '../api/client'
 import { SkeletonPage } from '../components/Skeleton'
 import LoadError from '../components/LoadError'
 import { formatCurrencyZero as fmt, formatDate, toLocalISODate } from '../lib/format'
+import { useLatestRequest } from '../hooks/useLatestRequest'
+import { useSearchParams } from 'react-router-dom'
 
 /**
  * WeeklyDigest — the once-a-week "what happened, what's coming, what
@@ -20,6 +22,12 @@ function pct(n) {
   return `${sign}${n.toFixed(0)}%`
 }
 
+function isValidWeekEnding(value, today = toLocalISODate()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false
+  const parsed = new Date(`${value}T00:00:00`)
+  return !Number.isNaN(parsed.getTime()) && toLocalISODate(parsed) === value && value <= today
+}
+
 function SectionCard({ title, icon, children }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -34,36 +42,55 @@ function SectionCard({ title, icon, children }) {
 }
 
 export default function WeeklyDigest() {
-  const [weekEnding, setWeekEnding] = useState(() => toLocalISODate())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const today = toLocalISODate()
+  const [weekEnding, setWeekEnding] = useState(() => {
+    const queryDate = searchParams.get('week_ending')
+    return isValidWeekEnding(queryDate, toLocalISODate()) ? queryDate : toLocalISODate()
+  })
   const [digest, setDigest] = useState(null)
   const [safe, setSafe] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const runLatest = useLatestRequest()
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true)
     setError(false)
-    Promise.all([
+    return runLatest(token => Promise.all([
       getWeeklyDigest(weekEnding),
       getSafeToSpend().catch(() => null),
     ])
-      .then(([d, s]) => { setDigest(d); setSafe(s); setLoading(false) })
-      .catch(() => { setError(true); setLoading(false) })
-  }
+      .then(([d, s]) => {
+        if (!token.live) return
+        setDigest(d)
+        setSafe(s)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!token.live) return
+        setError(true)
+        setLoading(false)
+      }))
+  }, [runLatest, weekEnding])
 
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekEnding])
+    return load()
+  }, [load])
 
-  if (loading) {
-    return (
-      <div>
-        <div className="page-header"><h1 className="page-title">Weekly digest</h1></div>
-        <SkeletonPage stats={0} cards={4} rows={3} />
-      </div>
-    )
+  const handleWeekEndingChange = (event) => {
+    const next = event.target.value
+    if (!isValidWeekEnding(next, today)) return
+    setWeekEnding(next)
+    setSearchParams(previous => {
+      const nextParams = new URLSearchParams(previous)
+      nextParams.set('week_ending', next)
+      return nextParams
+    }, { replace: true })
   }
+
+  const historicalWeek = weekEnding !== today
+  const overdueLabel = historicalWeek ? `overdue as of ${formatDate(weekEnding)}` : 'currently overdue'
 
   return (
     <div>
@@ -74,7 +101,8 @@ export default function WeeklyDigest() {
           <input
             type="date"
             value={weekEnding}
-            onChange={e => setWeekEnding(e.target.value)}
+            max={today}
+            onChange={handleWeekEndingChange}
             style={{
               padding: '5px 8px', fontSize: 13, borderRadius: 6,
               border: '1px solid var(--border)', background: 'var(--bg-input)',
@@ -84,12 +112,15 @@ export default function WeeklyDigest() {
         </label>
       </div>
 
-      {error && <LoadError what="the weekly digest" onRetry={load} />}
-      {!error && digest && (
+      {loading ? (
+        <SkeletonPage stats={0} cards={4} rows={3} />
+      ) : (
         <>
-          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: -8, marginBottom: 16 }}>
-            {formatDate(digest.week_start)} – {formatDate(digest.week_end)}
-          </p>
+          {error && <LoadError what="the weekly digest" onRetry={load} />}
+          {!error && digest && <>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: -8, marginBottom: 16 }}>
+              {formatDate(digest.week_start)} – {formatDate(digest.week_end)}
+            </p>
 
           {safe && (
             <SectionCard title="Safe to spend today (estimate)" icon={<CalendarDays size={14} style={{ color: 'var(--accent-blue)' }} />}>
@@ -168,20 +199,27 @@ export default function WeeklyDigest() {
             )}
           </SectionCard>
 
-          <SectionCard title="Coming" icon={<CalendarDays size={14} style={{ color: 'var(--accent-orange)' }} />}>
+          <SectionCard title="Coming (projection)" icon={<CalendarDays size={14} style={{ color: 'var(--accent-orange)' }} />}>
             <p style={{ margin: '4px 0 8px' }}>
+              Projection uses current bill records; historical snapshots are unavailable.{' '}
               {digest.coming.next_paycheck_source === 'month_end_fallback'
                 ? 'No recurring income detected; using an estimated payday of '
                 : 'Your next paycheck is projected for '}
               {formatDate(digest.coming.next_paycheck_date)}.
-              {digest.coming.bills.length > 0
-                ? ` ${digest.coming.bills.length} bill${digest.coming.bills.length === 1 ? '' : 's'} due in the next 14 days.`
-                : ' No bills due in the next 14 days.'}
+              {(() => {
+                const overdueCount = digest.coming.bills.filter(b => b.days_until < 0).length
+                const upcomingCount = digest.coming.bills.length - overdueCount
+                if (digest.coming.bills.length === 0) return ` No bills due in the next 14 days or ${overdueLabel}.`
+                const parts = []
+                if (upcomingCount > 0) parts.push(`${upcomingCount} bill${upcomingCount === 1 ? '' : 's'} due in the next 14 days`)
+                if (overdueCount > 0) parts.push(`${overdueCount} ${overdueLabel}`)
+                return ` ${parts.join(' and ')}.`
+              })()}
             </p>
             {digest.coming.bills.length > 0 && (
               <ListBlock>
                 {digest.coming.bills.map((b, i) => (
-                  <ListRow key={i} left={`${b.name} · ${formatDate(b.date)}`} right={b.amount != null ? fmt(b.amount) : '—'} />
+                  <ListRow key={i} left={`${b.name} · ${formatDate(b.date)}${b.days_until < 0 ? ` · ${historicalWeek ? overdueLabel : 'overdue'}` : ''}`} right={b.amount != null ? fmt(b.amount) : '—'} />
                 ))}
               </ListBlock>
             )}
@@ -213,8 +251,8 @@ export default function WeeklyDigest() {
             ) : (
               <p style={{ margin: '4px 0' }}>
                 Net worth is {fmt(digest.net_worth.net_worth)} as of {formatDate(digest.net_worth.date)}
-                {digest.net_worth.delta !== null && (
-                  <>, {digest.net_worth.delta >= 0 ? 'up' : 'down'} {fmt(Math.abs(digest.net_worth.delta))} from a week earlier</>
+                {digest.net_worth.delta !== null && digest.net_worth.prior_date && (
+                  <>, {digest.net_worth.delta >= 0 ? 'up' : 'down'} {fmt(Math.abs(digest.net_worth.delta))} from {formatDate(digest.net_worth.prior_date)}</>
                 )}.
               </p>
             )}
@@ -240,6 +278,7 @@ export default function WeeklyDigest() {
               </ListBlock>
             )}
           </SectionCard>
+          </>}
         </>
       )}
     </div>

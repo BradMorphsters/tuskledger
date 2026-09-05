@@ -100,7 +100,8 @@ def budget_adherence(db: Session, today: Optional[datetime.date] = None) -> Opti
     )
     spent_by_cat: dict[str, float] = {}
     for line in expand(txns):
-        if line.amount <= 0 or line.business_id is not None:
+        # Refunds are negative spend-side lines; ordinary income remains out.
+        if (line.amount <= 0 and not line.is_refund) or line.business_id is not None:
             continue
         spent_by_cat[line.category] = spent_by_cat.get(line.category, 0.0) + line.amount
 
@@ -110,7 +111,9 @@ def budget_adherence(db: Session, today: Optional[datetime.date] = None) -> Opti
     on_pace = 0
     detail = []
     for category, limit in lines:
-        spent = spent_by_cat.get(category, 0.0)
+        # Match spending_summary: a refund-only or refund-heavy category is
+        # shown as zero spent rather than producing a negative bar.
+        spent = max(spent_by_cat.get(category, 0.0), 0.0)
         s = line_score(spent, limit, elapsed)
         weighted += s * (limit / total_limit)
         if s >= 100.0:

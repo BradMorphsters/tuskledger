@@ -53,6 +53,13 @@ export function SafeToSpend() {
 
   const positive = data.safe_to_spend >= 0
   const headlineColor = positive ? 'var(--accent-green)' : 'var(--accent-red)'
+  const budgetSourceLabel = data.budget_source === 'trailing_average'
+    ? '90-day avg'
+    : data.budget_source === 'none'
+      ? 'no history'
+      : data.budget_source === 'mixed'
+        ? 'mixed sources'
+        : 'budget'
 
   return (
     <div className="card" style={tileCardStyle}>
@@ -79,10 +86,11 @@ export function SafeToSpend() {
 
       {/* Fallback context: only shown when a term used a non-ideal source,
           so a confident number doesn't get cluttered with caveats. */}
-      {(data.next_paycheck_source === 'month_end_fallback' || data.budget_source === 'trailing_average') && (
+      {(data.next_paycheck_source === 'month_end_fallback' || data.budget_source === 'trailing_average' || data.budget_source === 'mixed') && (
         <div style={{ fontSize: 11, color: 'var(--accent-orange)', marginTop: 6 }}>
           {data.next_paycheck_source === 'month_end_fallback' && 'No income stream detected — assuming next paycheck on the 1st. '}
           {data.budget_source === 'trailing_average' && 'No budget set — using your 90-day average.'}
+          {data.budget_source === 'mixed' && 'Uses available budgets and spending history across months. See breakdown for assumptions.'}
         </div>
       )}
 
@@ -106,7 +114,7 @@ export function SafeToSpend() {
           <Row label="Checking cash" value={fmtMoney(data.spendable_cash)} />
           <Row label="− Bills due before payday" value={fmtMoney(data.bills_due)} negative />
           <Row
-            label={`− Usual spending (${data.budget_source === 'trailing_average' ? '90-day avg' : data.budget_source === 'none' ? 'no history' : 'budget'})`}
+            label={`− Usual spending (${budgetSourceLabel})`}
             value={fmtMoney(data.budget_remaining_pro_rata)}
             negative
           />

@@ -19,7 +19,7 @@
     "ios": {
       "bundleIdentifier": "com.tuskledger.mobile",
       "supportsTablet": true,
-      "buildNumber": "2",
+      "buildNumber": "3",
       "appleTeamId": "MB9R3Y3KSW",
       "infoPlist": {
         "NSCameraUsageDescription": "Tusk Ledger uses the camera to scan the pairing QR code shown on your laptop.",

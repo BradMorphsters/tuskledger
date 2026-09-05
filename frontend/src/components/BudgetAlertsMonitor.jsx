@@ -18,7 +18,8 @@
  *   - Each fires once per category per month; resets on the 1st
  */
 import { useEffect, useState } from 'react'
-import { getBudgets } from '../api/client'
+import { getSpendingSummary } from '../api/client'
+import { evaluateBudgetAlerts } from '../lib/budgetAlerts'
 
 const ALERTED_KEY = 'tuskledger-budget-alerts-fired'
 const POLL_INTERVAL_MS = 5 * 60 * 1000  // 5 minutes
@@ -50,44 +51,32 @@ export function BudgetAlertsMonitor() {
 
     const checkBudgets = async () => {
       try {
-        const budgets = await getBudgets()
-        if (cancelled) return
+        // Current month only, via spending-summary: the same rows the
+        // Budgets page renders ({ category, total, budget_limit }), so an
+        // alert can never disagree with the page. (The previous version
+        // read GET /budgets/ — every month ever saved — and looked for
+        // field names that endpoint never returned, so it never fired.)
         const today = new Date()
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-        const dayOfMonth = today.getDate()
-        const totalDays = monthEnd.getDate()
-        const monthFraction = dayOfMonth / totalDays
-
-        for (const b of budgets || []) {
-          if (!b.categories || !Array.isArray(b.categories)) continue
-          for (const cat of b.categories) {
-            if (!cat.amount_limit || cat.amount_limit <= 0) continue
-            const usedPct = (cat.amount_spent || 0) / cat.amount_limit
-            const key = `${b.id}-${cat.category}`
-            const fired = alerted.fired[key] || 0  // highest threshold already alerted
-            // Threshold tiers (in order). Only fire each once per month.
-            const tiers = [
-              { pct: 1.0, label: '100%', tone: '⚠ over budget' },
-              { pct: 0.9, label: '90%' },
-              { pct: 0.75, label: '75%' },
-            ]
-            for (const t of tiers) {
-              if (usedPct >= t.pct && fired < t.pct) {
-                // Don't fire 75% if we're early in the month and on pace
-                // (e.g., 75% used at day 23 of 30 = on pace, not alarming)
-                if (t.pct === 0.75 && monthFraction > 0.75) continue
-                new Notification('Tusk Ledger budget alert', {
-                  body: `${cat.category}: ${t.tone || `at ${t.label}`} (${Math.round(usedPct * 100)}% of $${cat.amount_limit} used)`,
-                  tag: `tuskledger-budget-${key}`,
-                })
-                alerted.fired[key] = t.pct
-                saveAlerted(alerted)
-                break  // only highest tier per category per check
-              }
-            }
-          }
+        const month = today.getMonth() + 1
+        const year = today.getFullYear()
+        const summary = await getSpendingSummary(month, year, 'personal')
+        if (cancelled) return
+        const daysInMonth = new Date(year, month, 0).getDate()
+        const { alerts, fired } = evaluateBudgetAlerts({
+          categories: summary?.categories || [],
+          fired: alerted.fired,
+          dayOfMonth: today.getDate(),
+          daysInMonth,
+        })
+        if (alerts.length === 0) return
+        for (const a of alerts) {
+          new Notification('Tusk Ledger budget alert', {
+            body: a.body,
+            tag: `tuskledger-budget-${year}-${month}-${a.category}`,
+          })
         }
+        alerted = { ...alerted, fired }
+        saveAlerted(alerted)
       } catch {
         // Network errors are silent — nothing to alert about if backend is down.
       }

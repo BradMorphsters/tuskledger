@@ -21,9 +21,10 @@ def test_pulse_returns_well_shaped_response_on_empty_db(db: Session):
     assert isinstance(result["score"], (int, float))
     # Score is bounded 0-100.
     assert 0 <= result["score"] <= 100
-    # All four components present even when data is absent.
-    component_keys = {c["key"] for c in result["components"]}
-    assert {"liquidity", "savings", "budget", "debt"}.issubset(component_keys)
+    # All four components present even when data is absent. (`components`
+    # is a dict keyed by component name — an earlier version of this
+    # assertion assumed a list of {key: …} objects and could never pass.)
+    assert {"liquidity", "savings", "budget", "debt"}.issubset(result["components"].keys())
 
 
 def test_pulse_with_basic_account_data(db: Session, factory):
@@ -54,7 +55,7 @@ def test_pulse_with_basic_account_data(db: Session, factory):
     result = financial_pulse(monthly_payroll_deferral=0.0, db=db)
     assert result["score"] >= 0
     # Liquidity component should show measurable runway given $10k cash.
-    liquidity = next(c for c in result["components"] if c["key"] == "liquidity")
+    liquidity = result["components"]["liquidity"]
     assert liquidity["value"] > 0
 
 
@@ -88,6 +89,6 @@ def test_pulse_payroll_deferral_increases_savings_rate(db: Session, factory):
 
     # With $1k/mo invisible deferral added back, savings rate component
     # should be higher than the visible-only baseline.
-    no_def_savings = next(c for c in no_deferral["components"] if c["key"] == "savings")
-    with_def_savings = next(c for c in with_deferral["components"] if c["key"] == "savings")
+    no_def_savings = no_deferral["components"]["savings"]
+    with_def_savings = with_deferral["components"]["savings"]
     assert with_def_savings["value"] > no_def_savings["value"]

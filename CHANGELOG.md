@@ -6,6 +6,37 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Budgets that keep working without you (improve-loop pass 1)
+- **Budgets carry forward automatically.** A new month with no budget is
+  cloned from the latest prior month — at startup, daily, and on first
+  load of the current month — so spending-summary, alerts, Ask Tusk and
+  the phone never see an empty month. The Budgets page labels the copy
+  ("Carried forward from August — edit any line or Save to make it this
+  month's own") until you save it. Migration 0019 adds
+  `budgets.inherited_from_budget_id` and a unique `(month, year)` index.
+- **Financial Pulse "budget adherence" is now measured**, not a constant:
+  pace-aware (limit × fraction of month elapsed, first week floored),
+  limit-weighted, Business line excluded. When no budget exists the
+  component drops out and the other three re-weight.
+- **Net Worth chart Y axis fits the data** (`lib/chartScale.js`) instead of
+  starting at zero, so a month's movement fills the plot; a caption
+  discloses the non-zero baseline.
+- `IMPROVE_LOOP.md` / `IMPROVE_LOG.md` — a re-runnable "best in class"
+  improvement loop with a 10-dimension scorecard, sibling to
+  `AUDIT_LOOP.md`.
+
+### Fixed
+- **Budget alerts never fired.** The monitor read field names the budgets
+  API doesn't return (`amount_limit` / `amount_spent`) across every month
+  ever saved. It now evaluates the current month's spending-summary rows
+  through a pure, tested `evaluateBudgetAlerts()`.
+- **Transaction drawer summary counted transfers.** A CC autopay credit
+  that Plaid labels "Income" inflated Count and hijacked Largest in the
+  Income drill-down while the pie slice was already clean; the summary
+  now skips transfers and says how many it skipped.
+- `tests/test_financial_pulse.py` asserted a response shape the endpoint
+  never had; two tests could not pass.
+
 ### Added — Long-term-hold research layer (new "Research" tab)
 - **PII-free research store** under `research/` (`<domain>.research.json` +
   `research.schema.json`, JSON Schema 2020-12). Seeded with the

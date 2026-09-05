@@ -146,6 +146,14 @@ class BudgetOut(BaseModel):
     year: int
     total_limit: Optional[float] = None
     categories: List[BudgetCategoryOut] = []
+    # Populated only while the month is an automatic carry-forward of a
+    # prior month (see services/budget_carry.py). The router resolves the
+    # source id into a month/year so the UI can say "from August 2026"
+    # without a second request. All three go back to None once the user
+    # saves the month.
+    inherited_from_budget_id: Optional[int] = None
+    inherited_from_month: Optional[int] = None
+    inherited_from_year: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 

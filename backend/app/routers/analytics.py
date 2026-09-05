@@ -28,6 +28,7 @@ from app.services.llm_ollama import LLMUnavailable, OllamaClient
 from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.tax import HSA_LIMITS, hsa_limit
 from app.services.transaction_view import expand
+from app.services.budget_health import budget_adherence
 from app.utils import month_end_exclusive, month_start, shift_month, utcnow
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -2224,18 +2225,32 @@ def financial_pulse(
     # Score: 0% debt = 100, 100%+ debt = 0
     debt_score = max(0, min(100, (1 - debt_ratio) * 100))
 
-    # ── Budget adherence — count budgets under-spent vs over-spent.
-    # Simplification: just count categories under budget for this month.
-    all_budgets = db.query(Budget).all() if False else []  # skip for now if Budget query is complex
-    budget_score = 75.0  # placeholder — could be computed from BudgetCategory totals
+    # ── Budget adherence — pace-aware, from this month's real budget.
+    # Was a hardcoded 75 at 15% weight for a long time; a constant inside
+    # the one number the Dashboard asks the user to trust. See
+    # services/budget_health.py for the definition.
+    adherence = budget_adherence(db, today)
 
-    # Composite score (weighted average)
+    # Composite score (weighted average). When there's no budget at all
+    # the component is dropped and the other three are re-normalized —
+    # better to score what we know than to invent a filler value.
     weights = {"liquidity": 0.30, "savings": 0.30, "debt": 0.25, "budget": 0.15}
+    if adherence is None:
+        remaining = weights["liquidity"] + weights["savings"] + weights["debt"]
+        weights = {
+            "liquidity": weights["liquidity"] / remaining,
+            "savings": weights["savings"] / remaining,
+            "debt": weights["debt"] / remaining,
+            "budget": 0.0,
+        }
+        budget_score = None
+    else:
+        budget_score = adherence["score"]
     overall = (
         liquidity_score * weights["liquidity"]
         + savings_score * weights["savings"]
         + debt_score * weights["debt"]
-        + budget_score * weights["budget"]
+        + (budget_score or 0.0) * weights["budget"]
     )
 
     return {
@@ -2270,10 +2285,15 @@ def financial_pulse(
                 "weight": weights["debt"],
             },
             "budget": {
-                "score": round(budget_score, 1),
-                "value": None,
+                "score": None if budget_score is None else round(budget_score, 1),
+                # Share of budget lines on or under their day-of-month pace.
+                "value": None if adherence is None else adherence["value"],
                 "label": "budget adherence",
-                "weight": weights["budget"],
+                "weight": round(weights["budget"], 4),
+                "available": adherence is not None,
+                "lines": None if adherence is None else adherence["lines"],
+                "on_pace": None if adherence is None else adherence["on_pace"],
+                "elapsed_pct": None if adherence is None else adherence["elapsed_pct"],
             },
         },
         "context": {

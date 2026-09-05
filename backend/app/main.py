@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
+import logging
 import os
 
 from pathlib import Path
@@ -57,6 +58,22 @@ def scheduled_sync():
     db = SessionLocal()
     try:
         sync_all_items(db)
+    finally:
+        db.close()
+
+
+def _carry_forward_budget_job():
+    """Startup + daily job: make sure the current month has a budget.
+
+    See services/budget_carry.py. Idempotent, and swallows everything —
+    the scheduler thread must never die over a budget clone.
+    """
+    from app.services.budget_carry import ensure_current_month_budget
+    db = SessionLocal()
+    try:
+        ensure_current_month_budget(db)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("budget carry-forward failed")
     finally:
         db.close()
 
@@ -177,6 +194,11 @@ async def lifespan(app: FastAPI):
     # backups would just churn disk on a free-tier host.
     if not settings.DEMO_LOCKED:
         run_startup_backup()
+    # Carry last month's budget into this month if this month has none —
+    # covers a laptop that was closed over the month boundary. Never
+    # fatal: a failure here must not stop the API from booting.
+    if not settings.DEMO_LOCKED:
+        _carry_forward_budget_job()
     _ensure_demo_db_seeded()
     if settings.DEMO_LOCKED:
         # Loud banner so the operator can never confuse a normal install
@@ -318,6 +340,9 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(_warm_prices, "interval", hours=max(3, settings.SYNC_INTERVAL_HOURS),
                           id="research_warm_prices", next_run_time=_dt.now() + _td(seconds=25))
         scheduler.add_job(_warm_flows, "cron", hour=5, minute=20, id="research_warm_flows")
+        # New month → new budget, without waiting for the next page load.
+        scheduler.add_job(_carry_forward_budget_job, "cron", hour=0, minute=10,
+                          id="budget_carry_forward")
         scheduler.start()
 
     # Bonjour / mDNS advertisement for the mobile app's auto-discovery.

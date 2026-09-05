@@ -134,6 +134,10 @@ export default function Budgets() {
   // round-trip needed when the user flips it ON).
   const [priorBudget, setPriorBudget] = useState([])
   const [priorSpending, setPriorSpending] = useState(null)
+  // { month, year } of the budget this month was auto-copied from, or
+  // null once the user has saved the month themselves. The backend owns
+  // this flag (see services/budget_carry.py); we only display it.
+  const [inheritedFrom, setInheritedFrom] = useState(null)
 
   const loadSpending = () => {
     getSpendingSummary(month, year, viewMode).then(setSpending).catch(() => setSpending(null))
@@ -143,8 +147,15 @@ export default function Budgets() {
     loadSpending()
     setCopyMessage(null)  // clear any "copied N from..." banner when navigating months/view
     getBudget(month, year)
-      .then(b => setCategories(b.categories.map(c => ({ category: c.category, limit_amount: c.limit_amount }))))
-      .catch(() => setCategories([]))
+      .then(b => {
+        setCategories(b.categories.map(c => ({ category: c.category, limit_amount: c.limit_amount })))
+        setInheritedFrom(
+          b.inherited_from_month && b.inherited_from_year
+            ? { month: b.inherited_from_month, year: b.inherited_from_year }
+            : null,
+        )
+      })
+      .catch(() => { setCategories([]); setInheritedFrom(null) })
     // Prior month for rollover math. Use the same view mode so personal
     // rollover credits don't include business spend (and vice versa).
     const pm = priorMonth(year, month)
@@ -173,6 +184,7 @@ export default function Budgets() {
     setSaving(true)
     try {
       await saveBudget({ month, year, categories: nextCategories })
+      setInheritedFrom(null)   // it's the user's own budget now
       setAutoSaved(true)
       setTimeout(() => setAutoSaved(false), 1500)
     } catch (e) {
@@ -207,6 +219,7 @@ export default function Budgets() {
     setSaving(true)
     try {
       await saveBudget({ month, year, categories })
+      setInheritedFrom(null)   // it's the user's own budget now
       setCopyMessage(null)  // user has explicitly committed; banner no longer needed
     } catch (e) {
       // Without this, a failed save left saving=true forever (button stuck
@@ -446,6 +459,26 @@ export default function Budgets() {
             </button>
           </div>
         </div>
+
+        {/* Carry-forward notice. A new month never starts blank — the
+            backend clones the latest prior month's lines automatically
+            (services/budget_carry.py). Say so, and say how to make it
+            yours, until the first save clears the marker. */}
+        {inheritedFrom && (
+          <div style={{
+            padding: '8px 12px', marginBottom: 12,
+            background: 'var(--accent-blue-bg, rgba(96,165,250,0.1))',
+            border: '1px solid var(--accent-blue-border, rgba(96,165,250,0.3))',
+            borderRadius: 6, fontSize: 12, color: 'var(--text-secondary)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <Repeat size={13} style={{ flexShrink: 0, color: 'var(--accent-blue, #60a5fa)' }} />
+            <span>
+              Carried forward from <strong>{MONTHS[inheritedFrom.month - 1]} {inheritedFrom.year}</strong> automatically.
+              {' '}Edit any line or click Save Budget to make it this month's own.
+            </span>
+          </div>
+        )}
 
         {/* Banner shown after a copy: nudges the user to actually save (the
             categories on screen are uncommitted form state until they do). */}

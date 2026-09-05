@@ -150,6 +150,16 @@ def global_search(
     return results
 
 
+def _unpaired_transfer_filter(query):
+    """Outflows whose effective category is Transfer but is_transfer is False."""
+    effective = func.coalesce(Transaction.custom_category, Transaction.category)
+    return query.filter(
+        Transaction.amount > 0,
+        Transaction.is_transfer.is_(False),
+        effective == "Transfer",
+    )
+
+
 @router.get("/", response_model=List[TransactionOut])
 def list_transactions(
     account_id: Optional[int] = None,
@@ -167,11 +177,22 @@ def list_transactions(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     q: Optional[str] = None,
+    unpaired_transfers: bool = Query(
+        False,
+        description=(
+            "Only outflows the bank labelled Transfer that the detector could NOT "
+            "pair with another linked account — money sent somewhere Tusk Ledger "
+            "can't see. Counted as spending until marked as a transfer (or a "
+            "transfer rule is created for the payee)."
+        ),
+    ),
     limit: int = Query(default=100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
     query = db.query(Transaction)
+    if unpaired_transfers:
+        query = _unpaired_transfer_filter(query)
     if account_id:
         query = query.filter(Transaction.account_id == account_id)
     if business_id:
@@ -281,15 +302,21 @@ def list_transactions_totals(
         money_query = money_query.filter(Transaction.is_transfer.is_(False))
 
     # Plaid sign convention: positive amount = outflow (spending),
-    # negative amount = inflow (income).
+    # negative amount = inflow (income). A refund (negative, is_refund) is
+    # neither: it nets against spending and never counts as income.
     spending_sum = (
         money_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-        .filter(Transaction.amount > 0)
+        .filter((Transaction.amount > 0) | (Transaction.is_refund.is_(True)))
         .scalar()
     )
     income_sum_signed = (
         money_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-        .filter(Transaction.amount < 0)
+        .filter(Transaction.amount < 0, Transaction.is_refund.is_(False))
+        .scalar()
+    )
+    refunds_signed = (
+        money_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .filter(Transaction.is_refund.is_(True))
         .scalar()
     )
 
@@ -297,6 +324,7 @@ def list_transactions_totals(
         "count": int(count or 0),
         "spending": float(spending_sum or 0.0),
         "income": float(abs(income_sum_signed or 0.0)),
+        "refunds": float(abs(refunds_signed or 0.0)),     # already netted into `spending`
         "transfers_excluded": int(transfers_count or 0) if not include_transfers else 0,
     }
 
@@ -308,7 +336,11 @@ def update_transaction(transaction_id: int, body: TransactionUpdate, db: Session
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Transaction not found")
     if body.custom_category is not None:
-        txn.custom_category = body.custom_category
+        # Empty / whitespace-only clears the override back to the bank's
+        # category (same convention as `notes`). Needed so an Undo can put
+        # a row back to "no override" — before this, null meant "leave
+        # unchanged" and there was no way to clear at all.
+        txn.custom_category = body.custom_category.strip() or None
     if body.business_id is not None:
         # Allow setting to 0 or null to clear, or a valid business id
         txn.business_id = body.business_id if body.business_id else None
@@ -324,6 +356,11 @@ def update_transaction(transaction_id: int, body: TransactionUpdate, db: Session
         # invisible content.
         stripped = body.notes.strip()
         txn.notes = stripped or None
+    # The refund flag is derived from category + transfer status, so it
+    # follows any change to either — the user never edits it directly.
+    if body.custom_category is not None or body.is_transfer is not None:
+        from app.services.refund_detector import refresh_refund_flag
+        refresh_refund_flag(txn)
     db.commit()
     db.refresh(txn)
     return txn
@@ -537,7 +574,10 @@ def spending_summary(
     totals: dict[str, float] = {}
     business_total = 0.0
     for line in expand_splits(month_txns):
-        if line.amount <= 0:
+        # Spend lines are positive; a refund line is negative and nets
+        # against its category. Everything else negative is income — not
+        # this endpoint's business.
+        if line.amount <= 0 and not line.is_refund:
             continue
         is_business = line.business_id is not None
         if is_business:
@@ -569,7 +609,9 @@ def spending_summary(
     categories = []
     total_spent = 0.0
     for cat, total in rows:
-        total = round(total, 2)
+        # A category can net below zero in a month (a return larger than
+        # that month's purchases). Show it as 0 rather than a negative bar.
+        total = round(max(total, 0.0), 2)
         total_spent += total
         limit = budget_map.get(cat)
         categories.append(CategorySpending(
@@ -837,17 +879,19 @@ def income_vs_spending(
         else date(anchor_year, anchor_month + 1, 1)
     )
 
-    rows = db.query(Transaction.date, Transaction.amount).filter(
+    rows = db.query(Transaction.date, Transaction.amount, Transaction.is_refund).filter(
         Transaction.date >= range_start,
         Transaction.date < range_end,
         Transaction.is_transfer.is_(False),
     ).all()
 
     buckets: dict[tuple[int, int], list[float]] = {}
-    for txn_date, amount in rows:
+    for txn_date, amount, is_refund in rows:
         key = (txn_date.year, txn_date.month)
         bucket = buckets.setdefault(key, [0.0, 0.0])  # [income, spending]
-        if amount < 0:
+        if is_refund:
+            bucket[1] += amount          # negative: nets against spending
+        elif amount < 0:
             bucket[0] += abs(amount)
         else:
             bucket[1] += amount
@@ -927,12 +971,21 @@ def category_breakdown(
         if line.amount > 0:
             spending_by_cat[friendly] = spending_by_cat.get(friendly, 0) + line.amount
             transaction_counts[friendly] = transaction_counts.get(friendly, 0) + 1
+        elif line.is_refund:
+            # Nets against the category it came from; not a purchase, so
+            # it doesn't bump the count. A category that is net-negative
+            # for the window (a return larger than the month's buys)
+            # is clamped to 0 below rather than drawn as a negative slice.
+            spending_by_cat[friendly] = spending_by_cat.get(friendly, 0) + line.amount
         else:
             income_by_cat[friendly] = income_by_cat.get(friendly, 0) + abs(line.amount)
+    spending_by_cat = {k: max(v, 0.0) for k, v in spending_by_cat.items()}
 
     spending_categories = []
     total_spending = sum(spending_by_cat.values())
     for cat, total in sorted(spending_by_cat.items(), key=lambda x: x[1], reverse=True):
+        if total <= 0:
+            continue   # refund-only category in this window — nothing to draw
         spending_categories.append({
             "category": cat,
             "icon": CATEGORY_ICONS.get(cat, "📦"),

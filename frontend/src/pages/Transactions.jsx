@@ -11,6 +11,12 @@ import BusinessBadge from '../components/BusinessBadge'
 import Pill from '../components/Pill'
 import MerchantDrawer from '../components/MerchantDrawer'
 import { formatCurrency, formatDate, toLocalISODate } from '../lib/format'
+import { SkeletonTableRows } from '../components/Skeleton'
+import LoadError from '../components/LoadError'
+import CategorySuggestion from '../components/CategorySuggestion'
+import TransferSuggestion from '../components/TransferSuggestion'
+import { useToast } from '../components/Toast'
+import { bulkUndoPlan } from '../lib/categoryFix'
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState([])
@@ -35,11 +41,27 @@ export default function Transactions() {
   const [editingId, setEditingId] = useState(null)
   const [editCategory, setEditCategory] = useState('')
   const [splitTxn, setSplitTxn] = useState(null)  // transaction being split-edited
-  const [suggestApplyCategory, setSuggestApplyCategory] = useState(null)  // auto-suggest state
+  // Post-recategorize suggestion: { txn, category }. The card itself asks
+  // the backend how many OTHER rows of that merchant exist across all
+  // history (previously it only counted rows on the current page).
+  const [suggestApplyCategory, setSuggestApplyCategory] = useState(null)
+  const { toast } = useToast()
+  // Three visibly different states for the table body: loading (skeleton
+  // rows), failed (LoadError + Retry), empty ("No transactions found").
+  // Before this, the page painted "No transactions found" on every first
+  // load until the fetch returned, and a failed fetch looked identical to
+  // an empty account.
+  const [tableState, setTableState] = useState('loading')   // 'loading' | 'ready' | 'error'
+  // Row the user just flagged as a transfer by hand → offer a payee rule.
+  const [transferSuggestion, setTransferSuggestion] = useState(null)
+  // Filter: outflows the bank labelled Transfer that the detector couldn't
+  // pair — the ones a transfer rule exists to fix.
+  const [unpairedOnly, setUnpairedOnly] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   // Keyboard-nav cursor index. -1 = no row focused. J/K move up/down,
   // X toggles selection, E enters edit mode for the focused row's category.
   const [cursorIdx, setCursorIdx] = useState(-1)
+  const [showKeys, setShowKeys] = useState(false)   // "?" legend
   const [bulkCategory, setBulkCategory] = useState('')
   const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false)
   const [merchantDrawerName, setMerchantDrawerName] = useState(null)
@@ -74,12 +96,16 @@ export default function Transactions() {
     if (filters.q) params.q = filters.q
     if (filters.start_date) params.start_date = filters.start_date
     if (filters.end_date) params.end_date = filters.end_date
+    if (unpairedOnly) params.unpaired_transfers = true
     params.limit = filters.limit
     params.offset = filters.offset
     // Guard both fetches so a slow response for a previous filter/page
     // can't render under the current one.
+    setTableState(s => (s === 'ready' ? 'ready' : 'loading'))   // keep rows visible on refetch
     runLoad(token => {
-      getTransactions(params).then(d => { if (token.live) setTransactions(d) }).catch(() => {})
+      getTransactions(params)
+        .then(d => { if (token.live) { setTransactions(d); setTableState('ready') } })
+        .catch(() => { if (token.live) setTableState('error') })
       // Totals are computed across the full filter scope on the server —
       // limit/offset are stripped by getTransactionsTotals so paginating
       // doesn't change the summary line.
@@ -108,32 +134,33 @@ export default function Transactions() {
     // would then either throw or silently mutate invisible rows. Clear it.
     setSelectedIds(new Set())
     return () => clearTimeout(timeoutId)
-  }, [filters])
+  }, [filters, unpairedOnly])
 
   const handleCategoryUpdate = async (id) => {
     const txn = transactions.find(t => t.id === id)
     await updateTransaction(id, { custom_category: editCategory })
     setEditingId(null)
-    
-    // Auto-suggest: find other un/differently-categorized txns from same merchant
-    if (txn && txn.merchant_name) {
-      const merchant = txn.merchant_name
-      const candidates = transactions.filter(t =>
-        t.id !== id &&
-        t.merchant_name === merchant &&
-        (t.custom_category || t.category) !== editCategory
-      )
-      if (candidates.length >= 2) {
-        setSuggestApplyCategory({
-          category: editCategory,
-          merchant: merchant,
-          count: candidates.length,
-          transactionIds: candidates.map(c => c.id),
-        })
-      }
-    }
-    
+    // Offer to make the fix stick. The card decides whether there is
+    // anything to suggest (full-history count from the backend) and
+    // renders nothing for a one-off merchant.
+    if (txn) setSuggestApplyCategory({ txn, category: editCategory })
     load()
+  }
+
+  // Per-row transfer toggle. Flagging ON offers a payee rule (the case the
+  // detector can't see: money to an unlinked account); flagging OFF just
+  // undoes it. Undo toast either way.
+  const toggleTransfer = async (txn) => {
+    const next = !txn.is_transfer
+    await updateTransaction(txn.id, { is_transfer: next })
+    load()
+    if (next && txn.amount > 0) setTransferSuggestion(txn)
+    toast({
+      kind: 'undo',
+      message: next ? 'Marked as transfer — excluded from spending' : 'No longer a transfer',
+      timeout: BULK_UNDO_MS,
+      onUndo: async () => { await updateTransaction(txn.id, { is_transfer: !next }); load() },
+    })
   }
 
   const handleBusinessUpdate = async (txnId, bizId) => {
@@ -158,34 +185,51 @@ export default function Transactions() {
     }
   }
 
+  // Undo window for bulk edits. Long enough to read the toast; short
+  // enough that a later edit can't be silently reverted.
+  const BULK_UNDO_MS = 8000
+
   const bulkCategorize = async () => {
     if (!bulkCategory) return
     // Only act on selected rows still present on the current page —
     // selection can outlive a filter/page change, and mutating rows the
     // user can no longer see is surprising.
-    await Promise.all(
-      Array.from(selectedIds)
-        .filter(id => transactions.some(t => t.id === id))
-        .map(id => updateTransaction(id, { custom_category: bulkCategory }))
-    )
+    const rows = transactions.filter(t => selectedIds.has(t.id))
+    const plan = bulkUndoPlan(rows, 'custom_category')   // captured BEFORE the change
+    await Promise.all(rows.map(t => updateTransaction(t.id, { custom_category: bulkCategory })))
+    const cat = bulkCategory
     setBulkCategory('')
     setBulkCategoryOpen(false)
     setSelectedIds(new Set())
     load()
+    toast({
+      kind: 'undo',
+      message: `${rows.length} transaction${rows.length === 1 ? '' : 's'} → ${cat}`,
+      timeout: BULK_UNDO_MS,
+      onUndo: async () => {
+        await Promise.all(plan.map(p => updateTransaction(p.id, p.body)))
+        load()
+      },
+    })
   }
 
   const bulkToggleTransfer = async () => {
-    await Promise.all(
-      Array.from(selectedIds).map(id => {
-        const txn = transactions.find(t => t.id === id)
-        // Guard: the selected row may have left the page after a filter
-        // or pagination change, in which case find() returns undefined.
-        if (!txn) return null
-        return updateTransaction(id, { is_transfer: !txn.is_transfer })
-      })
-    )
+    // Guard: a selected row may have left the page after a filter or
+    // pagination change; only rows still visible are touched.
+    const rows = transactions.filter(t => selectedIds.has(t.id))
+    const plan = bulkUndoPlan(rows, 'is_transfer')
+    await Promise.all(rows.map(t => updateTransaction(t.id, { is_transfer: !t.is_transfer })))
     setSelectedIds(new Set())
     load()
+    toast({
+      kind: 'undo',
+      message: `Transfer flag toggled on ${rows.length} transaction${rows.length === 1 ? '' : 's'}`,
+      timeout: BULK_UNDO_MS,
+      onUndo: async () => {
+        await Promise.all(plan.map(p => updateTransaction(p.id, p.body)))
+        load()
+      },
+    })
   }
 
   const bulkClear = () => {
@@ -260,21 +304,38 @@ export default function Transactions() {
             return next
           })
         }
-      } else if (k === 'e' && cursorIdx >= 0) {
+      } else if ((k === 'e' || k === 'c') && cursorIdx >= 0) {
         e.preventDefault()
         const t = displayed[cursorIdx]
         if (t) {
           setEditingId(t.id)
           setEditCategory(t.custom_category || t.category || '')
         }
-      } else if (e.key === 'Escape' && editingId) {
+      } else if (k === 't' && cursorIdx >= 0) {
+        // Mark / unmark the cursor row as a transfer — the review-queue
+        // motion for "that's money I moved, not money I spent".
         e.preventDefault()
-        setEditingId(null)
+        const t = displayed[cursorIdx]
+        if (t) toggleTransfer(t)
+      } else if (k === '?') {
+        e.preventDefault()
+        setShowKeys(v => !v)
+      } else if (e.key === 'Escape') {
+        if (editingId) { e.preventDefault(); setEditingId(null) }
+        else if (showKeys) { e.preventDefault(); setShowKeys(false) }
+        else if (cursorIdx >= 0) { e.preventDefault(); setCursorIdx(-1) }
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [displayed, cursorIdx, editingId])
+  }, [displayed, cursorIdx, editingId, showKeys])
+
+  // Keep the cursor row on screen as j/k walk past the viewport.
+  useEffect(() => {
+    if (cursorIdx < 0) return
+    const row = document.querySelector(`tr[data-cursor="true"]`)
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [cursorIdx])
 
   // Totals
   // ──────
@@ -524,8 +585,23 @@ export default function Transactions() {
           filters={filters}
           setFilters={setFilters}
           businesses={businesses}
-          extra={
-            pinnedIds.size > 0 && (
+          extra={<>
+            <button
+              onClick={() => { setUnpairedOnly(o => !o); setFilters(f => ({ ...f, offset: 0 })) }}
+              aria-pressed={unpairedOnly}
+              style={{
+                padding: '4px 10px', fontSize: 11,
+                background: unpairedOnly ? 'var(--accent-blue-bg, rgba(96,165,250,0.18))' : 'transparent',
+                color: unpairedOnly ? 'var(--accent-blue, #60a5fa)' : 'var(--text-secondary)',
+                border: `1px solid ${unpairedOnly ? 'var(--accent-blue, #60a5fa)' : 'var(--border)'}`,
+                borderRadius: 999, cursor: 'pointer', fontWeight: unpairedOnly ? 600 : 400,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+              title="Outflows the bank labelled Transfer that couldn't be paired with another linked account — they count as spending until you mark them (or make a payee rule)."
+            >
+              ↔ Unpaired transfer-outs
+            </button>
+            {pinnedIds.size > 0 && (
               <button
                 onClick={() => setPinnedOnly(o => !o)}
                 style={{
@@ -542,8 +618,8 @@ export default function Transactions() {
                 <Star size={11} fill={pinnedOnly ? 'currentColor' : 'none'} />
                 Pinned ({pinnedIds.size})
               </button>
-            )
-          }
+            )}
+          </>}
         />
 
         {/* Date range */}
@@ -593,6 +669,28 @@ export default function Transactions() {
 
       {/* Transaction table */}
       <div className="card">
+        {/* Keyboard review queue. Discoverable, not just documented in a
+            comment: a one-line hint, and "?" for the full legend. */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, padding: '4px 8px 8px', fontSize: 11, color: 'var(--text-muted)' }}>
+          <span>Review with the keyboard: <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>c</kbd> category · <kbd>t</kbd> transfer · <kbd>x</kbd> select</span>
+          <button type="button" onClick={() => setShowKeys(v => !v)} aria-expanded={showKeys}
+            className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} title="Show all keyboard shortcuts">?</button>
+        </div>
+        {showKeys && (
+          <div role="dialog" aria-label="Keyboard shortcuts" style={{
+            margin: '0 8px 10px', padding: '10px 14px', fontSize: 12, lineHeight: 1.8,
+            background: 'var(--bg-elevated, var(--bg-input))', border: '1px solid var(--border)', borderRadius: 8,
+            display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 16,
+          }}>
+            <kbd>j</kbd> / <kbd>↓</kbd><span>Next transaction</span>
+            <kbd>k</kbd> / <kbd>↑</kbd><span>Previous transaction</span>
+            <kbd>c</kbd> or <kbd>e</kbd><span>Change the category of the highlighted row (Enter to save, Esc to cancel)</span>
+            <kbd>t</kbd><span>Mark / unmark the highlighted row as a transfer (undo from the toast)</span>
+            <kbd>x</kbd><span>Select / deselect the highlighted row for a bulk action</span>
+            <kbd>?</kbd><span>Toggle this list</span>
+            <kbd>Esc</kbd><span>Cancel editing, close this list, or clear the highlight</span>
+          </div>
+        )}
         <div className="table-wrapper">
           <table className="txn-table">
             <thead>
@@ -628,6 +726,8 @@ export default function Transactions() {
                 return (
                   <tr
                     key={t.id}
+                    data-cursor={idx === cursorIdx ? 'true' : undefined}
+                    aria-selected={idx === cursorIdx || undefined}
                     style={{
                       background: selectedIds.has(t.id)
                         ? 'rgba(96,165,250,0.12)'
@@ -661,17 +761,35 @@ export default function Transactions() {
                         >
                           <Star size={13} fill={pinnedIds.has(t.id) ? 'currentColor' : 'none'} />
                         </button>
-                        <span
+                        <button
+                          type="button"
                           onClick={() => setMerchantDrawerName(t.display_name || t.merchant_name || t.name)}
                           className="txn-merchant"
-                          style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent-blue)' }}
-                          title={t.display_name || t.merchant_name || t.name}
+                          style={{
+                            cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent-blue)',
+                            background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left',
+                          }}
+                          title={`${t.display_name || t.merchant_name || t.name} — open merchant details`}
                         >
                           {t.display_name || t.merchant_name || t.name}
-                        </span>
-                        {t.is_transfer && (
-                          <Pill tone="info" title="Account-to-account transfer or bill payment (not counted as spending)">
-                            ↔ Transfer
+                        </button>
+                        <button
+                          onClick={() => toggleTransfer(t)}
+                          aria-pressed={!!t.is_transfer}
+                          aria-label={t.is_transfer ? 'Unmark as transfer' : 'Mark as transfer'}
+                          title={t.is_transfer
+                            ? 'Transfer or bill payment — excluded from spending and income. Click to unmark.'
+                            : 'Mark as a transfer (money moved between your own accounts) so it stops counting as spending.'}
+                          style={{
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                            opacity: t.is_transfer ? 1 : 0.35, lineHeight: 0,
+                          }}
+                        >
+                          <Pill tone="info">↔ {t.is_transfer ? 'Transfer' : 'transfer?'}</Pill>
+                        </button>
+                        {t.is_refund && (
+                          <Pill tone="success" title="Refund or credit — nets against this category's spending; not income">
+                            ↩ Refund
                           </Pill>
                         )}
                         {isPending && (
@@ -779,7 +897,15 @@ export default function Transactions() {
                   </tr>
                 )
               })}
-              {displayed.length === 0 && (
+              {tableState === 'loading' && displayed.length === 0 && (
+                <SkeletonTableRows rows={8} cols={7} />
+              )}
+              {tableState === 'error' && (
+                <tr><td colSpan={7} style={{ padding: 16 }}>
+                  <LoadError what="transactions" onRetry={load} />
+                </td></tr>
+              )}
+              {tableState === 'ready' && displayed.length === 0 && (
                 <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No transactions found</td></tr>
               )}
             </tbody>
@@ -884,66 +1010,22 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Auto-suggest category application */}
+      {/* Post-recategorize suggestion — full-history count, Apply-to-past
+          with undo, or a permanent rule. */}
+      {transferSuggestion && (
+        <TransferSuggestion
+          txn={transferSuggestion}
+          onApplied={() => load()}
+          onDismiss={() => setTransferSuggestion(null)}
+        />
+      )}
       {suggestApplyCategory && (
-        <div style={{
-          position: 'fixed',
-          bottom: 24,
-          right: 24,
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: 12,
-          maxWidth: 320,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          zIndex: 999,
-        }}>
-          <div style={{ fontSize: 13, marginBottom: 8 }}>
-            <span style={{ fontWeight: 500 }}>Apply '{suggestApplyCategory.category}' to {suggestApplyCategory.count} other transaction{suggestApplyCategory.count !== 1 ? 's' : ''} from <strong>{suggestApplyCategory.merchant}</strong>?</span>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              onClick={async () => {
-                // Apply category to all candidates
-                await Promise.all(
-                  suggestApplyCategory.transactionIds.map(tid =>
-                    updateTransaction(tid, { custom_category: suggestApplyCategory.category })
-                  )
-                )
-                setSuggestApplyCategory(null)
-                load()
-              }}
-              style={{
-                flex: 1,
-                background: 'var(--accent-green)',
-                color: '#000',
-                border: 'none',
-                borderRadius: 4,
-                padding: '6px 10px',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              Apply
-            </button>
-            <button
-              onClick={() => setSuggestApplyCategory(null)}
-              style={{
-                flex: 1,
-                background: 'var(--bg-hover)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-                padding: '6px 10px',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
+        <CategorySuggestion
+          txn={suggestApplyCategory.txn}
+          category={suggestApplyCategory.category}
+          onApplied={() => load()}
+          onDismiss={() => setSuggestApplyCategory(null)}
+        />
       )}
 
       {splitTxn && (
@@ -1057,7 +1139,7 @@ function SplitModal({ transaction, categories, onClose, onSaved }) {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0 }}>Split transaction</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <X size={18} />
           </button>
         </div>

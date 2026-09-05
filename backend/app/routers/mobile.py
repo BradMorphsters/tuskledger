@@ -289,6 +289,9 @@ class TransactionOut(BaseModel):
     category: Optional[str]
     custom_category: Optional[str]
     is_transfer: bool
+    # Refund flag (see services/refund_detector.py). Defaults False so a
+    # phone running an older schema keeps parsing the payload.
+    is_refund: bool = False
     notes: Optional[str]
     updated_at: Optional[datetime.datetime]
 
@@ -771,6 +774,7 @@ def sync(
                 category=t.category,
                 custom_category=t.custom_category,
                 is_transfer=bool(t.is_transfer),
+                is_refund=bool(getattr(t, "is_refund", False)),
                 notes=t.notes,
                 updated_at=t.updated_at,
             )

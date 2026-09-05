@@ -36,9 +36,11 @@ const DB_NAME = 'tuskledger.db';
 //    missing homes, vehicles, and non-Plaid liabilities.
 // 4: added budgets + budget_categories (read-only Budgets card).
 // 5: added upcoming_bills (derived mortgage/CC due dates teaser).
+// 6: added transactions.is_refund so the phone's income / spending /
+//    budget sums net refunds the same way the laptop does (backend 0021).
 // Bumping forces a one-time wipe + full re-pull on next launch — fine
 // because the mirror is disposable and the laptop is the source of truth.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 let _db: SQLite.SQLiteDatabase | null = null;
 
@@ -81,6 +83,7 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
       category TEXT,
       custom_category TEXT,
       is_transfer INTEGER NOT NULL DEFAULT 0,
+      is_refund INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
       updated_at TEXT
     );
@@ -311,8 +314,8 @@ export async function applySync(
       const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO transactions
          (id, account_id, name, merchant_name, amount, date, pending,
-          category, custom_category, is_transfer, notes, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          category, custom_category, is_transfer, is_refund, notes, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       try {
         for (const t of transactions) {
@@ -327,6 +330,7 @@ export async function applySync(
             t.category,
             t.custom_category,
             t.is_transfer ? 1 : 0,
+            t.is_refund ? 1 : 0,
             t.notes,
             t.updated_at,
           ]);

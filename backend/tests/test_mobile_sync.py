@@ -226,3 +226,21 @@ def test_transaction_pagination_has_more(client, db, factory):
     ).json()
     got = {t["name"] for t in r["transactions"]} | {t["name"] for t in follow["transactions"]}
     assert got == {f"TX {i}" for i in range(5)}
+
+
+def test_sync_payload_carries_is_refund(client, db, factory):
+    """The phone computes its own income/spend sums from the mirror, so it
+    needs the refund flag to net refunds the way the laptop does."""
+    import datetime
+    from app.services.refund_detector import detect_refunds
+    acct = factory.account(name="Checking")
+    factory.transaction(account_id=acct.id, amount=-45.0, date=datetime.date(2026, 8, 3),
+                        merchant_name="Store", category="Shopping")          # a return
+    factory.transaction(account_id=acct.id, amount=-2000.0, date=datetime.date(2026, 8, 3),
+                        merchant_name="Payroll", category="Income")          # a paycheck
+    factory.commit()
+    detect_refunds(db)
+    token = _pair(client)
+    body = client.get("/api/mobile/sync", headers=_hdr(token)).json()
+    flags = {t["merchant_name"]: t["is_refund"] for t in body["transactions"]}
+    assert flags == {"Store": True, "Payroll": False}

@@ -15,6 +15,8 @@ import {
   rolloverCredit,
   copyCategoriesFrom,
   budgetCategoryStatus,
+  unbudgetedCategories,
+  suggestedLimit,
 } from './Budgets'
 
 describe('priorMonth', () => {
@@ -147,5 +149,52 @@ describe('budgetCategoryStatus', () => {
     expect(budgetCategoryStatus({ spent: null, effectiveLimit: 100 })).toBe('ok')
     expect(budgetCategoryStatus({ spent: 100, effectiveLimit: null })).toBe('ok')
     expect(budgetCategoryStatus({})).toBe('ok')
+  })
+})
+
+describe('unbudgetedCategories', () => {
+  const spending = [
+    { category: 'Groceries', total: 384.21, budget_limit: 500 },
+    { category: 'Government & Taxes', total: 420 },
+    { category: 'Business', total: 90 },
+    { category: 'Refunded', total: 0 },
+    { category: 'Home', total: 55 },
+  ]
+  const budget = [{ category: 'Groceries', limit_amount: 500 }]
+
+  it('returns spend categories with no budget line, largest first', () => {
+    expect(unbudgetedCategories(spending, budget)).toEqual([
+      { category: 'Government & Taxes', total: 420 },
+      { category: 'Home', total: 55 },
+    ])
+  })
+
+  it('excludes Business (own rollup row) and zero-spend categories', () => {
+    const names = unbudgetedCategories(spending, budget).map(c => c.category)
+    expect(names).not.toContain('Business')
+    expect(names).not.toContain('Refunded')
+  })
+
+  it('is empty when everything is budgeted', () => {
+    const all = spending.map(c => ({ category: c.category, limit_amount: 1 }))
+    expect(unbudgetedCategories(spending, all)).toEqual([])
+  })
+
+  it('tolerates missing inputs', () => {
+    expect(unbudgetedCategories(undefined, undefined)).toEqual([])
+    expect(unbudgetedCategories(null, [])).toEqual([])
+  })
+})
+
+describe('suggestedLimit', () => {
+  it('rounds spend up to the next $25', () => {
+    expect(suggestedLimit(420)).toBe(425)
+    expect(suggestedLimit(425)).toBe(425)
+    expect(suggestedLimit(0.01)).toBe(25)
+  })
+  it('never suggests less than $25', () => {
+    expect(suggestedLimit(0)).toBe(25)
+    expect(suggestedLimit(-10)).toBe(25)
+    expect(suggestedLimit(undefined)).toBe(25)
   })
 })

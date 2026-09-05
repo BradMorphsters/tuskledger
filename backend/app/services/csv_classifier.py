@@ -1,6 +1,7 @@
 """CSV classifier — detect format and classify transactions."""
 import re
 from datetime import datetime
+from app.services.categories import canonical_category
 from typing import Optional, Tuple
 
 
@@ -99,7 +100,7 @@ def classify_merchant_and_category(
     merchant = merchant_override or description or "Unknown"
     
     # Simple category heuristics
-    category = category_override or "Other"
+    category = canonical_category(category_override) if category_override else "Miscellaneous"
     
     desc_lower = (description or "").lower()
     merchant_lower = merchant.lower()
@@ -107,10 +108,10 @@ def classify_merchant_and_category(
     
     # Grocery/food
     if any(x in search_text for x in ['grocery', 'safeway', 'whole foods', 'trader joe', 'kroger', 'walmart', 'target', 'costco', 'restaurant', 'uber eats', 'doordash', 'grubhub', 'starbucks', 'cafe', 'pizza', 'coffee']):
-        category = "Food & Drink"
+        category = "Food & Dining"
     # Utilities
     elif any(x in search_text for x in ['electric', 'water', 'gas', 'utility', 'internet', 'comcast', 'at&t', 'verizon']):
-        category = "Utilities"
+        category = "Bills & Utilities"
     # Transportation
     elif any(x in search_text for x in ['gas', 'shell', 'chevron', 'exxon', 'uber', 'lyft', 'parking', 'transit', 'fuel', 'car wash']):
         category = "Transportation"
@@ -119,7 +120,7 @@ def classify_merchant_and_category(
         category = "Entertainment"
     # Healthcare
     elif any(x in search_text for x in ['pharmacy', 'cvs', 'walgreens', 'doctor', 'hospital', 'medical', 'dental', 'vision']):
-        category = "Healthcare"
+        category = "Health & Medical"
     # Shopping
     elif any(x in search_text for x in ['amazon', 'ebay', 'retail', 'mall', 'store', 'shop']):
         category = "Shopping"

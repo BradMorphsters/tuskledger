@@ -28,7 +28,7 @@ from typing import Iterable
 
 from sqlalchemy.orm import Session
 
-from app.models import Transaction
+from app.models import Transaction, TransferRule
 from app.services.merchant_normalizer import classify
 from app.utils import utcnow
 
@@ -59,6 +59,28 @@ _PAIR_AMOUNT_EPSILON = 0.01
 # brokerage_transfer: both sides of the move are accounts you own.
 _TRANSFER_KINDS = {"cc_payment", "internal_transfer", "brokerage_transfer"}
 
+# Categories that Plaid / importers hand to the inflow side of a transfer.
+# When a row with one of these gets flagged, its displayed category is
+# rewritten to "Transfer" — otherwise a CC autopay credit or an
+# account-to-account deposit keeps sitting in the Income category list
+# (and its drill-down) even though every total already excludes it.
+_INCOME_LIKE_CATEGORIES = {"Income"}
+
+
+def _flag(t: Transaction) -> None:
+    """Mark one transaction as a transfer and fix its displayed category.
+
+    Only rows whose *effective* category is income-like are re-labelled,
+    and only via custom_category (the source `category` stays as the bank
+    reported it). A user who later un-flags the row can pick any category
+    back; a row the user has already categorised themselves — anything
+    other than Income — is left alone.
+    """
+    t.is_transfer = True
+    effective = t.custom_category or t.category
+    if effective in _INCOME_LIKE_CATEGORIES:
+        t.custom_category = "Transfer"
+
 
 def detect_transfers(db: Session, *, reset: bool = False) -> dict:
     """Flag transfers across all transactions. Returns counts for reporting.
@@ -88,6 +110,10 @@ def detect_transfers(db: Session, *, reset: bool = False) -> dict:
     pair_count = _mark_paired_transfers(db)
     pattern_count = _mark_pattern_transfers(db)
     db.commit()
+    # Transfer status feeds the refund flag (a transfer is never a refund),
+    # so refunds are recomputed right after — one place, every code path.
+    from app.services.refund_detector import detect_refunds
+    detect_refunds(db)
     total = (
         db.query(Transaction).filter(Transaction.is_transfer.is_(True)).count()
     )
@@ -165,8 +191,8 @@ def _mark_paired_transfers(db: Session) -> int:
         candidates.sort(key=lambda c: (abs((c.date - t.date).days), c.id))
         partner = candidates[0]
 
-        t.is_transfer = True
-        partner.is_transfer = True
+        _flag(t)
+        _flag(partner)
         matched_ids.add(t.id)
         matched_ids.add(partner.id)
         pairs_found += 1
@@ -184,6 +210,11 @@ def _mark_pattern_transfers(db: Session) -> int:
     unflagged: Iterable[Transaction] = (
         db.query(Transaction).filter(Transaction.is_transfer.is_(False)).all()
     )
+    # User-defined payee patterns (services/… TransferRule): the money the
+    # built-in issuer rules can't know about — an external savings account,
+    # an unlinked brokerage. Lower-cased substrings, same matching as
+    # category rules.
+    user_patterns = [r.pattern.lower() for r in db.query(TransferRule).all()]
     flagged = 0
     for t in unflagged:
         # Check BOTH the cleaned merchant_name and the raw bank description —
@@ -191,7 +222,30 @@ def _mark_pattern_transfers(db: Session) -> int:
         # raw `name` field carries the richer "WITHDRAWAL APPLECARD GSBANK…"
         # string. Either one matching is enough to flag.
         combined = f"{t.merchant_name or ''} {t.name or ''}"
-        if classify(combined) in _TRANSFER_KINDS:
-            t.is_transfer = True
+        if classify(combined) in _TRANSFER_KINDS or _matches_user_rule(combined, user_patterns):
+            _flag(t)
             flagged += 1
     return flagged
+
+
+def _matches_user_rule(text: str, patterns: list[str]) -> bool:
+    hay = text.lower()
+    return any(p and p in hay for p in patterns)
+
+
+def apply_transfer_rule(db: Session, pattern: str) -> int:
+    """Flag every existing unflagged row matching one user pattern.
+    Returns the count flagged. Used when a rule is created so history is
+    fixed immediately, not at the next sync."""
+    pat = pattern.lower()
+    rows = db.query(Transaction).filter(Transaction.is_transfer.is_(False)).all()
+    n = 0
+    for t in rows:
+        if _matches_user_rule(f"{t.merchant_name or ''} {t.name or ''}", [pat]):
+            _flag(t)
+            t.updated_at = utcnow()
+            n += 1
+    db.commit()
+    from app.services.refund_detector import detect_refunds
+    detect_refunds(db)
+    return n

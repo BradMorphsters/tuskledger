@@ -80,3 +80,36 @@ def test_transfer_detector_same_merchant_different_amounts(db: Session, factory)
     factory.commit()
 
     # Amount mismatch → not a pair
+
+
+def test_flagged_income_row_is_relabelled_transfer(db: Session, factory):
+    """A CC autopay credit arrives from Plaid categorized "Income". Flagging
+    it as a transfer must also move it out of the Income category list —
+    every total already excluded it, but the drill-down still showed it."""
+    from app.services.transfer_detector import detect_transfers
+    card = factory.account(name="Card", type="credit", subtype="credit card")
+    t = factory.transaction(
+        account_id=card.id, amount=-500.0, name="AUTOMATIC PAYMENT - THANK",
+        merchant_name=None, category="Income",
+    )
+    factory.commit()
+    detect_transfers(db)
+    db.refresh(t)
+    assert t.is_transfer is True
+    assert t.custom_category == "Transfer"
+    assert t.category == "Income"          # the bank's label is preserved
+
+
+def test_flagging_leaves_a_user_chosen_category_alone(db: Session, factory):
+    from app.services.transfer_detector import detect_transfers
+    card = factory.account(name="Card", type="credit", subtype="credit card")
+    t = factory.transaction(
+        account_id=card.id, amount=-500.0, name="AUTOMATIC PAYMENT - THANK",
+        merchant_name=None, category="Income",
+    )
+    t.custom_category = "Loan Payments"    # user already decided
+    factory.commit()
+    detect_transfers(db)
+    db.refresh(t)
+    assert t.is_transfer is True
+    assert t.custom_category == "Loan Payments"

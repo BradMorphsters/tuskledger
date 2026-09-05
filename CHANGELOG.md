@@ -6,6 +6,34 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Mobile wave 1: intelligence on the phone (pass 9)
+- New `GET /api/mobile/insights` (manifest `schema_version` 5) returns the
+  laptop-computed safe-to-spend estimate and weekly digest to the phone —
+  a pass-through of the same service functions the Dashboard uses, fetched
+  once per sync cycle and cached in the phone's SQLite `meta` table so it
+  renders offline. Older backends 404 and the phone hides the cards.
+- Phone Dashboard gains a **Safe to spend** card (placed below Budgets — a
+  paycheck-cycle number, deliberately not the headline) with a
+  **"Can I afford this?"** field: type an amount, get yes / tight / no from
+  the cached breakdown with no network round-trip, plus a collapsible
+  "how this was calculated" section carrying the laptop's own caveats.
+- Phone Dashboard gains a **This week** digest card: spend vs last week,
+  income, unusually large charges, possible price hikes, first-time
+  merchants, bills due in the next two weeks, budget pace, net-worth delta.
+- Opt-in **Alerts** (Settings → Alerts): local notifications decided on
+  the phone after each sync — bill due tomorrow/today/overdue, budget line
+  past 80% or 100%, unusually large charge, possible price hike, and the
+  Sunday "week in review is ready". A persisted fired-key ledger fires each
+  event once; at most four per sync; nothing leaves the phone (no APNs).
+- Home-screen widget shows safe-to-spend as a footnote line (all sizes) once
+  insights have synced; total cash and net MTD stay the headline. The
+  snapshot field is optional so older snapshots still decode.
+- Web Dashboard: the Safe-to-spend tile moves from first to last in the
+  default order (tile-order key v13, resets saved orders once).
+- Pure-function tests in plain Node for the affordability verdict and the
+  alert rules (`mobile/scripts/test-afford.mjs`, `test-alerts.mjs`; `npm test`).
+- iOS `buildNumber` 4. New dependency: `expo-notifications`.
+
 ### Fixed — Pass 8 correctness and reliability
 - Safe-to-spend covers month/year boundaries, rejects stale income patterns,
   nets budget refunds, and offsets confidently identified bill overlap without

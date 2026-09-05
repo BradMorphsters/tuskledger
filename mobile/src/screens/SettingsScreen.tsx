@@ -39,6 +39,9 @@ import {
 } from '../sync/storage';
 import type { PairedHost } from '../sync/types';
 import { clearSnapshot } from '../widget/snapshot';
+import { clearInsights } from '../insights/store';
+import { alertsEnabled, clearAlertLedger, setAlertsEnabled } from '../alerts/scheduler';
+import { notificationsAvailable, permissionStatus, requestPermission } from '../alerts/notify';
 import { colors, formatRelative, layout, space, type } from '../theme';
 
 interface Props {
@@ -55,6 +58,49 @@ export default function SettingsScreen({ onUnpaired }: Props) {
   const [hostnameLive, setHostnameLive] = useState<string | null>(null);
   const [demoMode, setDemoModeLocal] = useState<boolean>(false);
   const [demoAvailable, setDemoAvailable] = useState<boolean>(true);
+  const [alertsOn, setAlertsOn] = useState<boolean>(false);
+  const [alertsSupported, setAlertsSupported] = useState<boolean>(true);
+  const [alertsDenied, setAlertsDenied] = useState<boolean>(false);
+
+  // Alerts opt-in state lives in the SQLite meta table; the OS permission
+  // is read separately so a revoked permission shows as "denied" even
+  // when the switch is on.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [on, available, perm] = await Promise.all([
+        alertsEnabled(),
+        notificationsAvailable(),
+        permissionStatus(),
+      ]);
+      if (cancelled) return;
+      setAlertsOn(on);
+      setAlertsSupported(available);
+      setAlertsDenied(perm === 'denied');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleToggleAlerts(on: boolean) {
+    if (on) {
+      const granted = await requestPermission();
+      if (!granted) {
+        setAlertsDenied(true);
+        setAlertsOn(false);
+        await setAlertsEnabled(false);
+        Alert.alert(
+          'Notifications are off',
+          'Allow notifications for Tusk Ledger in iOS Settings to get bill and budget alerts.',
+        );
+        return;
+      }
+      setAlertsDenied(false);
+    }
+    setAlertsOn(on);
+    await setAlertsEnabled(on);
+  }
 
   // One effect, one manifest fetch. The previous version split this
   // into two effects — the second keyed on host?.baseUrl, which ran
@@ -154,6 +200,8 @@ export default function SettingsScreen({ onUnpaired }: Props) {
           onPress: async () => {
             await clearAllPairing();
             await resetMirror();
+            await clearInsights();
+            await clearAlertLedger();
             // Also clear the home-screen widget's snapshot so it stops
             // showing real balances after unpair.
             await clearSnapshot();
@@ -225,6 +273,31 @@ export default function SettingsScreen({ onUnpaired }: Props) {
           Swaps in synthetic data for safe screenshots.
         </Text>
       )}
+
+      {/* ── Alerts (local notifications, computed on the phone at sync) ── */}
+      <SectionHeader label="Alerts" />
+      <Card padded={false}>
+        <Row
+          label="Bill & budget alerts"
+          first
+          control={
+            <Switch
+              value={alertsOn}
+              onValueChange={alertsSupported ? handleToggleAlerts : undefined}
+              disabled={!alertsSupported}
+              trackColor={{ true: colors.accent }}
+              accessibilityLabel="Bill and budget alerts"
+            />
+          }
+        />
+      </Card>
+      <Text style={styles.helpNote}>
+        {!alertsSupported
+          ? 'Not available in this build.'
+          : alertsDenied
+            ? 'Notifications are blocked in iOS Settings for Tusk Ledger.'
+            : 'Bills due tomorrow, budgets past 80% or 100%, unusually large charges, possible price hikes, and the Sunday week-in-review. Decided on this phone after each sync — nothing is sent to a server.'}
+      </Text>
 
       {/* ── Read-only — the contract this app is built on ───────── */}
       <SectionHeader label="Read-only" />

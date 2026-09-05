@@ -195,6 +195,44 @@ architecture.
   token + mirror and bounces the user back to the pairing screen.
   The laptop's "Devices → Revoke" button works this way: revoke,
   next sync 401s, phone re-pairs.
+- **Insights (schema_version ≥ 5):** after the delta pages drain, the
+  phone calls `GET /api/mobile/insights` once and caches the JSON in
+  the SQLite `meta` table (`src/insights/store.ts`). It carries the
+  laptop-computed **safe-to-spend** estimate and the **weekly digest** —
+  the same numbers the laptop Dashboard shows — so the phone never
+  re-derives paycheck cadence, bill de-dup or budget pace. A laptop on
+  an older backend 404s and the cards simply stay hidden.
+
+## Intelligence on the phone
+
+- **Safe to spend + "Can I afford this?"** — a Dashboard card placed
+  below Budgets (it's a paycheck-cycle number; net worth and accounts
+  lead). Type an amount and `src/insights/afford.ts` answers
+  yes / tight / no from the cached breakdown, offline. The verdict
+  ladder: fits inside safe-to-spend → yes; eats into the usual-spending
+  allowance → tight; would need the bill reserve → no.
+- **This week** — the weekly digest card: spend vs last week, income,
+  unusually large charges, possible price hikes, first-time merchants,
+  bills in the next two weeks, budget pace, net-worth delta.
+- **Alerts** (Settings → Alerts, off by default) — local notifications
+  decided on the phone after each sync from the mirror + cached
+  insights (`src/alerts/rules.ts`, pure and unit-tested): bill due
+  tomorrow/today/overdue, budget line past 80% / 100%, unusually large
+  charge, possible price hike, and the Sunday "week in review is ready".
+  A fired-key ledger in `meta` means each event notifies once; at most
+  four banners per sync. Nothing is sent to any server — no APNs, no
+  device token leaves the phone.
+- **Widget** — the home-screen widget adds a safe-to-spend footnote once
+  the phone has synced insights (`safeToSpend` is optional in the
+  snapshot, so older snapshots still decode); total cash stays the lead.
+
+Pure-function tests run in plain Node: `npm test` (pace, afford, alerts).
+
+Build note: `plugins/withoutPushEntitlement.js` removes the `aps-environment`
+entitlement that prebuild's auto-applied expo-notifications plugin adds.
+Without it the ad-hoc EAS build fails at signing ("provisioning profile
+doesn't support the Push Notifications capability"). Local notifications
+don't need APNs.
 
 ---
 
@@ -257,8 +295,8 @@ the synthetic data and re-pulls your real finances.
   `react-native-zeroconf` but only fires inside development/TestFlight
   builds. The QR carries the host directly so the phone doesn't need
   mDNS to function on first pair.
-- Push notifications when budgets cross thresholds — out of scope
-  for "read-only window."
+- Server push (APNs). Alerts are local notifications computed on the
+  phone at sync time — see "Intelligence on the phone" above.
 - Apple Watch complications.
 - Two-way sync. Phone is read-only by design.
 - Plaid Link from the phone. Adding accounts stays on the laptop.
@@ -282,6 +320,13 @@ mobile/
     ├── db/
     │   ├── sqlite.ts             # SQLite open/migrate, applySync, reset
     │   └── queries.ts            # screen-shaped read helpers
+    ├── insights/
+    │   ├── store.ts              # cached /insights payload (meta table + Zustand)
+    │   └── afford.ts             # "can I afford this?" pure verdict function
+    ├── alerts/
+    │   ├── rules.ts              # pure alert rules + dedupe ledger
+    │   ├── scheduler.ts          # runs after sync; opt-in flag; fired keys
+    │   └── notify.ts             # expo-notifications wrapper (no-op if absent)
     ├── sync/
     │   ├── api.ts                # HTTP client, errors
     │   ├── manager.ts            # the sync engine + Zustand store
@@ -289,7 +334,7 @@ mobile/
     │   └── types.ts              # wire-format types matching backend
     └── screens/
         ├── PairingScreen.tsx     # QR + manual code first-run
-        ├── DashboardScreen.tsx   # net cash, top categories, net worth
+        ├── DashboardScreen.tsx   # net worth, safe-to-spend, digest, categories
         ├── TransactionsScreen.tsx# searchable list, infinite scroll
         ├── SettingsScreen.tsx    # paired host, sync state, unpair
         └── SyncBadge.tsx         # status pill used by other screens

@@ -3,9 +3,12 @@
  *
  * Hierarchy (top → bottom): net-worth hero with a 30-day delta chip
  * and a full-bleed sparkline; the grouped Accounts card; this month's
- * income vs spending; top spend categories; recent activity. All reads
- * come from the local SQLite mirror — instant, even offline — and the
- * SyncBadge in the header says how fresh that mirror is.
+ * income vs spending; the weekly digest; spending pace; upcoming bills;
+ * budgets; safe-to-spend with the "can I afford this?" field
+ * (laptop-computed, cached — see insights/store; kept low on purpose);
+ * top spend categories; recent activity. All reads come from
+ * the local SQLite mirror — instant, even offline — and the SyncBadge
+ * in the header says how fresh that mirror is.
  */
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
@@ -20,7 +23,9 @@ import Screen from '../components/Screen';
 import SkeletonBlock from '../components/SkeletonBlock';
 import Sparkline from '../components/Sparkline';
 import PaceChart from '../components/PaceChart';
+import SafeToSpendCard from '../components/SafeToSpendCard';
 import TransactionRow from '../components/TransactionRow';
+import WeeklyDigestCard from '../components/WeeklyDigestCard';
 import { categoryGlyph } from '../components/categoryGlyph';
 import {
   BudgetProgress,
@@ -40,6 +45,7 @@ import {
   topCategoriesThisMonth,
   upcomingBills,
 } from '../db/queries';
+import { useInsightsStore } from '../insights/store';
 import { useAppStore } from '../state/appStore';
 import { useSyncStore } from '../sync/manager';
 import { colors, formatCurrency, formatDelta, layout, space, type } from '../theme';
@@ -82,6 +88,7 @@ export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const setTxCategory = useAppStore((s) => s.setTxCategory);
   const dataVersion = useSyncStore((s) => s.dataVersion);
+  const insights = useInsightsStore((s) => s.insights);
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [topCats, setTopCats] = useState<CategoryTotal[]>([]);
   const [budget, setBudget] = useState<BudgetProgress | null>(null);
@@ -247,6 +254,9 @@ export default function DashboardScreen() {
       </Card>
       )}
 
+      {/* ── Weekly digest (laptop-computed; hidden until first insights sync) ── */}
+      {insights?.weekly_digest && <WeeklyDigestCard digest={insights.weekly_digest} />}
+
       {/* ── Spending pace (hidden when <2 baseline months of data) ─── */}
       {pace && <PaceCard pace={pace} />}
 
@@ -281,6 +291,14 @@ export default function DashboardScreen() {
             ))}
           </Card>
         </>
+      )}
+
+      {/* ── Safe to spend (laptop-computed; hidden until first insights sync).
+          Deliberately low on the page: it's a paycheck-to-paycheck number and
+          not everyone budgets cycle-to-cycle — net worth, accounts and the
+          month view carry more weight for a glance. ── */}
+      {insights?.safe_to_spend && (
+        <SafeToSpendCard data={insights.safe_to_spend} generatedAt={insights.generated_at} />
       )}
 
       {/* ── Top categories ──────────────────────────────────────── */}

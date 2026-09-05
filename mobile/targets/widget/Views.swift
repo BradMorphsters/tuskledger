@@ -55,6 +55,24 @@ private func monthShort() -> String {
   return f.string(from: Date()).uppercased()
 }
 
+/// "Sep 12" from a YYYY-MM-DD string; falls back to the raw value.
+private func shortDate(_ ymd: String) -> String {
+  let parts = ymd.split(separator: "-").compactMap { Int($0) }
+  guard parts.count == 3 else { return ymd }
+  var comps = DateComponents()
+  comps.year = parts[0]; comps.month = parts[1]; comps.day = parts[2]
+  guard let date = Calendar.current.date(from: comps) else { return ymd }
+  let f = DateFormatter()
+  f.dateFormat = "MMM d"
+  return f.string(from: date)
+}
+
+private func paydayLabel(_ s: WidgetSnapshot.SafeToSpend) -> String {
+  s.source == "recurring_income"
+    ? "until payday · \(shortDate(s.nextPaycheckDate))"
+    : "until \(shortDate(s.nextPaycheckDate))"
+}
+
 private func relativeSynced(_ iso: String) -> String {
   // Try the formatter that matches what JS produces (with fractional
   // seconds). Fall back to the lenient one for older builds.
@@ -99,6 +117,13 @@ struct SmallView: View {
         .lineLimit(1)
 
       Spacer(minLength: 0)
+      if let sts = snapshot.safeToSpend {
+        // Secondary by design — a paycheck-cycle number, not the headline.
+        Text("Safe to spend \(money(sts.amount))")
+          .font(.system(size: 9, weight: .medium))
+          .foregroundColor(mutedColor)
+          .lineLimit(1)
+      }
       Text("Synced \(relativeSynced(snapshot.updatedAt))")
         .font(.system(size: 8))
         .foregroundColor(faintColor)
@@ -139,6 +164,12 @@ struct MediumView: View {
         Text("Total cash \(money(snapshot.totalCash))")
           .font(.system(size: 10, weight: .medium))
           .foregroundColor(mutedColor)
+        if let sts = snapshot.safeToSpend {
+          Text("Safe to spend \(money(sts.amount)) \(paydayLabel(sts))")
+            .font(.system(size: 9))
+            .foregroundColor(faintColor)
+            .lineLimit(1)
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -209,9 +240,18 @@ struct LargeView: View {
 
       Spacer(minLength: 0)
 
-      Text("Synced \(relativeSynced(snapshot.updatedAt))")
-        .font(.system(size: 9))
-        .foregroundColor(faintColor)
+      HStack {
+        Text("Synced \(relativeSynced(snapshot.updatedAt))")
+          .font(.system(size: 9))
+          .foregroundColor(faintColor)
+        Spacer()
+        if let sts = snapshot.safeToSpend {
+          Text("Safe to spend \(money(sts.amount)) \(paydayLabel(sts))")
+            .font(.system(size: 9))
+            .foregroundColor(faintColor)
+            .lineLimit(1)
+        }
+      }
     }
   }
 }

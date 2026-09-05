@@ -645,9 +645,11 @@ def manifest(
         # 2 = adds securities + holdings + net_worth_snapshots to /sync.
         # 3 = adds budgets (full set each sync, not cursor-filtered).
         # 4 = adds upcoming_bills (derived; full set each sync).
+        # 5 = adds GET /insights (safe-to-spend + weekly digest, derived;
+        #     the phone fetches it once per sync cycle, not per page).
         # Older phone clients ignore the new fields safely; their
         # SyncResponse type just doesn't reference them.
-        schema_version=4,
+        schema_version=5,
         demo_available=bool(settings.DEMO_ENABLED),
     )
 
@@ -866,6 +868,54 @@ def sync(
             for b in bill_rows
         ],
         has_more=has_more,
+    )
+
+
+# ─── Derived insights (schema_version >= 5) ─────────────────────────────
+
+class InsightsResponse(BaseModel):
+    """Precomputed "intelligence" for the phone: the safe-to-spend
+    estimate and the weekly digest, both produced by the SAME service
+    functions the laptop Dashboard and /digest page call. The phone has
+    no way to compute these locally — paycheck-cadence detection, bill
+    de-dup and budget pace all live server-side and are deliberately not
+    duplicated in the mobile SQLite mirror (five drifted copies of one
+    heuristic is how the recurring detector used to disagree with itself).
+
+    Both payloads are passed through as plain dicts rather than re-typed
+    here: their shape is owned by services/safe_to_spend.py and
+    services/weekly_digest.py, and mirroring every nested field in a
+    second Pydantic model just creates a place for the two to drift. The
+    phone's TypeScript `InsightsResponse` in mobile/src/sync/types.ts is
+    the client-side contract.
+
+    Derived on every call (no table, no cursor). The phone requests this
+    once per sync cycle AFTER the delta pages have drained, so a paginated
+    backlog doesn't recompute it per page.
+    """
+    generated_at: datetime.datetime
+    as_of: datetime.date
+    safe_to_spend: dict
+    weekly_digest: dict
+
+
+@router.get("/insights", response_model=InsightsResponse)
+def insights(
+    device: DeviceToken = Depends(require_device_token),
+    db: Session = Depends(get_db),
+):
+    """Safe-to-spend + weekly digest for the phone's Dashboard, widget and
+    sync-time alerts. Read-only; see InsightsResponse for why the payloads
+    are untyped pass-throughs of the laptop's own service functions."""
+    from app.services.safe_to_spend import compute_safe_to_spend
+    from app.services.weekly_digest import compute_weekly_digest
+
+    today = datetime.date.today()
+    return InsightsResponse(
+        generated_at=utcnow(),
+        as_of=today,
+        safe_to_spend=compute_safe_to_spend(db, today=today),
+        weekly_digest=compute_weekly_digest(db, week_ending=today),
     )
 
 

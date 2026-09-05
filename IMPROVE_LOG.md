@@ -64,6 +64,70 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 ## Passes
 
+### 2026-09-05 — Pass 9 · Mobile wave 1 — intelligence on the phone (D8 mobile · D2)
+
+**Why this pass:** after eight passes the phone had received exactly one
+change (the `is_refund` mirror + schema fix). Yet the phone is where the
+decision moments happen — at a register, on a charge notification,
+wondering if a trip fits. The laptop is where you manage; the phone is
+where you decide. This wave puts the two new "intelligence" outputs
+(safe-to-spend, weekly digest) in a pocket and lets the phone speak up
+when something matters — all while keeping the read-only contract.
+
+**Shipped (uncommitted on Eduardo's Mac at handoff; container tests green):**
+- Backend: `GET /api/mobile/insights` — pass-through of
+  `compute_safe_to_spend` + `compute_weekly_digest`; manifest
+  `schema_version` 4→5. Three new tests in `test_mobile_sync.py` (401
+  without token; empty-DB shape; numbers equal the laptop services').
+- Phone: `fetchInsights` after the delta pages drain (one call per cycle,
+  404 → hidden), cached in the `meta` table (`insights/store.ts`, no
+  SCHEMA_VERSION bump so no mirror drop on upgrade). `SafeToSpendCard`
+  with the "Can I afford this?" field (`insights/afford.ts`: yes / tight /
+  no ladder, 25 node assertions), `WeeklyDigestCard`. Both hydrate at boot
+  and render offline.
+- Alerts: `alerts/rules.ts` pure rule engine (bill due, budget 80/100 %,
+  unusually large charge, possible price hike, Sunday digest-ready) with
+  stable dedupe keys + a pruned fired-key ledger (27 node assertions);
+  `alerts/scheduler.ts` runs after each sync, opt-in via Settings → Alerts,
+  cap 4 per run; `alerts/notify.ts` wraps `expo-notifications` and no-ops
+  when the module is absent (Expo Go). Local only — no APNs, no token
+  leaves the phone.
+- Widget: optional `safeToSpend` in the snapshot (TS + Swift), leads the
+  small/medium/large views when present.
+- `mobile/package.json`: `expo-notifications`, `npm test` runs the three
+  node suites. `app.json`: iOS `buildNumber` 4. Gotcha: prebuild-config
+  AUTO-applies expo-notifications' config plugin whenever the package is
+  installed (it's on the "versioned SDK packages" list), and that plugin
+  always injects the `aps-environment` push entitlement — which the ad-hoc
+  provisioning profile lacks, so two build-4 attempts failed at signing.
+  Fix: `mobile/plugins/withoutPushEntitlement.js` (listed in app.json)
+  deletes the key after the auto-plugin runs. Local notifications need
+  neither APNs nor the entitlement.
+
+**Verification:** 71 backend tests across mobile_sync / safe_to_spend /
+weekly_digest / budget_health / http_security pass in the container;
+Babel parse of all 14 touched TS/TSX files; a stubbed `tsc --strict` pass
+over the new modules (no errors in new code); both node suites ALL PASS;
+Swift brace/paren balance checked (no Xcode here — the EAS build is the
+real compile). PII scan of every new file: fictional names and round
+numbers only.
+
+**Needs Eduardo:** `cd mobile && npx expo install expo-notifications`
+(updates package-lock), commit, then `eas build --profile preview
+--platform ios` for buildNumber 4. Then flip Settings → Alerts on the phone.
+
+**Placement decision (Eduardo, same day):** safe-to-spend is a
+paycheck-to-paycheck number and he doesn't budget cycle-to-cycle, so it
+must not lead anywhere. Web tile order v13 puts it last; the phone card
+sits below Budgets; the widget shows it as a footnote under total cash /
+net MTD. Feature stays (it's useful for other users of the public app)
+but the default hierarchy favours net worth, accounts and the month view.
+
+**Deferred (Wave 2/3, logged in seed backlog):** Ask Tusk on the phone
+(LAN to the Mac's Ollama + on-device intent parser offline); on-device
+Foundation Models (iOS 26) + Siri App Intents; the read-only exception
+(triage queue) stays Eduardo's call.
+
 ### 2026-09-05 — Pass 8 · Finish correctness and test repairs
 
 Completed the in-progress batch with Luna implementation and coordinator review.

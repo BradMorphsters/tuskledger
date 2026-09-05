@@ -27,6 +27,7 @@ import InvestmentsScreen from './src/screens/InvestmentsScreen';
 import PairingScreen from './src/screens/PairingScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
+import { hydrateInsights } from './src/insights/store';
 import { hydrateDemoMode } from './src/state/appStore';
 import {
   hydrateLastSyncedAt,
@@ -79,6 +80,9 @@ export default function App() {
       // banner works across cold launches instead of always showing
       // "Not synced yet" until the first sync of the session lands.
       hydrateLastSyncedAt();
+      // Cached safe-to-spend + weekly digest from the last sync, so the
+      // Dashboard cards render immediately (and offline).
+      hydrateInsights();
       const [host, token] = await Promise.all([loadPairedHost(), loadToken()]);
       const isPaired = !!(host && token);
       setPaired(isPaired);

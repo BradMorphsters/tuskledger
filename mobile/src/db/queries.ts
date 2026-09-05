@@ -53,6 +53,7 @@ export interface TransactionRow {
   category: string | null;
   custom_category: string | null;
   is_transfer: boolean;
+  is_refund: boolean;
   notes: string | null;
   /** Resolved display name — coalesces custom_category over category. */
   effective_category: string;
@@ -123,7 +124,7 @@ export async function listTransactions(opts: {
   return db.getAllAsync<TransactionRow>(
     `SELECT
         t.id, t.account_id, t.name, t.merchant_name, t.amount, t.date,
-        t.pending, t.category, t.custom_category, t.is_transfer, t.notes,
+        t.pending, t.category, t.custom_category, t.is_transfer, t.is_refund, t.notes,
         COALESCE(t.custom_category, t.category, 'Uncategorized') AS effective_category,
         COALESCE(t.merchant_name, t.name) AS effective_name,
         COALESCE(a.custom_name, a.name) AS account_label
@@ -151,9 +152,11 @@ export async function currentMonthSummary(): Promise<MonthSummary> {
     spending: number | null;
     cnt: number;
   }>(
+    // Mirrors the laptop's income-vs-spending rule: a refund (is_refund)
+    // is never income and nets against spending.
     `SELECT
-        SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) AS income,
-        SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS spending,
+        SUM(CASE WHEN amount < 0 AND is_refund = 0 THEN -amount ELSE 0 END) AS income,
+        SUM(CASE WHEN amount > 0 OR is_refund = 1 THEN amount ELSE 0 END) AS spending,
         COUNT(*) AS cnt
      FROM transactions
      WHERE date >= ? AND is_transfer = 0`,
@@ -184,8 +187,9 @@ export async function topCategoriesThisMonth(
         COALESCE(custom_category, category, 'Uncategorized') AS category,
         SUM(amount) AS total
      FROM transactions
-     WHERE date >= ? AND amount > 0 AND is_transfer = 0
+     WHERE date >= ? AND (amount > 0 OR is_refund = 1) AND is_transfer = 0
      GROUP BY COALESCE(custom_category, category, 'Uncategorized')
+     HAVING SUM(amount) > 0
      ORDER BY total DESC
      LIMIT ?`,
     [start, limit],
@@ -222,8 +226,9 @@ export async function spendCategories(limit = 12): Promise<string[]> {
   const rows = await db.getAllAsync<{ category: string }>(
     `SELECT COALESCE(custom_category, category, 'Uncategorized') AS category
      FROM transactions
-     WHERE date >= ? AND amount > 0 AND is_transfer = 0
+     WHERE date >= ? AND (amount > 0 OR is_refund = 1) AND is_transfer = 0
      GROUP BY COALESCE(custom_category, category, 'Uncategorized')
+     HAVING SUM(amount) > 0
      ORDER BY SUM(amount) DESC
      LIMIT ?`,
     [start, limit],
@@ -323,14 +328,17 @@ export async function budgetProgress(): Promise<BudgetProgress | null> {
         bc.limit_amount,
         (SELECT SUM(t.amount) FROM transactions t
           WHERE COALESCE(t.custom_category, t.category, 'Uncategorized') = bc.category
-            AND t.date >= ? AND t.amount > 0 AND t.is_transfer = 0) AS spent
+            AND t.date >= ? AND (t.amount > 0 OR t.is_refund = 1) AND t.is_transfer = 0) AS spent
      FROM budget_categories bc
      WHERE bc.budget_id = ?
      ORDER BY bc.limit_amount DESC`,
     [start, budget.id],
   );
   const out: BudgetProgressRow[] = rows.map((r) => {
-    const spent = r.spent ?? 0;
+    // Netting can take a category below zero in a month (a return bigger
+    // than that month's purchases); show 0, not a negative bar — same
+    // clamp the laptop's spending-summary applies.
+    const spent = Math.max(0, r.spent ?? 0);
     return {
       category: r.category,
       limit_amount: r.limit_amount,
@@ -341,7 +349,7 @@ export async function budgetProgress(): Promise<BudgetProgress | null> {
   // Most-over-budget first so trouble is at the top of the card.
   out.sort((a, b) => b.pct - a.pct);
   const totalRow = await db.getFirstAsync<{ spending: number | null }>(
-    `SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS spending
+    `SELECT SUM(CASE WHEN amount > 0 OR is_refund = 1 THEN amount ELSE 0 END) AS spending
      FROM transactions WHERE date >= ? AND is_transfer = 0`,
     [start],
   );

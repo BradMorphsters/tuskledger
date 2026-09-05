@@ -32,6 +32,10 @@ export interface TransactionWire {
   category: string | null;
   custom_category: string | null;
   is_transfer: boolean;
+  /** Inflow that nets against its category's spend (a return, a statement
+   *  credit) rather than counting as income. Optional: laptops running a
+   *  backend before 0021 don't send it. */
+  is_refund?: boolean;
   notes: string | null;
   updated_at: string | null;
 }

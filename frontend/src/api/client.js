@@ -161,6 +161,20 @@ export const getCustomCategoryUsage = (id) =>
 export const getRules = () => request('/analytics/rules');
 export const createRule = (data) =>
   request('/analytics/rules', { method: 'POST', body: JSON.stringify(data) });
+// Transfer rules — payee patterns the user has declared to be transfers.
+export const getTransferRules = () => request('/analytics/transfer-rules');
+export const createTransferRule = (pattern) =>
+  request('/analytics/transfer-rules', { method: 'POST', body: JSON.stringify({ pattern }) });
+export const deleteTransferRule = (id) =>
+  request(`/analytics/transfer-rules/${id}`, { method: 'DELETE' });
+export const previewTransferRule = (pattern, excludeId) =>
+  request(`/analytics/transfer-rules/preview?pattern=${encodeURIComponent(pattern)}` +
+    (excludeId != null ? `&exclude_id=${excludeId}` : ''));
+// Dry-run for the post-recategorize suggestion: what would `pattern → category`
+// touch across all history? excludeId = the row the user just fixed.
+export const previewRule = (pattern, category, excludeId) =>
+  request(`/analytics/rules/preview?pattern=${encodeURIComponent(pattern)}&category=${encodeURIComponent(category)}` +
+    (excludeId != null ? `&exclude_id=${excludeId}` : ''));
 export const deleteRule = (id) =>
   request(`/analytics/rules/${id}`, { method: 'DELETE' });
 export const getRecurring = () => request('/analytics/recurring');
@@ -353,6 +367,13 @@ export const getFinancialPulse = (monthlyPayrollDeferral = 0) =>
 // localStorage) and computes the remaining headroom + tax savings.
 export const getHsaStatus = (year) =>
   request(`/analytics/hsa-status${year ? `?year=${year}` : ''}`);
+// "Safe to spend until <next paycheck>" — checking cash minus bills due
+// and usual budget spend before payday. See services/safe_to_spend.py.
+export const getSafeToSpend = () => request('/analytics/safe-to-spend');
+// Weekly digest — what happened / what's coming / what changed this
+// week. weekEnding is an optional ISO date (YYYY-MM-DD); omit for today.
+export const getWeeklyDigest = (weekEnding) =>
+  request(`/analytics/weekly-digest${weekEnding ? `?week_ending=${weekEnding}` : ''}`);
 // Cross-cutting search — fans out across transactions + accounts.
 export const globalSearch = (q, limit = 20) =>
   request(`/transactions/search?q=${encodeURIComponent(q)}&limit=${limit}`);

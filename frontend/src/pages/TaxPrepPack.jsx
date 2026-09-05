@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Printer, Receipt } from 'lucide-react'
+import { Printer, Receipt } from 'lucide-react'
 import {
   getHsaStatus, getBusinesses, getScheduleCSummary,
 } from '../api/client'
+import { SkeletonPage } from '../components/Skeleton'
 
 /**
  * Tax Prep Pack — single page that bundles every tax-relevant tally
@@ -67,10 +68,7 @@ export default function TaxPrepPack() {
 
   if (loading) {
     return (
-      <div style={{ padding: 32 }}>
-        <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginRight: 8 }} />
-        Loading tax prep data…
-      </div>
+      <SkeletonPage stats={4} cards={2} rows={5} />
     )
   }
 

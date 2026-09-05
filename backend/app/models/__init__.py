@@ -5,6 +5,7 @@ from app.models.budget import Budget, BudgetCategory
 from app.models.plaid_item import PlaidItem
 from app.models.net_worth_snapshot import NetWorthSnapshot
 from app.models.category_rule import CategoryRule
+from app.models.transfer_rule import TransferRule
 from app.models.business import Business
 from app.models.business_rule import BusinessRule
 from app.models.subscription_rule import SubscriptionRule
@@ -28,6 +29,7 @@ __all__ = [
     "PlaidItem",
     "NetWorthSnapshot",
     "CategoryRule",
+    "TransferRule",
     "Business",
     "BusinessRule",
     "SubscriptionRule",

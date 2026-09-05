@@ -3,6 +3,7 @@ import { Plus, Trash2, Repeat, Copy, Briefcase } from 'lucide-react'
 import { getSpendingSummary, getBudget, saveBudget } from '../api/client'
 import TransactionDrawer from '../components/TransactionDrawer'
 import { formatCurrencyZero as formatCurrency, yearOptions } from '../lib/format'
+import { SkeletonRows } from '../components/Skeleton'
 
 // View modes for separating business vs personal spend on the Budgets
 // page. Persisted to localStorage so the user's choice survives reloads.
@@ -19,6 +20,29 @@ const VIEW_ALL = 'all'
 // has a category literally named "Business", they'll need to rename it
 // — which we surface in chat the first time it conflicts.
 export const BUSINESS_CATEGORY = 'Business'
+
+// Categories with spend this month but no budget line. Before this
+// existed the page rendered only budgeted rows, so 8–17% of a month's
+// spend (a tax payment, a category the importer named differently…)
+// simply didn't appear, and the rows never summed to "Total spent".
+// Business is excluded — it has its own rollup row.
+export function unbudgetedCategories(spendingCategories, budgetCategories) {
+  const budgeted = new Set((budgetCategories || []).map(c => c.category))
+  return (spendingCategories || [])
+    .filter(c => c && c.category !== BUSINESS_CATEGORY && !budgeted.has(c.category))
+    .filter(c => (Number(c.total) || 0) > 0)
+    .map(c => ({ category: c.category, total: Number(c.total) || 0 }))
+    .sort((a, b) => b.total - a.total)
+}
+
+// Starting limit for a one-click "Set budget": this month's spend rounded
+// UP to the next $25 (minimum $25). The point is a line that exists and is
+// already realistic; the user tunes it from there rather than typing a
+// number into an empty form.
+export function suggestedLimit(spent) {
+  const s = Math.max(0, Number(spent) || 0)
+  return Math.max(25, Math.ceil(s / 25) * 25)
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -134,6 +158,15 @@ export default function Budgets() {
   // round-trip needed when the user flips it ON).
   const [priorBudget, setPriorBudget] = useState([])
   const [priorSpending, setPriorSpending] = useState(null)
+  // { month, year } of the budget this month was auto-copied from, or
+  // null once the user has saved the month themselves. The backend owns
+  // this flag (see services/budget_carry.py); we only display it.
+  const [inheritedFrom, setInheritedFrom] = useState(null)
+  // False until GET /budgets/{m}/{y} has answered (found or 404). The
+  // "No budget set … Copy from last month" CTA must not flash during the
+  // fetch — for a month that has a budget it read as a false alarm on
+  // every visit.
+  const [budgetLoaded, setBudgetLoaded] = useState(false)
 
   const loadSpending = () => {
     getSpendingSummary(month, year, viewMode).then(setSpending).catch(() => setSpending(null))
@@ -142,9 +175,18 @@ export default function Budgets() {
   useEffect(() => {
     loadSpending()
     setCopyMessage(null)  // clear any "copied N from..." banner when navigating months/view
+    setBudgetLoaded(false)
     getBudget(month, year)
-      .then(b => setCategories(b.categories.map(c => ({ category: c.category, limit_amount: c.limit_amount }))))
-      .catch(() => setCategories([]))
+      .then(b => {
+        setCategories(b.categories.map(c => ({ category: c.category, limit_amount: c.limit_amount })))
+        setInheritedFrom(
+          b.inherited_from_month && b.inherited_from_year
+            ? { month: b.inherited_from_month, year: b.inherited_from_year }
+            : null,
+        )
+      })
+      .catch(() => { setCategories([]); setInheritedFrom(null) })
+      .finally(() => setBudgetLoaded(true))
     // Prior month for rollover math. Use the same view mode so personal
     // rollover credits don't include business spend (and vice versa).
     const pm = priorMonth(year, month)
@@ -173,6 +215,7 @@ export default function Budgets() {
     setSaving(true)
     try {
       await saveBudget({ month, year, categories: nextCategories })
+      setInheritedFrom(null)   // it's the user's own budget now
       setAutoSaved(true)
       setTimeout(() => setAutoSaved(false), 1500)
     } catch (e) {
@@ -197,6 +240,15 @@ export default function Budgets() {
     autoSave(next)  // commit immediately so navigating away doesn't lose it
   }
 
+  // One click from the Unbudgeted list: add the line with a realistic
+  // starting limit and save immediately (same contract as addCategory).
+  const setBudgetFor = (category, spent) => {
+    if (categories.some(c => c.category === category)) return
+    const next = [...categories, { category, limit_amount: suggestedLimit(spent) }]
+    setCategories(next)
+    autoSave(next)
+  }
+
   const removeCategory = (i) => {
     const next = categories.filter((_, idx) => idx !== i)
     setCategories(next)
@@ -207,6 +259,7 @@ export default function Budgets() {
     setSaving(true)
     try {
       await saveBudget({ month, year, categories })
+      setInheritedFrom(null)   // it's the user's own budget now
       setCopyMessage(null)  // user has explicitly committed; banner no longer needed
     } catch (e) {
       // Without this, a failed save left saving=true forever (button stuck
@@ -257,6 +310,9 @@ export default function Budgets() {
       setCopying(false)
     }
   }
+
+  const unbudgeted = unbudgetedCategories(spending?.categories, categories)
+  const unbudgetedTotal = unbudgeted.reduce((sum, c) => sum + c.total, 0)
 
   const getSpent = (cat) => {
     const found = spending?.categories?.find(c => c.category === cat)
@@ -447,6 +503,26 @@ export default function Budgets() {
           </div>
         </div>
 
+        {/* Carry-forward notice. A new month never starts blank — the
+            backend clones the latest prior month's lines automatically
+            (services/budget_carry.py). Say so, and say how to make it
+            yours, until the first save clears the marker. */}
+        {inheritedFrom && (
+          <div style={{
+            padding: '8px 12px', marginBottom: 12,
+            background: 'var(--accent-blue-bg, rgba(96,165,250,0.1))',
+            border: '1px solid var(--accent-blue-border, rgba(96,165,250,0.3))',
+            borderRadius: 6, fontSize: 12, color: 'var(--text-secondary)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <Repeat size={13} style={{ flexShrink: 0, color: 'var(--accent-blue, #60a5fa)' }} />
+            <span>
+              Carried forward from <strong>{MONTHS[inheritedFrom.month - 1]} {inheritedFrom.year}</strong> automatically.
+              {' '}Edit any line or click Save Budget to make it this month's own.
+            </span>
+          </div>
+        )}
+
         {/* Banner shown after a copy: nudges the user to actually save (the
             categories on screen are uncommitted form state until they do). */}
         {copyMessage && (
@@ -470,7 +546,12 @@ export default function Budgets() {
             yet. Saves the user from staring at an empty form when they
             land on a fresh month. Hidden once at least one category is
             present (the header button is enough at that point). */}
-        {categories.length === 0 && (
+        {!budgetLoaded && categories.length === 0 && (
+          <div aria-busy="true" style={{ padding: '8px 0 16px' }}>
+            <SkeletonRows rows={5} />
+          </div>
+        )}
+        {budgetLoaded && categories.length === 0 && (
           <div
             style={{
               padding: '20px 16px',
@@ -655,6 +736,61 @@ export default function Budgets() {
             </div>
           )
         })}
+
+        {/* Unbudgeted spending — every dollar the month spent that no line
+            above accounts for. Shown so the rows on this page add up to
+            Total spent, and so a category can get a budget in one click
+            instead of being retyped into the form below. */}
+        {unbudgeted.length > 0 && (
+          <div style={{ marginTop: 8, marginBottom: 20 }}>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              marginBottom: 10, paddingBottom: 6, borderBottom: '1px dashed var(--border)',
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                Unbudgeted spending
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                {formatCurrency(unbudgetedTotal)} across {unbudgeted.length} {unbudgeted.length === 1 ? 'category' : 'categories'}
+                {spending?.total_spent > 0 && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {' '}· {Math.round((unbudgetedTotal / spending.total_spent) * 100)}% of spend
+                  </span>
+                )}
+              </span>
+            </div>
+            {unbudgeted.map(c => (
+              <div key={c.category} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '6px 0', fontSize: 14,
+              }}>
+                <span style={{ color: 'var(--text-secondary)' }}>{c.category}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    onClick={() => setDrillCategory(c.category)}
+                    title={`View ${c.category} transactions for ${MONTHS[month - 1]} ${year}`}
+                    style={{
+                      background: 'none', border: 'none', padding: 0,
+                      color: 'var(--accent-blue, #60a5fa)', fontSize: 14, fontWeight: 500,
+                      cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3,
+                    }}
+                  >
+                    {formatCurrency(c.total)}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setBudgetFor(c.category, c.total)}
+                    disabled={saving}
+                    title={`Add a ${c.category} line at ${formatCurrency(suggestedLimit(c.total))} (this month's spend rounded up) — adjust after`}
+                    style={{ padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <Plus size={12} /> Set budget
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Add new category */}
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

@@ -10,6 +10,7 @@ import {
   getLoanHeloc,
 } from '../api/client'
 import { useLatestRequest } from '../hooks/useLatestRequest'
+import { SkeletonPage } from '../components/Skeleton'
 
 /**
  * Loans page — amortization timeline + extra-payment what-if calculator
@@ -88,9 +89,7 @@ export default function Loans() {
 
   if (loading) {
     return (
-      <div style={{ padding: 20, color: 'var(--text-muted)' }}>
-        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading loans…
-      </div>
+      <SkeletonPage stats={3} cards={2} rows={4} />
     )
   }
 

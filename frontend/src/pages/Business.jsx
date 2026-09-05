@@ -14,6 +14,7 @@ import {
 import BusinessBadge, { ICON_MAP, BUSINESS_COLORS } from '../components/BusinessBadge'
 import ScheduleCTab from '../components/ScheduleCTab'
 import { fmt } from '../lib/format'
+import { SkeletonPage } from '../components/Skeleton'
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Building2 },
@@ -24,7 +25,7 @@ const TABS = [
 
 export default function Business() {
   const [tab, setTab] = useState('overview')
-  const [businesses, setBusinesses] = useState([])
+  const [businesses, setBusinesses] = useState(null)   // null = not loaded yet; [] = none
   const [selectedBiz, setSelectedBiz] = useState(null)
   const [report, setReport] = useState(null)
   const [overview, setOverview] = useState(null)
@@ -35,7 +36,7 @@ export default function Business() {
   const [form, setForm] = useState({ name: '', color: '#6366f1', icon: 'briefcase', description: '' })
   const [editingId, setEditingId] = useState(null)
 
-  const loadBusinesses = () => getBusinesses().then(setBusinesses).catch(() => [])
+  const loadBusinesses = () => getBusinesses().then(setBusinesses).catch(() => setBusinesses([]))
   const loadOverview = () => getBusinessOverview(overviewMonths).then(setOverview).catch(() => null)
 
   useEffect(() => { loadBusinesses() }, [])
@@ -48,7 +49,7 @@ export default function Business() {
 
   // Auto-select first business for report
   useEffect(() => {
-    if (businesses.length > 0 && !selectedBiz) setSelectedBiz(businesses[0].id)
+    if (businesses && businesses.length > 0 && !selectedBiz) setSelectedBiz(businesses[0].id)
   }, [businesses])
 
   // ─── Manage tab handlers ───
@@ -110,9 +111,9 @@ export default function Business() {
       </div>
 
       {tab === 'overview' && <OverviewTab overview={overview} businesses={businesses} overviewMonths={overviewMonths} setOverviewMonths={setOverviewMonths} setSelectedBiz={setSelectedBiz} setTab={setTab} />}
-      {tab === 'report' && <ReportTab report={report} businesses={businesses} selectedBiz={selectedBiz} setSelectedBiz={setSelectedBiz} reportMonths={reportMonths} setReportMonths={setReportMonths} />}
-      {tab === 'schedule_c' && <ScheduleCTab businesses={businesses} />}
-      {tab === 'manage' && <ManageTab businesses={businesses} form={form} setForm={setForm} editingId={editingId} handleSave={handleSave} handleDelete={handleDelete} startEdit={startEdit} setEditingId={setEditingId} />}
+      {tab === 'report' && <ReportTab report={report} businesses={businesses ?? []} selectedBiz={selectedBiz} setSelectedBiz={setSelectedBiz} reportMonths={reportMonths} setReportMonths={setReportMonths} />}
+      {tab === 'schedule_c' && <ScheduleCTab businesses={businesses ?? []} />}
+      {tab === 'manage' && <ManageTab businesses={businesses ?? []} form={form} setForm={setForm} editingId={editingId} handleSave={handleSave} handleDelete={handleDelete} startEdit={startEdit} setEditingId={setEditingId} />}
     </div>
   )
 }
@@ -120,6 +121,11 @@ export default function Business() {
 
 // ─── Overview Tab ─────────────────────────────────────────
 function OverviewTab({ overview, businesses, overviewMonths, setOverviewMonths, setSelectedBiz, setTab }) {
+  // Still fetching → skeleton. Rendering the "No businesses yet" card
+  // during the fetch made every visit open on a false empty state.
+  if (businesses === null || (!overview && businesses.length > 0)) {
+    return <SkeletonPage stats={3} cards={1} rows={4} />
+  }
   if (!overview || businesses.length === 0) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: 60 }}>
@@ -171,7 +177,10 @@ function OverviewTab({ overview, businesses, overviewMonths, setOverviewMonths, 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16, marginTop: 16 }}>
         {overview.businesses.map(biz => (
           <div key={biz.id} className="card" style={{ cursor: 'pointer', borderLeft: `4px solid ${biz.color}` }}
-            onClick={() => { setSelectedBiz(biz.id); setTab('report') }}>
+            role="button" tabIndex={0}
+            aria-label={`Open ${biz.name} report`}
+            onClick={() => { setSelectedBiz(biz.id); setTab('report') }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedBiz(biz.id); setTab('report') } }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <BusinessBadge business={biz} size="md" />
               <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />

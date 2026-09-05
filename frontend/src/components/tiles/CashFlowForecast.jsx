@@ -4,6 +4,7 @@ import { TrendingDown, TrendingUp } from 'lucide-react'
 import { getCashFlowForecast } from '../../api/client'
 import { SkeletonCard } from '../Skeleton'
 import { fmtMoney, tileCardStyle } from './shared'
+import { niceDomain } from '../../lib/chartScale'
 
 // Compact dollar formatter for chart tick labels — keeps the y-axis
 // width small so the line drawing area gets maximum width.
@@ -132,7 +133,8 @@ export function CashFlowForecast() {
           siblings whatever the row height ends up being. The narrower
           left-axis tick formatter saves horizontal real estate so the
           line itself gets the room it needs. */}
-      <div style={{ flex: '1 1 0', minHeight: 110 }}>
+      <div style={{ flex: '1 1 0', minHeight: 110 }}
+           title="Axis fitted to the projected range (not zero-based); the red line marks $0 when it's in view">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data.series} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
             <XAxis
@@ -141,10 +143,16 @@ export function CashFlowForecast() {
               tickFormatter={d => d?.slice(5)}
               minTickGap={32}
             />
+            {/* Fitted, not zero-anchored: a balance drifting a few
+                thousand over 60 days is a flat line against a $0 floor.
+                The $0 reference line still renders whenever the
+                projection gets close enough for it to be in range —
+                which is exactly when it matters. */}
             <YAxis
               tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
               tickFormatter={v => fmtCompactMoney(v)}
               width={42}
+              domain={niceDomain([...data.series.map(p => p.balance), startBal], { padRatio: 0.12 }).domain}
             />
             <Tooltip
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 11 }}

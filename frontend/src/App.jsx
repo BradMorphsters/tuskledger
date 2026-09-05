@@ -33,10 +33,12 @@ import {
   Landmark,
   Gauge,
   Bot,
+  CalendarClock,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
 import Dashboard from './pages/Dashboard'
+import WeeklyDigest from './pages/WeeklyDigest'
 import Transactions from './pages/Transactions'
 import Budgets from './pages/Budgets'
 import Goals from './pages/Goals'
@@ -64,6 +66,7 @@ import Categories from './pages/Categories'
 import { triggerSync, getAuthStatus, logout, refreshDemoData, setMode } from './api/client'
 import { useTheme, ThemeToggle, QuickAddFab, CommandPalette } from './components/QuickActions'
 import { BudgetAlertsMonitor, BudgetAlertsToggle } from './components/BudgetAlertsMonitor'
+import DigestNotifier from './components/DigestNotifier'
 import AskPanel from './components/AskPanel'
 import { useReadOnlyMode, ReadOnlyBanner } from './components/ReadOnlyMode'
 
@@ -255,6 +258,7 @@ export default function App() {
   const navItems = [
     // ── Everyday ─────────────────────────────────────────
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/digest', icon: CalendarClock, label: 'Weekly Digest' },
     { to: '/spending', icon: BarChart3, label: 'Spending & Income' },
     { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
     { to: '/budgets', icon: PiggyBank, label: 'Budgets' },
@@ -577,6 +581,7 @@ export default function App() {
         <RouteErrorBoundary resetKey={location.pathname}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/digest" element={<WeeklyDigest />} />
           <Route path="/spending" element={<SpendingIncome />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/budgets" element={<Budgets />} />
@@ -624,6 +629,10 @@ export default function App() {
           budget category. No UI of its own; toggled by the bell button
           in the sidebar. */}
       <BudgetAlertsMonitor />
+      {/* Weekly digest notifier — silent component that fires at most one
+          browser notification per calendar week pointing at /digest.
+          See components/DigestNotifier.jsx. */}
+      <DigestNotifier />
       {/* Ask panel — floating bottom-right button that opens a slide-in
           panel of curated questions answered by the local LLM with
           pre-computed numbers. Mounted globally so it's available on

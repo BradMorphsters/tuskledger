@@ -22,6 +22,10 @@ class TxnLine:
     transaction_id: int
     merchant: Optional[str]
     business_id: Optional[int]
+    # A refund line is an inflow that nets against its category's spend
+    # rather than counting as income (see refund_detector). Splits inherit
+    # the parent's flag.
+    is_refund: bool = False
 
 
 def expand(txns: Iterable[Transaction]) -> Iterator[TxnLine]:
@@ -42,6 +46,7 @@ def expand(txns: Iterable[Transaction]) -> Iterator[TxnLine]:
                     transaction_id=t.id,
                     merchant=merchant,
                     business_id=s.business_id or t.business_id,
+                    is_refund=bool(getattr(t, "is_refund", False)),
                 )
         else:
             yield TxnLine(
@@ -51,4 +56,5 @@ def expand(txns: Iterable[Transaction]) -> Iterator[TxnLine]:
                 transaction_id=t.id,
                 merchant=merchant,
                 business_id=t.business_id,
+                is_refund=bool(getattr(t, "is_refund", False)),
             )

@@ -1383,3 +1383,17 @@ tr:hover td { background: rgba(255, 255, 255, 0.025); }
 }
 .sidebar-logout:hover { color: var(--accent-red); border-color: var(--accent-red); }
 
+
+/* Keyboard hints (Transactions review queue, "?" legend). */
+kbd {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-input, rgba(255,255,255,0.04));
+  color: var(--text-secondary);
+}

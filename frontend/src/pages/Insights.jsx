@@ -497,7 +497,10 @@ function IncomeSourcesPanel({ month, year, totalIncome }) {
         return (
           <div key={row.name} style={{ borderBottom: '1px solid var(--border)' }}>
             <div
+              role="button" tabIndex={0}
+              aria-expanded={openRows.has(row.name)}
               onClick={() => toggleRow(row.name)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(row.name) } }}
               style={{
                 display: 'grid',
                 gridTemplateColumns: '20px 1.4fr 3fr auto',
@@ -674,7 +677,7 @@ function SubscriptionsTab() {
   useEffect(() => { getRecurring().then(setData).catch(() => setData({ recurring: [] })) }, [])
 
   if (!data) {
-    return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
+    return <SkeletonCard titleWidth="40%" rows={5} />
   }
 
   const items = data.recurring || []

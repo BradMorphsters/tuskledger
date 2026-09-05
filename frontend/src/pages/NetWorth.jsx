@@ -18,6 +18,7 @@ import { formatCurrencyZero as formatCurrency } from '../lib/format'
 import { niceDomain, currencyTickFormatter } from '../lib/chartScale'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLatestRequest } from '../hooks/useLatestRequest'
+import { SkeletonCard } from '../components/Skeleton'
 
 function daysSince(isoDate) {
   if (!isoDate) return null
@@ -380,7 +381,9 @@ export default function NetWorth() {
                   Computed in-place from the history array; rendered as
                   small green dots with a label. Highlights the journey. */}
               {(() => {
-                const thresholds = [50000, 100000, 250000, 500000, 1000000, 2000000, 5000000, 10000000]
+                // 750k and 1.5M added: the old list jumped 500k → 1M, so a
+                // whole year of progress between them earned no marker.
+                const thresholds = [50000, 100000, 250000, 500000, 750000, 1000000, 1500000, 2000000, 5000000, 10000000]
                 const milestones = []
                 let prev = history[0]?.net_worth ?? 0
                 for (let i = 1; i < history.length; i++) {
@@ -827,7 +830,7 @@ function DebtPayoffSection() {
   const [data, setData] = useState(null)
   useEffect(() => { getDebtPayoff().then(setData).catch(() => setData({ debts: [] })) }, [])
 
-  if (!data) return <p style={{ color: 'var(--text-muted)', padding: 40, textAlign: 'center' }}>Loading…</p>
+  if (!data) return <SkeletonCard titleWidth="35%" rows={4} />
 
   const debts = data.debts ?? []
   const debtsWithProjection = debts.filter(d => d.months_remaining)

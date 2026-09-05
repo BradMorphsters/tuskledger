@@ -16,15 +16,15 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 | # | Dimension | Score | One-line reason | Highest-leverage gap |
 |---|---|---|---|---|
-| D1 | Data trust | 3 | Transfer pairing + issuer patterns work; Pulse's hardcoded budget component removed this pass. Still: refunds bucketed as income; CSV importer emits categories outside the taxonomy; unpaired `TRANSFER_OUT` outflows count as spend. | Canonical category taxonomy at import + refund-as-negative-spend. |
-| D2 | Insight density | 3 | Spending & Income (presets, deltas, pace) and the fitted Net Worth axis are strong; Budgets page hides unbudgeted categories (8–17% of a month's spend). | "Unbudgeted" section on Budgets. |
+| D1 | Data trust | **5** | Refunds net against their category on laptop AND phone; per-payee transfer rules; canonical taxonomy; transfers never Income; Pulse has no constants. | Mark the external-savings payee as a transfer (one click, Eduardo's call). |
+| D2 | Insight density | **4** ↑ from 3 | Budgets page now shows every dollar (Unbudgeted section, rows sum to Total spent); Income Sources roll up by payer; fitted Net Worth axis. Remaining: other level charts still zero-anchored; Dashboard tiles lack period deltas. | Deltas vs prior period on Dashboard tiles. |
 | D3 | Speed | 4 *(provisional)* | ~1k rows; in-window full fetches are fine at this scale. Not measured against a live server. | Measure once a sandbox backend boot exists. |
-| D4 | Polish & consistency | 3 | Skeleton loading in 3/25 pages, EmptyState in 8/25, 8 clickable `<div>`s. | Loading/empty states on the remaining pages. |
-| D5 | Workflow completeness | **3** ↑ from 2 | Budgets now carry forward automatically; alerts fire; Pulse adherence is real. Still no "set budget" from an unbudgeted category, no rule suggestion on recategorize. | Unbudgeted rollup with one-click Set budget. |
-| D6 | Reliability & recovery | 3 | Daily snapshots (gaps: 124×1d, 3×2d, 1×3d), daily backups, freshness UI. A silently-dead feature (alerts) was found and fixed — others may exist. | Smoke test that each promised background feature actually fires. |
+| D4 | Polish & consistency | **4** ↑ from 3 | Loading / empty / failed are three visibly different states on every daily page; skeletons on 13/25 pages (was 3), no more "Loading…" text; three false-empty-state flashes fixed; two more level charts fitted. Remaining: 8 clickable `<div>`s, inline styles vs tokens drift on older pages. | Convert clickable divs to buttons (also D9). |
+| D5 | Workflow completeness | **4** | Budgets carry forward; alerts fire; Set budget one click; recategorize once; per-row transfer toggle with "Always a transfer"; keyboard review queue (j/k/c/t/x/?) discoverable. Remaining: splits still a separate dialog; no keyboard on the drawer. | Keyboard in the drill-down drawer. |
+| D6 | Reliability & recovery | **4** ↑ from 3 | `register_background_jobs()` + a test that every promised job is registered and the startup hook can't crash boot; daily snapshots and backups. Remaining: no test that an alert notification actually reaches the browser; restore-from-backup not exercised. | One-command restore drill. |
 | D7 | First-run & OSS on-ramp | 3 *(provisional)* | `doctor`, demo mode, one-shot `start.sh`; not timed on a clean machine. | Time clone → dashboard. |
 | D8 | Financial correctness | 4 *(provisional)* | Six audit passes + tests; not re-examined. | — |
-| D9 | Accessibility | 2 | 26 aria-labels across 254 buttons, 5 keyboard handlers, no chart text alternatives. | Keyboard + labels on the transaction table and drawers. |
+| D9 | Accessibility | **3** ↑ from 2 | Clickable cards/rows/segments on Business, Insights, Investments and the Transactions merchant link are real buttons or role=button with keyboard handlers; icon-only close labelled; transfer toggles carry aria-pressed. Remaining: charts have no text alternative; contrast unaudited. | Text summaries under each chart. |
 | D10 | Assistant quality | 3 *(provisional)* | Not exercised this pass. | — |
 
 ---|---|---|---|---|
@@ -50,10 +50,247 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 - 2026-09-05 (Pass 1) — Approved items 1–3 of the D5 theme; did NOT select "4 · Unbudgeted
   section + 5 · CSV category canonicalization". Treat 4 and 5 as deferred (not rejected) —
   they were bundled in one option.
+- 2026-09-05 (Pass 2) — Approved all four: taxonomy canonicalization + backfill, transfers never
+  shown as Income, Income Sources by payer, and the (off-theme) Unbudgeted section.
+- 2026-09-05 (Pass 3) — Chose theme A "Fixes that stick" over B (central income/spend
+  classifier) and C (loading polish). B remains the most important D1 item; do it when commits
+  can land incrementally.
+- 2026-09-05 (Pass 4) — Offered B-lite (is_refund + transfer rules + unpaired-transfer filter)
+  vs C; chose **C**. B-lite stays first in the queue for when the repo can take commits.
+- 2026-09-05 (Pass 5) — "Do a larger wave of improvements that is listed" → the whole queue in
+  one pass: B-lite, D9, D5 keyboard, D6 jobs test.
 
 ---
 
 ## Passes
+
+### 2026-09-05 — Pass 6 · Mobile mirror learns `is_refund`
+
+Small, consistency-driven pass: Pass 5 made the laptop net refunds against spend, so the phone
+(which computes its own sums from a mirrored SQLite) had started disagreeing with it by exactly
+the refund amounts. Shell still down; built in the container, written back via the file bridge.
+**Not committed.**
+
+**Shipped:** backend `/api/mobile/sync` sends `is_refund` (default `False`, so an older phone
+keeps parsing); mobile `SCHEMA_VERSION` 5 → 6 (one-time wipe + full re-pull on next launch)
+adds the column; every phone-side sum uses the laptop's rule — income excludes refunds,
+spending/category/budget sums include them and clamp at 0 (`HAVING SUM(amount) > 0`,
+`Math.max(0, spent)`); `TransactionRow` shows "· refund", neutral colour, accessibility label
+"refunded". *Measure:* phone month totals equal the laptop's again (were off by the month's
+refunds). New backend test asserts the sync payload carries the flag. Backend `mobile.py`
+manifest `schema_version` left at 4 (additive field; nothing on the phone gates on it).
+
+**Verification:** `test_mobile_sync.py` 10/10; `@babel/parser` (typescript plugin) pass on the
+four touched `.ts/.tsx` files. Needs an EAS build to reach the phone.
+
+**Next-pass candidates:** D9 text summaries under charts + contrast audit; D6 restore-from-
+backup drill as a test; D7 clean-machine `start-demo.sh` timing; D10 exercise Ask Tusk against
+the new refund/transfer semantics (its income retrievers already exclude refunds).
+
+### 2026-09-05 — Pass 5 · The queued wave (B-lite + D9 + D5 keyboard + D6)
+
+Eduardo asked for the whole remaining queue in one pass. Shell still down; built in the
+container (backend checkpointed in a local git there), written back via the file bridge.
+**Not committed.**
+
+**A regression found and repaired first.** Re-reading the device copies before editing showed
+Pass 4 had overwritten Pass 2's Unbudgeted section in `Budgets.jsx` and Pass 3's suggestion/undo
+wiring in `Transactions.jsx`. Cause: `device_stage_files` returned a stale cached copy (the
+mtime it reported predated the earlier write) and Pass 4 was patched onto that base. Both files
+were rebuilt from the correct bases with every pass's changes and re-verified; the loop prompt
+now requires checking a staged file's mtime/size against `device_list_dir` before patching it.
+
+**Shipped:**
+
+1. **Refunds net against spending (D1).** `transactions.is_refund` (derived, never a toggle) +
+   `services/refund_detector.py` with one shared definition (`is_refund_row`): an inflow that is
+   not a transfer and sits in a spending category. Recomputed after every sync (via the transfer
+   detector) and on any PATCH that changes category or transfer status. Migration 0021 backfills.
+   Income sites stop counting them (income-vs-spending, category-breakdown, spending-summary,
+   /totals — which now also reports `refunds` —, spending-patterns, monthly report, cash-flow
+   forecast/health, Pulse inflow, YoY, Ask Tusk's income retrievers and prompt bundles); the
+   headline spend endpoints net them into their category (clamped at 0 so a return larger than
+   the month's purchases never draws a negative slice). *Measure:* 6 rows flagged; every month's
+   income drops by exactly its refunds (largest single month −3.6%); Home/Shopping/etc. spend
+   drops by the same. Old → new for all eight months logged in the pass transcript.
+2. **Per-payee transfer rules (D1).** `transfer_rules` table (0021), consulted by the detector's
+   pattern pass alongside the built-in issuer rules; `GET/POST/DELETE /analytics/transfer-rules`
+   (POST applies to history immediately) and `/transfer-rules/preview`. In the UI the ↔ pill on
+   every row (table and drawer) is now a toggle with `aria-pressed`; flagging an outflow offers
+   **"Always a transfer"** for that payee (`TransferSuggestion.jsx`), with undo on the toggle.
+   New Transactions filter **"Unpaired transfer-outs"** (`?unpaired_transfers=true`) lists the
+   Transfer-labelled outflows the detector couldn't pair. *Measure:* 22 such rows today; one rule
+   on the external-savings payee would move 2 of them (and ~16% of one month's "spend") out of
+   spending — a decision left to Eduardo by design.
+3. **Refund pill** (↩) on table and drawer rows so the netting is visible, not silent.
+4. **D9.** Business overview cards, Insights expandable rows and Investments allocation segments
+   are keyboard-reachable (`role=button`, `tabIndex`, Enter/Space, `aria-expanded` where they
+   expand); the Transactions merchant link is a real `<button>`; the split-modal close is
+   labelled.
+5. **D5.** The Transactions page already had j/k/x/e navigation (my Pass-4 log entry was wrong
+   to call it missing — verified before building). Added: `c` as the natural alias for
+   category, `t` to mark/unmark the highlighted row as a transfer, `?` for a legend, `Esc`
+   clears the highlight, the highlighted row scrolls into view, and a one-line on-screen hint
+   so the feature is discoverable. `<kbd>` styling added to `index.css`.
+6. **D6.** Scheduler registration extracted to `register_background_jobs(scheduler, settings)`
+   with `EXPECTED_JOB_IDS`; `tests/test_background_jobs.py` asserts every promised job is
+   registered exactly once with a sane trigger, that budget carry-forward is a daily cron just
+   after midnight, and that the startup hook cannot raise on an empty DB.
+
+**Verification:** 22 new backend tests green (refund detector, transfer rules, jobs); migration
+0021 applied to a DB copy (0020 → 0021, 6 refunds flagged, empty `transfer_rules`) and the
+before/after income-vs-spending table compared month by month. Full suite in the container:
+717 passed / 46 failed / 43 errors, **identical failure set to the pre-wave baseline** (diffed
+against a worktree of the previous checkpoint; the counts moved only because installing
+`plaid`/`qrcode`/`zeroconf` let more tests collect). Frontend: `@babel/parser` pass on all
+touched files. Run `npx vitest` and `pytest` on the Mac.
+
+**Next-pass candidates:**
+- Mobile mirror: teach `mobile/src/db/queries.ts` the `is_refund` column so phone totals match
+  the laptop.
+- D9: text summaries under charts; contrast audit.
+- D6: restore-from-backup drill as a test.
+- D7: time a clean-machine `start-demo.sh` to first dashboard paint.
+
+### 2026-09-05 — Pass 4 · D4 "Every page paints instantly"
+
+**Recon:** inventory of all 25 pages for loading / empty / error handling. 3 pages used
+skeletons, 9 rendered bare "Loading…" text, and three pages painted a **false empty state**
+during the first fetch: Transactions ("No transactions found"), Budgets ("No budget set …
+Copy from last month"), Business ("No businesses yet"). Transactions also swallowed fetch
+errors (`.catch(() => {})`), so a backend hiccup was indistinguishable from an empty account.
+Re-measured theme B before proposing: refunds distort income ≤ 3.6% in the worst month (6
+rows all-time) — real but small; unpaired `TRANSFER_OUT` outflows are the larger leak (22 rows,
+~16% of one month's spend). Eduardo chose C. Shell still down; built in the container.
+
+**Shipped:**
+
+1. **Three states, visibly different.** New `SkeletonTableRows` / `SkeletonPage` in
+   `components/Skeleton.jsx` and a shared `components/LoadError.jsx` (message + Retry).
+   Transactions: skeleton rows until the first response, `LoadError` on failure, the empty
+   message only once loaded. Budgets: skeleton rows until `GET /budgets` answers; the Copy CTA
+   no longer flashes on months that have a budget. Business: `businesses` starts as `null`
+   (not loaded) so the overview shows a skeleton instead of "No businesses yet".
+2. **"Loading…" text replaced with skeletons** on NetWorth (debt payoff section), CashFlow
+   (both tabs), Goals, Categories, Insights (subscriptions), Loans, TaxPrepPack and the
+   Spending & Income recurring card. *Measure:* pages using skeletons 3 → 13 of 25; bare
+   "Loading…" strings 9 → 0.
+3. **Two more fitted axes** via `niceDomain`: the Dashboard Cash Flow Forecast tile (projected
+   balance is a level; the $0 danger line still renders whenever the projection gets near it)
+   and the Cash Flow page's cumulative-change chart (today = $0 is always in the domain).
+   Spending bars everywhere stay zero-based by design.
+
+**Verification:** `@babel/parser` pass on all 14 touched files; `Business.jsx` null-safety
+audited at every `businesses.` use (other tabs receive `businesses ?? []`); smoke tests assert
+none of the replaced strings. Run `npx vitest` on the Mac.
+
+**Next-pass candidates:**
+- **B-lite (D1)** — `is_refund` flag + detector; `transfer_rules` with an "Always treat
+  <payee> as a transfer" card; "Unpaired transfer-outs" filter. First in the queue once
+  commits can land.
+- D9 — convert the 8 clickable `<div>`s to buttons; labels + focus order on the transaction
+  table and drawers.
+- D5 — keyboard review queue for new transactions.
+
+### 2026-09-05 — Pass 3 · D5 "Fixes that stick"
+
+**Recon correction:** the log's Pass 2 candidate "rule suggestion on recategorize" was
+half-built already — the Transactions page offered "apply to N other" and the Rules page had a
+live match preview. Verified before proposing; the real gaps were narrower: page-local count,
+no "always", nothing in the drawer, no undo. Sandbox shell still down; built in the container,
+written back via the file bridge. **Not committed** (same reason as Pass 2).
+
+**Shipped (theme approved as a whole):**
+
+1. **Full-history suggestion.** New `GET /analytics/rules/preview?pattern&category&exclude_id`
+   scans every transaction with the rule engine's own matching and returns the rows whose
+   effective category differs (`candidates`, each with its prior override so the action can be
+   undone) plus `rule_would_update` under the engine's never-override-a-hand-set-category
+   semantics. *Measure:* fixing a row of the most frequent merchant on the newest page used to offer
+   "apply to 1 other" (2 visible); it now offers 79. The next two merchants: 1 → 28, 0 → 19.
+2. **"Apply to N past" and "Always".** Shared `components/CategorySuggestion.jsx`. Apply
+   PATCHes exactly the listed rows and posts an 8-second **Undo** toast that restores each row's
+   prior override (or clears it). Always creates a category rule via the existing endpoint,
+   which applies retroactively and on every future sync. Pattern comes from
+   `lib/categoryFix.buildRulePattern()` — normalized display name with store numbers and
+   processor prefixes stripped ("SQ *TACO PLANET" → `taco planet`, "AMAZON MKTPL*AB12…" →
+   `amazon mktpl`) so a rule matches the merchant, not one receipt. 14 unit tests.
+3. **Drawer support.** The same card appears after a recategorize inside the drill-down
+   drawer — where fixes reached from Spending & Income and Budgets actually happen.
+4. **Undo on bulk edits.** Bulk recategorize and bulk transfer-toggle on the Transactions
+   page capture the pre-change rows and post an undo toast (`bulkUndoPlan`). To make "restore
+   to no override" expressible, `PATCH /transactions/{id}` now treats `custom_category: ""` as
+   *clear* (null still means unchanged) — same convention `notes` already used.
+
+**Verification:** backend 4 new tests (`test_rule_preview.py`) green; full suite in the
+container 669 passed / 36 failed / 48 errors — failure set unchanged (pre-existing env drift).
+Frontend: `@babel/parser` pass on all six touched files; `categoryFix` logic verified under
+node (17 assertions). `lucide-react` icon availability checked against the installed package
+(the listing truncates at 2,000 entries, so `Wand2` was swapped for `ListChecks`, which is
+confirmed present). Run `npx vitest` on the Mac for the committed test files.
+
+**Next-pass candidates:**
+- D1 — central income/spend classifier (theme B): refunds net against their category;
+  unpaired `TRANSFER_OUT` rule. 66 sign-check sites; needs incremental commits.
+- D4 — skeletons/empty states on the 22 pages without them; fitted axes on remaining level
+  charts (theme C).
+- D5 — keyboard review queue for new transactions (j/k, c, t, u).
+- D9 — labels + focus order on the transaction table and drawers.
+
+### 2026-09-05 — Pass 2 · D1 "Numbers that reconcile"
+
+**Ground truth used:** DB copy taken after Pass 1 (identical to live at that moment); the
+Mac's sandbox shell was down for the whole pass (bridge-socket failure after its disk hit
+100%), so everything was built and verified in the cloud container and written back with
+the file tools. **Not committed** — see "Follow-ups".
+
+**Shipped (4/4 approved):**
+
+1. **One category taxonomy at every import path.** `categories.canonical_category()` +
+   `CATEGORY_ALIASES`; the CSV classifier now emits standard names; unmapped Plaid
+   primaries (`LOAN_DISBURSEMENTS`) fold through the alias table instead of creating a
+   bucket nothing knows about. Migration 0020 backfills `category` AND `custom_category`
+   (the Apple Card load script had written its labels into `custom_category`, so
+   `category`-only would have missed 47 of the 53 rows — caught by measuring, not assumed).
+   *Measure:* rows outside the taxonomy 53 → 0; the folded food rows raise all-time
+   Food & Dining spend by ~40% — the honest number, previously split across a bucket no
+   budget line could see. User overrides (Childcare etc.) untouched.
+2. **A flagged transfer never shows under Income.** `transfer_detector._flag()` sets
+   `custom_category = Transfer` when the row's effective category is Income (a hand-chosen
+   category is left alone); 0020 backfills. *Measure:* `is_transfer=1 AND effective
+   category = Income` 3 → 0 (one of them was the largest single row in the Income list).
+3. **Income Sources roll up by payer.** `spending-patterns` keys the card on
+   `merchant_normalizer.normalize()`; the normalizer now collapses the doubled payer that ACH
+   descriptors produce ("X … CO: X"), consumes multi-word `TYPE:` values ("TAX REF"), strips
+   X-masked IDs, and treats `ACH/<payer> - PAYROLL` as the deposit form. *Measure:* August
+   income sources 9 → 4 (3 payers + 1 refund).
+4. **Unbudgeted section on Budgets** (deferred from Pass 1): categories with spend but no
+   line, largest first, with the share of the month's spend and a one-click **Set budget**
+   that adds the line at spend rounded up to the next $25 and auto-saves. Pure helpers
+   `unbudgetedCategories()` / `suggestedLimit()` exported and tested. *Measure:* rows on the
+   page now sum to Total spent; 8.7% (Aug) / 16.5% (Jul) of spend was invisible before.
+
+**Verification:** backend 48/48 across the touched modules (16 new tests: taxonomy,
+normalizer, detector relabel); full suite in the container 665 passed / 36 failed / 48
+errors — the failure set is identical to Pass 1's pre-existing env drift. Migration 0020
+applied to a copy of the real DB (0019 → 0020), measured before/after, and re-run
+idempotently. Frontend: `@babel/parser` syntax pass; helper logic verified under node;
+`Budgets.test.jsx` extended (run `npx vitest` on the Mac).
+
+**Follow-ups / caution:**
+- **Uncommitted.** Files were written straight into the working tree via the file bridge;
+  `git commit` needs the sandbox shell, which was unavailable. Commit message drafted in
+  the pass summary. Because the backend runs `uvicorn --reload`, 0020 will have applied to
+  the live DB the moment the files landed.
+- `test_recurring_detector::test_classify_kind_salary` was already failing before this pass
+  (unchanged by the normalizer edits) — audit-loop item.
+
+**Next-pass candidates:**
+- D1 — central income/spend classifier (refunds net against their category; unpaired
+  `TRANSFER_OUT` outflows: Venmo/ATM = spend, external-account deposits = transfer).
+- D2 — period deltas on Dashboard tiles; fitted axes on the remaining level charts.
+- D5 — "Always categorize <merchant> as <category>?" prompt on recategorize → category rule.
+- D9 — keyboard + labels on the transaction table and drawers (lowest score, untouched).
 
 ### 2026-09-05 — Pass 1 · D5 "Budgets that keep working without you"
 
@@ -127,34 +364,16 @@ verified under node (10/10) — run `npx vitest` on the Mac for the committed te
 ## Seed backlog (verified against code/DB on 2026-09-05; prune as items ship)
 
 **D1 — Data trust**
-- Refunds and returns are counted as *income*. `income_vs_spending` and `category_breakdown`
-  bucket every `amount < 0` as income regardless of category — a store return categorized
-  Home (txn 756) and a warehouse-club credit categorized Shopping (txn 1006) both land in the
-  Income stat card. Monarch, Copilot and YNAB net a refund against its category's spend.
-  Proposal shape: an inflow whose category is a *spending* category counts as negative spend
-  in that category; an explicit Income-category whitelist stays income. Measure: Income card
-  for Aug 2026 drops by exactly the two credits; those categories' spend drops by the same.
-- CC-payment credits arrive from Plaid categorized **"Income"** (txn 1037). `is_transfer`
-  keeps them out of totals, but they still list under the Income category.
-  `merchant_normalizer.classify()` already knows they're `cc_payment` — have the transfer
-  detector (or sync) also set `custom_category = "Transfer"` when it flags a row so the
-  category view and the flag agree. Measure: `is_transfer=1 AND category='Income'` rows → 0.
 - Accounts that share a display name are indistinguishable in every list. Show the mask
   (accounts table has `mask`) beside the name wherever accounts are listed, and an "inactive"
   pill when an account has had no transactions for 60+ days (accounts 2 vs 5 are the live
   example).
 
 **D2 — Insight density**
-- Milestone markers on the net-worth chart jump 500k → 1M (`thresholds` list in
-  `NetWorth.jsx`); add 750k and 1.5M so the journey between them gets a dot.
 - Audit the other level-over-time charts for zero-anchored axes (Dashboard, Insights,
   CashFlow, Business, MerchantDrawer, SpendingPace, CashFlowForecast each have one `<YAxis>`
   with no `domain`; Loans already uses `['dataMin','dataMax']`). Reuse `niceDomain` where the
   series is a level; leave bars zero-based.
-- Income Sources card keys on raw `merchant_name || name`, and bank payroll descriptors embed
-  a per-deposit ACH trace number — so every paycheck is its own "source" and the card never
-  rolls up to the employer. Normalize the key (strip `ACH Trace`, `DATA:`, `ID:` suffixes; or
-  reuse the recurring-detector's name normalization).
 
 **D5 — Workflow completeness**
 - Re-categorizing a transfer in the drawer doesn't offer "also clear the transfer flag" (and

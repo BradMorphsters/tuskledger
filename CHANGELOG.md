@@ -6,6 +6,87 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Changed — Mobile mirror (improve-loop pass 6)
+- The phone nets refunds the same way the laptop does: `/api/mobile/sync`
+  sends `is_refund`, the mirror schema is bumped to 6 (one-time re-pull),
+  and income / spending / category / budget sums match the web app again.
+  Transactions list marks refunds.
+
+### Added — Money that moved, not money you spent (improve-loop pass 5)
+- **Refunds net against spending.** A return, statement credit or
+  cash-back offer is no longer counted as income: it reduces the
+  category it came from (`is_refund`, derived automatically; ↩ Refund
+  pill). Migration 0021 backfills. `/transactions/totals` reports
+  `refunds` separately.
+- **Transfer rules.** Mark any outflow as a transfer with one click
+  (table or drawer) and choose **Always a transfer** for that payee —
+  the detector honours your rules alongside its built-in ones, fixing
+  history now and every future sync. New **Unpaired transfer-outs**
+  filter on Transactions. API: `/analytics/transfer-rules`.
+- **Keyboard review on Transactions** is discoverable: on-screen hint,
+  `?` legend, `c` for category, `t` to toggle transfer, highlighted row
+  scrolls into view.
+- **Background-job smoke test** (`test_background_jobs.py`): every
+  scheduled job the app promises is asserted to be registered.
+
+### Fixed
+- Business cards, Insights rows and Investments allocation segments are
+  reachable by keyboard; the Transactions merchant link is a real
+  button; icon-only close buttons are labelled.
+- Restored the Budgets "Unbudgeted" section and the Transactions
+  suggestion/undo wiring, which an earlier working-tree write had
+  overwritten.
+
+### Changed — Every page paints instantly (improve-loop pass 4)
+- Loading, empty and failed are now three visibly different states.
+  Skeleton placeholders replace bare "Loading…" text on NetWorth,
+  Cash Flow, Goals, Categories, Insights, Loans, Tax Prep Pack and the
+  Spending & Income recurring card; Transactions shows skeleton rows
+  until the first response and a Retry notice when the fetch fails
+  (it used to swallow errors and show "No transactions found").
+- Fixed three false empty states that flashed during the first fetch:
+  Transactions, Budgets ("No budget set" on months that had one) and
+  Business ("No businesses yet").
+- Cash Flow Forecast tile and the Cash Flow page's cumulative chart now
+  fit their Y axis to the data (`lib/chartScale`), like Net Worth.
+
+### Added — Fixes that stick (improve-loop pass 3)
+- **Recategorize once.** After changing a transaction's category (table
+  or drill-down drawer) the app checks ALL history for that merchant —
+  not just the rows on screen — and offers **Apply to N past** (with an
+  8-second Undo) or **Always**, which saves a category rule that applies
+  retroactively and on every future sync. New
+  `GET /analytics/rules/preview` backs the count.
+- **Undo for bulk edits.** Bulk recategorize and bulk transfer-toggle on
+  the Transactions page post an undo toast that restores every row's
+  prior state.
+
+### Changed
+- `PATCH /transactions/{id}` treats `custom_category: ""` as "clear the
+  override" (null still means unchanged), so an undo can put a row back
+  to the bank's category.
+
+### Added — Numbers that reconcile (improve-loop pass 2)
+- **One category taxonomy at every import path.** `canonical_category()` +
+  an alias table fold importer spellings ("Food & Drink", "Utilities",
+  "Healthcare", "Other", Plaid's `LOAN_DISBURSEMENTS`) onto the standard
+  list; migration 0020 backfills existing rows (both `category` and
+  importer-written `custom_category`; user overrides untouched).
+- **Unbudgeted spending section on the Budgets page** — every category
+  with spend but no line, its share of the month, and a one-click
+  **Set budget** (spend rounded up to the next $25, auto-saved). Rows on
+  the page now add up to Total spent.
+- **Income Sources roll up by payer** instead of one row per paycheck:
+  the card keys on the merchant normalizer, which now collapses the
+  doubled payer in ACH descriptors, multi-word `TYPE:` values and masked
+  IDs.
+
+### Fixed
+- A transaction flagged as a transfer whose bank category is "Income"
+  (CC autopay credits, account-to-account deposits) is relabelled
+  "Transfer" at flag time and backfilled, so it no longer appears in the
+  Income category list or drill-down.
+
 ### Added — Budgets that keep working without you (improve-loop pass 1)
 - **Budgets carry forward automatically.** A new month with no budget is
   cloned from the latest prior month — at startup, daily, and on first

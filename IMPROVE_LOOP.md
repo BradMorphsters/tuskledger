@@ -105,6 +105,9 @@ says verbatim in the log's "Decisions" section so the next pass honours it.
 
 ### 5. Build
 
+- **Patch the file that is actually on disk.** When working through the file bridge, compare
+  a staged copy's mtime/size with `device_list_dir` before editing it; a stale cached copy once
+  silently reverted two earlier passes. If they differ, re-stage, wait, re-check.
 - Ship only approved items. Small, complete, tested. Prefer a pure helper in `frontend/src/lib`
   or `backend/app/services` with a unit test over logic inline in a page or router.
 - Keep the app's conventions (see `AGENTS.md` "Style conventions"): Plaid sign convention

@@ -85,11 +85,11 @@ def test_garbage_token_rejected(client):
     assert r.status_code == 401
 
 
-def test_manifest_reports_schema_version_4(client):
+def test_manifest_reports_schema_version_5(client):
     token = _pair(client)
     r = client.get("/api/mobile/manifest", headers=_hdr(token))
     assert r.status_code == 200
-    assert r.json()["schema_version"] == 4
+    assert r.json()["schema_version"] == 5
 
 
 def test_revoked_device_gets_401(client):
@@ -244,3 +244,63 @@ def test_sync_payload_carries_is_refund(client, db, factory):
     body = client.get("/api/mobile/sync", headers=_hdr(token)).json()
     flags = {t["merchant_name"]: t["is_refund"] for t in body["transactions"]}
     assert flags == {"Store": True, "Payroll": False}
+
+
+# ─── Insights (schema v5) ────────────────────────────────────────────────
+
+def test_insights_requires_token(client):
+    assert client.get("/api/mobile/insights").status_code == 401
+
+
+def test_insights_empty_db_is_well_shaped(client):
+    """A freshly paired phone against an empty laptop still gets a valid,
+    zeroed payload — the phone renders "nothing yet", not an error."""
+    token = _pair(client)
+    r = client.get("/api/mobile/insights", headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["as_of"] == datetime.date.today().isoformat()
+    sts = body["safe_to_spend"]
+    assert sts["safe_to_spend"] == 0.0
+    assert sts["spendable_cash"] == 0.0
+    assert sts["next_paycheck_source"] == "month_end_fallback"
+    assert isinstance(sts["bills"], list) and isinstance(sts["notes"], list)
+    digest = body["weekly_digest"]
+    assert digest["week_end"] == datetime.date.today().isoformat()
+    assert digest["happened"]["spend"] == 0.0
+    assert digest["coming"]["bills"] == []
+
+
+def test_insights_mirrors_laptop_services(client, db, factory):
+    """The phone must see the SAME numbers the laptop Dashboard shows —
+    the endpoint is a pass-through of compute_safe_to_spend and
+    compute_weekly_digest, so compare against them directly."""
+    from app.services.safe_to_spend import compute_safe_to_spend
+    from app.services.weekly_digest import compute_weekly_digest
+
+    today = datetime.date.today()
+    acct = factory.account(name="Checking", type="depository",
+                           subtype="checking", current_balance=2500.0)
+    factory.account(name="Rainy Day", type="depository",
+                    subtype="savings", current_balance=9000.0)
+    factory.commit()
+    for i in range(4):
+        factory.transaction(
+            account_id=acct.id, amount=60.0, merchant_name="Grocer",
+            date=today - datetime.timedelta(days=2 + i * 3),
+            category="Groceries",
+        )
+    factory.commit()
+
+    token = _pair(client)
+    r = client.get("/api/mobile/insights", headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    expected_sts = compute_safe_to_spend(db, today=today)
+    expected_digest = compute_weekly_digest(db, week_ending=today)
+    assert body["safe_to_spend"]["safe_to_spend"] == expected_sts["safe_to_spend"]
+    assert body["safe_to_spend"]["spendable_cash"] == 2500.0
+    assert body["safe_to_spend"]["savings_cash"] == 9000.0
+    assert body["weekly_digest"]["happened"]["spend"] == expected_digest["happened"]["spend"]
+    assert body["weekly_digest"]["happened"]["spend"] > 0

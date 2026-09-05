@@ -139,6 +139,126 @@ export interface SyncResponse {
   has_more: boolean;
 }
 
+// ─── Insights (schema_version >= 5) ──────────────────────────────────
+// Derived server-side by services/safe_to_spend.py and
+// services/weekly_digest.py — the same functions the laptop Dashboard
+// calls. The phone never recomputes these; it fetches them once per sync
+// cycle (GET /api/mobile/insights) and caches the JSON in the SQLite meta
+// table so the cards render offline. Field names mirror the Python dicts.
+
+export interface SafeToSpendBillWire {
+  name: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  source: string; // 'mortgage' | 'credit_card' | 'recurring'
+}
+
+export interface SafeToSpendWire {
+  as_of: string;
+  safe_to_spend: number;
+  spendable_cash: number;
+  savings_cash: number;
+  bills_due: number;
+  budget_remaining_pro_rata: number;
+  spending_overlap_adjustment?: number;
+  next_paycheck_date: string;
+  days_until_paycheck: number;
+  next_paycheck_source: string; // 'recurring_income' | 'month_end_fallback'
+  budget_source: string; // 'budget' | 'trailing_average' | 'mixed' | 'none'
+  bills: SafeToSpendBillWire[];
+  notes: string[];
+}
+
+export interface DigestDeltaWire {
+  amount: number;
+  pct: number | null;
+}
+
+export interface DigestCategoryWire {
+  category: string;
+  amount: number;
+  prior_amount: number;
+  delta: number;
+}
+
+export interface DigestMerchantAmountWire {
+  merchant: string;
+  amount: number;
+}
+
+export interface DigestLargeTxnWire {
+  merchant: string;
+  date: string;
+  amount: number;
+  typical_amount: number;
+}
+
+export interface DigestPriceHikeWire {
+  merchant: string;
+  latest_amount: number;
+  typical_amount: number;
+  delta_pct: number;
+}
+
+export interface DigestBillWire {
+  name: string;
+  date: string;
+  days_until: number;
+  amount: number | null;
+  kind: string;
+}
+
+export interface WeeklyDigestWire {
+  week_start: string;
+  week_end: string;
+  happened: {
+    spend: number;
+    spend_delta: DigestDeltaWire;
+    income: number;
+    income_delta: DigestDeltaWire;
+    top_categories: DigestCategoryWire[];
+    top_merchants: DigestMerchantAmountWire[];
+    transaction_count: number;
+    refund_count: number;
+  };
+  notable: {
+    new_merchants: DigestMerchantAmountWire[];
+    large_transactions: DigestLargeTxnWire[];
+    price_hikes: DigestPriceHikeWire[];
+  };
+  coming: {
+    bills: DigestBillWire[];
+    next_paycheck_date: string;
+    next_paycheck_source: string;
+  };
+  budget_status: {
+    month: number;
+    year: number;
+    score: number;
+    on_pace: number;
+    lines: number;
+    over_pace: { category: string; spent: number; limit: number; score: number }[];
+  } | null;
+  net_worth: {
+    date: string;
+    net_worth: number;
+    prior_date: string | null;
+    prior_net_worth: number | null;
+    delta: number | null;
+  } | null;
+  action_items: {
+    unpaired_transfers: { count: number; url: string };
+    uncategorized: { count: number; url: string };
+  };
+}
+
+export interface InsightsResponse {
+  generated_at: string;
+  as_of: string; // YYYY-MM-DD
+  safe_to_spend: SafeToSpendWire;
+  weekly_digest: WeeklyDigestWire;
+}
+
 export interface ManifestResponse {
   host_id: string;
   hostname: string;

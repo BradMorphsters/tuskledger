@@ -14,6 +14,7 @@
  */
 import { loadDemoMode, loadPairedHost, loadToken } from './storage';
 import type {
+  InsightsResponse,
   ManifestResponse,
   PairClaimResponse,
   SyncResponse,
@@ -133,6 +134,19 @@ export async function fetchSync(opts: {
   const res = await authedFetch(`/api/mobile/sync?${params.toString()}`);
   if (!res.ok) throw new Error(`Sync failed (${res.status}).`);
   return (await res.json()) as SyncResponse;
+}
+
+/**
+ * Derived insights — safe-to-spend + weekly digest (schema_version >= 5).
+ * Called once per sync cycle after the delta pages drain. A laptop on an
+ * older backend 404s here; the caller treats that as "no insights" rather
+ * than a failed sync.
+ */
+export async function fetchInsights(): Promise<InsightsResponse | null> {
+  const res = await authedFetch('/api/mobile/insights', { timeoutMs: 10000 });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Insights failed (${res.status}).`);
+  return (await res.json()) as InsightsResponse;
 }
 
 /**

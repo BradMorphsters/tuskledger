@@ -8,6 +8,9 @@ import Foundation
 /// the shape.
 struct WidgetSnapshot: Codable {
   let updatedAt: String
+  /// Optional: only present once the app has synced insights from the
+  /// laptop (schema_version >= 5). Older snapshots decode with nil.
+  let safeToSpend: SafeToSpend?
   let netCashMtd: NetCash
   let cashAccounts: [CashAccount]
   let totalCash: Double
@@ -17,6 +20,13 @@ struct WidgetSnapshot: Codable {
     let spending: Double
     let net: Double
     let transactionCount: Int
+  }
+
+  struct SafeToSpend: Codable {
+    let amount: Double
+    let nextPaycheckDate: String   // YYYY-MM-DD
+    let daysUntilPaycheck: Int
+    let source: String             // recurring_income | month_end_fallback
   }
 
   struct CashAccount: Codable, Identifiable {
@@ -52,6 +62,7 @@ extension WidgetSnapshot {
   /// preview, not real data.
   static let placeholder = WidgetSnapshot(
     updatedAt: ISO8601DateFormatter().string(from: Date()),
+    safeToSpend: .init(amount: 1240, nextPaycheckDate: "2026-01-15", daysUntilPaycheck: 9, source: "recurring_income"),
     netCashMtd: .init(income: 5200, spending: 3400, net: 1800, transactionCount: 142),
     cashAccounts: [
       .init(id: 1, displayName: "Chase Checking",    institutionName: "Chase",       mask: "1234", balance: 8421.18),

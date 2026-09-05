@@ -49,24 +49,26 @@ const CustomTooltip = ({ active, payload }) => {
  * glanced-at metric (e.g., put DailySnapshot first if you check that
  * every morning). Up/down arrows on each tile move it in the row.
  */
-// Bumped to v12. Added the SafeToSpend tile ("can I buy this?" — checking
-// cash minus bills due minus usual spending before payday) and put it
-// FIRST: it's the one number this dashboard exists to answer, so it
-// shouldn't need scrolling past Pulse to find. Bumping the order-array
-// length resets any previously saved custom order — expected, and noted
-// in the plan, since the validation below rejects orders missing a key.
-//   Row 1: Safe | Pulse | Accounts
-//   Row 2: Cash | HSA | Portfolio
-//   Row 3: Forecast | Pace | DCFSA
-//   Row 4: Loans | Snapshot
-const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v12'
+// v12 added the SafeToSpend tile ("can I buy this?" — checking cash minus
+// bills due minus usual spending before payday). Bumping the order-array
+// length resets any previously saved custom order — expected, since the
+// validation below rejects orders missing a key.
+//   Row 1: Pulse | Accounts | Cash
+//   Row 2: HSA | Portfolio | Forecast
+//   Row 3: Pace | DCFSA | Loans
+//   Row 4: Snapshot | Safe
+// v13: 'safe' moved from first to last. Safe-to-spend is a paycheck-to-
+// paycheck number; for a user who isn't budgeting cycle-to-cycle it's low
+// value at the top of the page (Eduardo, 2026-09-05). Still available —
+// and still movable — just not the lead. The key bump resets saved orders.
+const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v13'
 // 'accounts' lands third in the default order, right after Pulse,
 // because "what's the balance on each of my accounts" is the most
 // common reason a user opens the dashboard. Existing users with a
 // stored tile order will fall back to this default — the saved-order
 // validation rejects orders that don't include every key, which is
 // exactly what we want when adding a new tile.
-const DEFAULT_TILE_ORDER = ['safe', 'pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'pace', 'dcfsa', 'loans', 'snapshot']
+const DEFAULT_TILE_ORDER = ['pulse', 'accounts', 'cash', 'hsa', 'portfolio', 'forecast', 'pace', 'dcfsa', 'loans', 'snapshot', 'safe']
 const TILE_LABELS = {
   safe: 'Safe to spend', pulse: 'Pulse', forecast: 'Forecast', snapshot: 'Snapshot',
   hsa: 'HSA', dcfsa: 'DCFSA', loans: 'Loans', portfolio: 'Portfolio',

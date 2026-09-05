@@ -20,9 +20,12 @@ import { create } from 'zustand';
 import { applySync, getMeta, resetMirror, setMeta } from '../db/sqlite';
 import {
   AuthError,
+  fetchInsights,
   fetchSync,
   NetworkError,
 } from './api';
+import { clearInsights, storeInsights } from '../insights/store';
+import { runAlertsAfterSync } from '../alerts/scheduler';
 import {
   clearAllPairing,
   loadCursor,
@@ -199,9 +202,22 @@ export async function syncNow(force = false): Promise<void> {
       await saveLastSyncedAt(syncedAt);
       store.setLastSynced(syncedAt);
       store.setStatus('idle');
+      // Derived insights (safe-to-spend + weekly digest) — ONE request
+      // per sync cycle, after the delta pages drained. Best-effort: an
+      // older backend (404 → null) or a slow computation must never turn
+      // a successful mirror sync into an error state.
+      try {
+        const insights = await fetchInsights();
+        if (insights) await storeInsights(insights);
+      } catch (e) {
+        if (__DEV__) console.warn('[insights] fetch failed:', e);
+      }
       // Best-effort widget update — publishSnapshot already swallows
       // all errors internally, so this never fails a successful sync.
       publishSnapshot();
+      // Sync-time local alerts (bill due, budget tier, unusual charge,
+      // digest ready). Also best-effort and self-deduplicating.
+      runAlertsAfterSync().catch(() => {});
     } catch (e) {
       if (e instanceof AuthError) {
         // Token revoked or unrecognized — wipe and prompt re-pair.
@@ -210,6 +226,7 @@ export async function syncNow(force = false): Promise<void> {
         // when the laptop says I'm not paired?").
         await clearAllPairing();
         await resetMirror();
+        await clearInsights();
         // Clear the widget's App Group snapshot too — otherwise the
         // home-screen widget keeps rendering the last real balances
         // after the token was revoked and the mirror wiped.

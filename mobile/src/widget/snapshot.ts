@@ -22,6 +22,7 @@
  * crash but the new field will silently fail to render.
  */
 import { AccountRow, currentMonthSummary, listAccounts } from '../db/queries';
+import { useInsightsStore } from '../insights/store';
 // Relative import: the native side of this local Expo module is autolinked
 // from modules/, but Metro can't resolve the bare 'widget-bridge' name
 // without a node_modules entry — so import the JS entry directly.
@@ -35,9 +36,25 @@ export interface CashAccountSnapshot {
   balance: number;
 }
 
+export interface SafeToSpendSnapshot {
+  /** Laptop-computed safe-to-spend (checking − bills − usual spending). */
+  amount: number;
+  /** YYYY-MM-DD of the next projected paycheck (or 1st-of-month fallback). */
+  nextPaycheckDate: string;
+  daysUntilPaycheck: number;
+  /** 'recurring_income' | 'month_end_fallback' — the widget hedges the label on fallback. */
+  source: string;
+}
+
 export interface WidgetSnapshot {
   /** ISO timestamp of when this snapshot was generated. */
   updatedAt: string;
+  /**
+   * Present once the phone has fetched /api/mobile/insights at least once.
+   * Optional so a widget built against this shape still decodes snapshots
+   * written by an older app (Swift side declares it Optional too).
+   */
+  safeToSpend?: SafeToSpendSnapshot | null;
   netCashMtd: {
     income: number;
     spending: number;
@@ -80,8 +97,19 @@ export async function buildSnapshot(): Promise<WidgetSnapshot> {
 
   const totalCash = cashAccounts.reduce((s, a) => s + a.balance, 0);
 
+  const sts = useInsightsStore.getState().insights?.safe_to_spend ?? null;
+  const safeToSpend: SafeToSpendSnapshot | null = sts
+    ? {
+        amount: sts.safe_to_spend,
+        nextPaycheckDate: sts.next_paycheck_date,
+        daysUntilPaycheck: sts.days_until_paycheck,
+        source: sts.next_paycheck_source,
+      }
+    : null;
+
   return {
     updatedAt: new Date().toISOString(),
+    safeToSpend,
     netCashMtd: summary,
     cashAccounts,
     totalCash,

@@ -104,18 +104,43 @@ export default function TransactionDrawer({
   }, [open])
 
   // Summary stats over the currently-loaded transactions.
+  //
+  // Transfers are EXCLUDED from every figure here, which is what makes
+  // this bar agree with the page that opened the drawer. Every
+  // aggregation endpoint (category-breakdown, income-vs-spending,
+  // spending-summary, /totals) filters is_transfer=False, so a CC
+  // autopay credit that Plaid happens to label "Income" must not be
+  // counted in the drill-down either — it would inflate Count and
+  // hijack Largest while the pie slice behind it stayed unchanged.
+  // The rows themselves still render (badged) so they can be inspected
+  // and re-categorized; `transfersHidden` tells the user how many of
+  // the listed rows sit outside these numbers.
   const summary = useMemo(() => {
     if (!transactions.length) return null
     // In this DB, spending amounts are positive, income negative.
-    let spend = 0, income = 0, count = 0, largest = 0
+    let spend = 0, income = 0, count = 0, largest = 0, transfersHidden = 0
     for (const t of transactions) {
+      if (t.is_transfer) { transfersHidden += 1; continue }
       count += 1
       if (t.amount > 0) spend += t.amount
       else income += Math.abs(t.amount)
       if (Math.abs(t.amount) > Math.abs(largest)) largest = t.amount
     }
     const net = spend - income
-    return { spend, income, net, count, largest, avg: spend / Math.max(count, 1) }
+    // An income drill-down has no spending at all; show the money that
+    // actually moved rather than a column of $0.
+    const isIncomeScope = income > 0 && spend === 0
+    const gross = isIncomeScope ? income : spend
+    return {
+      spend: gross,
+      spendLabel: isIncomeScope ? 'Income' : 'Spend',
+      income,
+      net,
+      count,
+      largest,
+      avg: gross / Math.max(count, 1),
+      transfersHidden,
+    }
   }, [transactions])
 
   const commitCategory = async (txnId) => {
@@ -223,7 +248,7 @@ export default function TransactionDrawer({
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{summary.count}</div>
             </div>
             <div>
-              <div>Spend</div>
+              <div>{summary.spendLabel}</div>
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(summary.spend)}</div>
             </div>
             <div>
@@ -236,6 +261,11 @@ export default function TransactionDrawer({
                 {formatCurrency(Math.abs(summary.largest))}
               </div>
             </div>
+            {summary.transfersHidden > 0 && (
+              <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-muted)' }}>
+                ↔ {summary.transfersHidden} transfer{summary.transfersHidden === 1 ? '' : 's'} listed below but excluded from these totals
+              </div>
+            )}
           </div>
         )}
 

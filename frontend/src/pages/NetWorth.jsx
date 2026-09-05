@@ -15,6 +15,7 @@ import Stat from '../components/Stat'
 import Pill from '../components/Pill'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
+import { niceDomain, currencyTickFormatter } from '../lib/chartScale'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 
@@ -105,6 +106,40 @@ export default function NetWorth() {
     const priorMap = new Map(yoyData.prior_year.map(r => [r.date, r.value]))
     return history.map(h => ({ ...h, prior_year: priorMap.get(h.date) }))
   }, [history, yoyData, showYoy])
+
+  // The exact array recharts renders — history, optionally with the
+  // projection tail appended. Hoisted out of the JSX because the y-axis
+  // scale has to be fitted to the SAME rows that get drawn; deriving it
+  // from `history` alone would clip a projection that runs past the
+  // current high.
+  const chartData = useMemo(() => (
+    showProjection && projectionData?.projected?.length
+      ? [...chartHistory, ...projectionData.projected]
+      : chartHistory
+  ), [chartHistory, showProjection, projectionData])
+
+  // Fit the y-axis to the data instead of anchoring it at zero.
+  //
+  // A running balance is not a quantity you compare by bar length — it's
+  // a level you watch move. Anchored at zero, a $10k month on a $500k
+  // net worth is 2% of the axis and reads as a flat line; the shape of
+  // the year is invisible. niceDomain() pads the observed range by 8% of
+  // its own span and snaps to round bounds, so the movement fills the
+  // plot and the ticks stay legible. Every plotted series feeds it —
+  // including the YoY overlay, which can dip below the primary line.
+  const yScale = useMemo(() => {
+    const values = []
+    for (const row of chartData) {
+      values.push(row.net_worth)
+      if (showYoy) values.push(row.prior_year)
+    }
+    return niceDomain(values)
+  }, [chartData, showYoy])
+
+  const yTickFormatter = useMemo(
+    () => currencyTickFormatter(yScale.span),
+    [yScale.span],
+  )
 
   // Cross-page deep-link: /net-worth?pair=<mortgage account id> opens the
   // modal pre-bound to that mortgage. Clears the param after handling so
@@ -293,7 +328,7 @@ export default function NetWorth() {
           <>
             <ResponsiveContainer width="100%" height={isMobile ? 240 : 350}>
               <AreaChart
-                data={showProjection && projectionData ? [...chartHistory, ...projectionData.projected] : chartHistory}
+                data={chartData}
                 margin={isMobile
                   ? { top: 8, right: 4, left: -8, bottom: 0 }
                   : { top: 8, right: 12, left: 0, bottom: 0 }}
@@ -315,8 +350,9 @@ export default function NetWorth() {
               <YAxis
                 stroke="var(--text-muted)"
                 fontSize={isMobile ? 10 : 12}
-                tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
-                width={isMobile ? 40 : 60}
+                domain={yScale.domain}
+                tickFormatter={yTickFormatter}
+                width={isMobile ? 48 : 68}
               />
               <Tooltip
                 formatter={(val) => formatCurrency(val)}
@@ -372,6 +408,20 @@ export default function NetWorth() {
               })()}
             </AreaChart>
             </ResponsiveContainer>
+            {/* Truncated-axis disclosure. The zoom is the point of this
+                chart, but a non-zero baseline visually magnifies every
+                wobble — say so plainly rather than letting the slope
+                oversell itself. */}
+            {yScale.zoomed && (
+              <div style={{
+                padding: '6px 16px 0',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+              }}>
+                Scale: {yTickFormatter(yScale.domain[0])} – {yTickFormatter(yScale.domain[1])} ·
+                {' '}axis fitted to the range shown, not zero-based
+              </div>
+            )}
             {showProjection && projectionData && projectionData.monthly_pace !== null && (
               <div style={{
                 padding: '12px 16px',

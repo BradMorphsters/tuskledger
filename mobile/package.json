@@ -7,7 +7,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node scripts/test-pace.mjs && node scripts/test-afford.mjs && node scripts/test-alerts.mjs"
+    "test": "node scripts/test-pace.mjs && node scripts/test-afford.mjs && node scripts/test-alerts.mjs && node scripts/test-ask-intent.mjs"
   },
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.15.13",

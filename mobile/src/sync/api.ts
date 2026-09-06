@@ -14,6 +14,9 @@
  */
 import { loadDemoMode, loadPairedHost, loadToken } from './storage';
 import type {
+  AskResponse,
+  AskTurnWire,
+  BriefingResponse,
   InsightsResponse,
   ManifestResponse,
   PairClaimResponse,
@@ -147,6 +150,30 @@ export async function fetchInsights(): Promise<InsightsResponse | null> {
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Insights failed (${res.status}).`);
   return (await res.json()) as InsightsResponse;
+}
+
+/**
+ * Ask Tusk — the laptop's grounded assistant (schema_version >= 6). The
+ * local model can take a while to narrate, hence the long timeout; the
+ * screen shows a typing indicator meanwhile. A 404 means an older backend.
+ */
+export async function askTusk(question: string, history: AskTurnWire[] = []): Promise<AskResponse> {
+  const res = await authedFetch('/api/mobile/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, history: history.slice(-6) }),
+    timeoutMs: 60000,
+  });
+  if (res.status === 404) throw new Error('Your laptop needs an update before the phone can ask questions.');
+  if (!res.ok) throw new Error(`Ask failed (${res.status}).`);
+  return (await res.json()) as AskResponse;
+}
+
+export async function fetchBriefing(): Promise<BriefingResponse | null> {
+  const res = await authedFetch('/api/mobile/briefing', { timeoutMs: 20000 });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Briefing failed (${res.status}).`);
+  return (await res.json()) as BriefingResponse;
 }
 
 /**

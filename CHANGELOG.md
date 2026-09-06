@@ -6,6 +6,22 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Mobile wave 2: Ask Tusk on the phone (pass 10)
+- New **Ask** tab in the iOS app: a chat with the laptop's grounded
+  assistant over the same device-token auth as sync (`POST /api/mobile/ask`,
+  `GET /api/mobile/briefing`; manifest `schema_version` 6). Same brain as
+  the laptop's Ask panel — retrieve-then-narrate, every figure grounded —
+  with a trimmed payload and a provenance line under each answer.
+- Offline fallback: when the laptop is unreachable, a small on-device
+  intent parser (`mobile/src/ask/intent.ts`) answers the store-aisle
+  questions from the SQLite mirror — spend by period / category / merchant,
+  income, balances, net worth, upcoming bills, budget status, biggest
+  purchases — and labels the answer "answered on this phone". Anything
+  else says it needs the laptop. Read-only, insight-only, session-only
+  history.
+- Opens with the assistant's proactive briefing when the laptop is
+  reachable. Pure-function tests for the parser (`scripts/test-ask-intent.mjs`).
+
 ### Added — Mobile wave 1: intelligence on the phone (pass 9)
 - New `GET /api/mobile/insights` (manifest `schema_version` 5) returns the
   laptop-computed safe-to-spend estimate and weekly digest to the phone —

@@ -647,9 +647,10 @@ def manifest(
         # 4 = adds upcoming_bills (derived; full set each sync).
         # 5 = adds GET /insights (safe-to-spend + weekly digest, derived;
         #     the phone fetches it once per sync cycle, not per page).
+        # 6 = adds POST /ask + GET /briefing (Ask Tusk over device-token auth).
         # Older phone clients ignore the new fields safely; their
         # SyncResponse type just doesn't reference them.
-        schema_version=5,
+        schema_version=6,
         demo_available=bool(settings.DEMO_ENABLED),
     )
 
@@ -916,6 +917,106 @@ def insights(
         as_of=today,
         safe_to_spend=compute_safe_to_spend(db, today=today),
         weekly_digest=compute_weekly_digest(db, week_ending=today),
+    )
+
+
+# ─── Ask Tusk from the phone (schema_version >= 6) ──────────────────────
+#
+# The phone reuses the laptop's Ask Tusk brain (services/assistant.answer —
+# retrieve-then-narrate, grounded, insight-only) over the same device-token
+# auth the sync endpoints use. There is no model on the phone; when the
+# laptop is unreachable the app falls back to a small on-device intent
+# parser over its SQLite mirror (mobile/src/ask/local.ts) for the common
+# questions, and says so.
+#
+# Still read-only: asking a question mutates nothing. POST is used only
+# because questions + history don't fit a query string. (The read_only_gate
+# middleware keys off the tuskledger_view cookie, which the phone never
+# sends, so this POST is not blocked — same as /pair/claim.)
+
+class AskTurn(BaseModel):
+    who: str = Field("you", max_length=8)  # "you" | "tusk"
+    text: str = Field("", max_length=2000)
+    model_config = {"extra": "ignore"}
+
+
+class AskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=600)
+    history: Optional[list[AskTurn]] = Field(
+        default=None,
+        description="Recent turns (oldest first) so follow-ups like 'and last month?' resolve.",
+    )
+    model_config = {"extra": "forbid"}
+
+
+class AskResponse(BaseModel):
+    answer: str
+    source: str = Field(
+        ...,
+        description="Provenance from the assistant brain: 'ollama' (model narrated grounded rows), "
+                    "'retrieval' (deterministic answer from retrieved rows, no model), 'guarded' "
+                    "(model output failed the grounding check, deterministic fallback used), "
+                    "'refusal' (nothing in the data answers this), 'template' (last-resort).",
+    )
+    intent: Optional[str] = None
+    window: Optional[str] = None
+    grounded: bool = True
+    found: bool = True
+    rows: list = Field(
+        default_factory=list,
+        description="The retrieved rows the answer was grounded in (capped) so the phone can show 'based on'.",
+    )
+
+
+_ASK_MAX_ROWS = 25
+
+
+@router.post("/ask", response_model=AskResponse)
+def mobile_ask(
+    body: AskRequest,
+    device: DeviceToken = Depends(require_device_token),
+    db: Session = Depends(get_db),
+):
+    """Free-form, read-only question about the owner's finances, answered by
+    the laptop's grounded assistant. Same brain as POST /api/assistant/ask;
+    the payload is trimmed (no snapshot dump, rows capped) for the phone."""
+    from app.services import assistant as asst
+
+    history = [t.model_dump() for t in body.history] if body.history else None
+    result = asst.answer(db, body.question, history)  # never raises on a data/LLM gap
+    rows = result.get("rows") or []
+    if not isinstance(rows, list):
+        rows = []
+    return AskResponse(
+        answer=str(result.get("answer") or ""),
+        source=str(result.get("source") or "template"),
+        intent=result.get("intent"),
+        window=str(result["window"]) if result.get("window") is not None else None,
+        grounded=bool(result.get("grounded", True)),
+        found=bool(result.get("found", True)),
+        rows=rows[:_ASK_MAX_ROWS],
+    )
+
+
+class BriefingResponse(BaseModel):
+    briefing: str
+    source: str
+
+
+@router.get("/briefing", response_model=BriefingResponse)
+def mobile_briefing(
+    device: DeviceToken = Depends(require_device_token),
+    db: Session = Depends(get_db),
+):
+    """The assistant's short proactive read (net-worth move, spending, top
+    alert) — shown as the greeting when the phone's Ask tab opens. The
+    snapshot the laptop endpoint returns alongside is dropped here."""
+    from app.services import assistant as asst
+
+    result = asst.briefing(db)
+    return BriefingResponse(
+        briefing=str(result.get("briefing") or ""),
+        source=str(result.get("source") or "template"),
     )
 
 

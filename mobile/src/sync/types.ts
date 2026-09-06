@@ -259,6 +259,29 @@ export interface InsightsResponse {
   weekly_digest: WeeklyDigestWire;
 }
 
+// ─── Ask Tusk (schema_version >= 6) ──────────────────────────────────
+
+export interface AskTurnWire {
+  who: 'you' | 'tusk';
+  text: string;
+}
+
+export interface AskResponse {
+  answer: string;
+  /** ollama | retrieval | guarded | refusal | template — see routers/mobile.py. */
+  source: string;
+  intent: string | null;
+  window: string | null;
+  grounded: boolean;
+  found: boolean;
+  rows: unknown[];
+}
+
+export interface BriefingResponse {
+  briefing: string;
+  source: string;
+}
+
 export interface ManifestResponse {
   host_id: string;
   hostname: string;

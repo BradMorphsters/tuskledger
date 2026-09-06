@@ -9,6 +9,7 @@
  *   dashboard     2×2 grid of rounded tiles
  *   transactions  three list bars of decreasing width
  *   investments   three ascending chart columns
+ *   ask           speech bubble with a small tail
  *   settings      two slider tracks with offset knobs
  */
 import { StyleSheet, View } from 'react-native';
@@ -17,6 +18,7 @@ export type TabIconName =
   | 'dashboard'
   | 'transactions'
   | 'investments'
+  | 'ask'
   | 'settings';
 
 interface Props {
@@ -85,6 +87,41 @@ export default function TabIcon({ name, color, size = 24 }: Props) {
           {col(0.45, 0.5)}
           {col(0.7, 0.75)}
           {col(0.95)}
+        </View>
+      );
+    }
+    case 'ask': {
+      // Rounded speech bubble + a tail; two dots so it reads as "chat".
+      return (
+        <View style={[styles.box, { width: s, height: s }]}>
+          <View
+            style={{
+              width: s * 0.92,
+              height: s * 0.68,
+              borderRadius: s * 0.22,
+              backgroundColor: color,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: s * 0.12,
+              marginTop: -s * 0.08,
+            }}>
+            <View style={{ width: s * 0.12, height: s * 0.12, borderRadius: s * 0.06, backgroundColor: 'rgba(0,0,0,0.45)' }} />
+            <View style={{ width: s * 0.12, height: s * 0.12, borderRadius: s * 0.06, backgroundColor: 'rgba(0,0,0,0.45)' }} />
+            <View style={{ width: s * 0.12, height: s * 0.12, borderRadius: s * 0.06, backgroundColor: 'rgba(0,0,0,0.45)' }} />
+          </View>
+          <View
+            style={{
+              width: s * 0.22,
+              height: s * 0.22,
+              backgroundColor: color,
+              alignSelf: 'flex-start',
+              marginLeft: s * 0.18,
+              marginTop: -s * 0.1,
+              transform: [{ rotate: '45deg' }],
+              borderBottomLeftRadius: s * 0.04,
+            }}
+          />
         </View>
       );
     }

@@ -85,11 +85,11 @@ def test_garbage_token_rejected(client):
     assert r.status_code == 401
 
 
-def test_manifest_reports_schema_version_5(client):
+def test_manifest_reports_schema_version_6(client):
     token = _pair(client)
     r = client.get("/api/mobile/manifest", headers=_hdr(token))
     assert r.status_code == 200
-    assert r.json()["schema_version"] == 5
+    assert r.json()["schema_version"] == 6
 
 
 def test_revoked_device_gets_401(client):
@@ -304,3 +304,54 @@ def test_insights_mirrors_laptop_services(client, db, factory):
     assert body["safe_to_spend"]["savings_cash"] == 9000.0
     assert body["weekly_digest"]["happened"]["spend"] == expected_digest["happened"]["spend"]
     assert body["weekly_digest"]["happened"]["spend"] > 0
+
+
+# ─── Ask Tusk from the phone (schema v6) ────────────────────────────────
+
+def test_ask_requires_token(client):
+    assert client.post("/api/mobile/ask", json={"question": "how much did I spend?"}).status_code == 401
+    assert client.get("/api/mobile/briefing").status_code == 401
+
+
+def test_ask_returns_grounded_answer_shape(client, db, factory):
+    """The phone gets the same brain as the laptop's Ask panel: a string
+    answer plus provenance (source/intent/grounded) and capped rows. With
+    no local model in tests the source is the deterministic template path."""
+    acct = factory.account(name="Checking", type="depository", current_balance=1200.0)
+    factory.commit()
+    today = datetime.date.today()
+    for i in range(3):
+        factory.transaction(account_id=acct.id, amount=40.0, merchant_name="Grocer",
+                            date=today - datetime.timedelta(days=i), category="Groceries")
+    factory.commit()
+
+    token = _pair(client)
+    r = client.post(
+        "/api/mobile/ask",
+        headers=_hdr(token),
+        json={"question": "How much have I spent on groceries this month?",
+              "history": [{"who": "you", "text": "hi"}, {"who": "tusk", "text": "hello"}]},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert isinstance(body["answer"], str) and body["answer"]
+    assert body["source"] in {"ollama", "retrieval", "guarded", "refusal", "template"}
+    assert isinstance(body["grounded"], bool)
+    assert isinstance(body["rows"], list) and len(body["rows"]) <= 25
+    assert "snapshot" not in body  # trimmed for the phone
+
+
+def test_ask_rejects_unknown_fields_and_empty_question(client):
+    token = _pair(client)
+    assert client.post("/api/mobile/ask", headers=_hdr(token), json={"question": ""}).status_code == 422
+    assert client.post("/api/mobile/ask", headers=_hdr(token),
+                       json={"question": "x", "write": True}).status_code == 422
+
+
+def test_briefing_is_short_text(client):
+    token = _pair(client)
+    r = client.get("/api/mobile/briefing", headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"briefing", "source"}
+    assert isinstance(body["briefing"], str)

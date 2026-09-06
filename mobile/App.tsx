@@ -22,6 +22,7 @@ import { ActivityIndicator, AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TabIcon, { TabIconName } from './src/components/TabIcon';
+import AskScreen from './src/screens/AskScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import InvestmentsScreen from './src/screens/InvestmentsScreen';
 import PairingScreen from './src/screens/PairingScreen';
@@ -161,6 +162,7 @@ export default function App() {
               <Tab.Screen name="Dashboard" component={DashboardScreen} />
               <Tab.Screen name="Transactions" component={TransactionsScreen} />
               <Tab.Screen name="Investments" component={InvestmentsScreen} />
+              <Tab.Screen name="Ask" component={AskScreen} />
               <Tab.Screen name="Settings">
                 {() => <SettingsScreen onUnpaired={onUnpaired} />}
               </Tab.Screen>

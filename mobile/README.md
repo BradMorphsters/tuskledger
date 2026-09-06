@@ -226,7 +226,17 @@ architecture.
   the phone has synced insights (`safeToSpend` is optional in the
   snapshot, so older snapshots still decode); total cash stays the lead.
 
-Pure-function tests run in plain Node: `npm test` (pace, afford, alerts).
+- **Ask** tab — Ask Tusk on the phone. Questions go to the laptop's
+  grounded assistant (`POST /api/mobile/ask`, schema_version ≥ 6) and the
+  answer shows where it came from. Off Wi-Fi, `src/ask/intent.ts` +
+  `src/ask/local.ts` answer the common questions (spend by category /
+  store / period, income, balances, net worth, bills, budget, biggest
+  purchases) straight from the SQLite mirror and say "answered on this
+  phone". Anything else waits for the laptop. Read-only, insight-only;
+  chat history lives in memory for the session.
+
+Pure-function tests run in plain Node: `npm test` (pace, afford, alerts,
+ask-intent).
 
 Build note: `plugins/withoutPushEntitlement.js` removes the `aps-environment`
 entitlement that prebuild's auto-applied expo-notifications plugin adds.
@@ -323,6 +333,9 @@ mobile/
     ├── insights/
     │   ├── store.ts              # cached /insights payload (meta table + Zustand)
     │   └── afford.ts             # "can I afford this?" pure verdict function
+    ├── ask/
+    │   ├── intent.ts             # on-device question → intent (pure, tested)
+    │   └── local.ts              # answers intents from the SQLite mirror
     ├── alerts/
     │   ├── rules.ts              # pure alert rules + dedupe ledger
     │   ├── scheduler.ts          # runs after sync; opt-in flag; fired keys
@@ -336,6 +349,7 @@ mobile/
         ├── PairingScreen.tsx     # QR + manual code first-run
         ├── DashboardScreen.tsx   # net worth, safe-to-spend, digest, categories
         ├── TransactionsScreen.tsx# searchable list, infinite scroll
+        ├── AskScreen.tsx         # Ask Tusk chat (laptop brain + offline fallback)
         ├── SettingsScreen.tsx    # paired host, sync state, unpair
         └── SyncBadge.tsx         # status pill used by other screens
 ```

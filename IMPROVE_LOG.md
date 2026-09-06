@@ -64,6 +64,35 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 ## Passes
 
+### 2026-09-06 — Pass 10 · Mobile wave 2 — Ask Tusk on the phone (D10 · D8)
+
+**Why:** D10 (assistant) was the least-exercised dimension and lived only
+on the laptop. The phone is where the questions occur. Reusing the
+laptop's brain over device-token auth costs one thin endpoint; the
+offline parser covers the handful of questions people ask away from Wi-Fi
+without pretending to be a model.
+
+**Shipped (uncommitted on the Mac at handoff):**
+- Backend `routers/mobile.py`: `POST /api/mobile/ask` → `services.assistant.answer`
+  (payload trimmed: no snapshot, rows capped at 25, provenance `source`
+  documented as ollama | retrieval | guarded | refusal | template);
+  `GET /api/mobile/briefing`; manifest `schema_version` 5→6. Four new
+  tests (401s, shape, 422 on unknown fields/empty question, briefing).
+- Phone: `screens/AskScreen.tsx` (chat, suggestions, typing state,
+  provenance line, session-only history, insight-only footnote),
+  `ask/intent.ts` (9 intents, period resolver, 34 node assertions),
+  `ask/local.ts` (SQLite answers mirroring db/queries.ts netting rules),
+  `askTusk`/`fetchBriefing` in `sync/api.ts` (60 s / 20 s timeouts), Ask
+  tab + speech-bubble `TabIcon`. `npm test` now runs four suites.
+
+**Verification:** 17 mobile router tests green in the container; Babel
+parse + stubbed strict tsc clean on the new modules; node suites ALL PASS;
+PII scan clean (fictional merchants only).
+
+**Deferred:** voice on the phone (mic → laptop Parakeet STT → answer →
+Kokoro TTS, all endpoints exist on the laptop already); iOS 26 on-device
+Foundation Models as a richer offline brain; Siri App Intents.
+
 ### 2026-09-05 — Pass 9 · Mobile wave 1 — intelligence on the phone (D8 mobile · D2)
 
 **Why this pass:** after eight passes the phone had received exactly one

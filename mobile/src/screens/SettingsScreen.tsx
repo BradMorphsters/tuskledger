@@ -40,6 +40,7 @@ import {
 import type { PairedHost } from '../sync/types';
 import { clearSnapshot } from '../widget/snapshot';
 import { clearInsights } from '../insights/store';
+import { clearFlags, flushFlags, useFlagsStore } from '../ask/flags';
 import { alertsEnabled, clearAlertLedger, setAlertsEnabled } from '../alerts/scheduler';
 import { notificationsAvailable, permissionStatus, requestPermission } from '../alerts/notify';
 import { colors, formatRelative, layout, space, type } from '../theme';
@@ -58,6 +59,8 @@ export default function SettingsScreen({ onUnpaired }: Props) {
   const [hostnameLive, setHostnameLive] = useState<string | null>(null);
   const [demoMode, setDemoModeLocal] = useState<boolean>(false);
   const [demoAvailable, setDemoAvailable] = useState<boolean>(true);
+  const flagsPending = useFlagsStore((s) => s.pending);
+  const flagsSent = useFlagsStore((s) => s.sent);
   const [alertsOn, setAlertsOn] = useState<boolean>(false);
   const [alertsSupported, setAlertsSupported] = useState<boolean>(true);
   const [alertsDenied, setAlertsDenied] = useState<boolean>(false);
@@ -202,6 +205,7 @@ export default function SettingsScreen({ onUnpaired }: Props) {
             await resetMirror();
             await clearInsights();
             await clearAlertLedger();
+            await clearFlags();
             // Also clear the home-screen widget's snapshot so it stops
             // showing real balances after unpair.
             await clearSnapshot();
@@ -297,6 +301,18 @@ export default function SettingsScreen({ onUnpaired }: Props) {
           : alertsDenied
             ? 'Notifications are blocked in iOS Settings for Tusk Ledger.'
             : 'Bills due tomorrow, budgets past 80% or 100%, unusually large charges, possible price hikes, and the Sunday week-in-review. Decided on this phone after each sync — nothing is sent to a server.'}
+      </Text>
+
+      {/* ── Ask Tusk review log ─────────────────────────────────── */}
+      <SectionHeader label="Ask Tusk" />
+      <Card padded={false}>
+        <Row label="Flagged answers sent" value={String(flagsSent)} first />
+        <Row label="Waiting to send" value={String(flagsPending)} />
+        {flagsPending > 0 && <Row label="Send now" onPress={() => { flushFlags().catch(() => {}); }} link />}
+      </Card>
+      <Text style={styles.helpNote}>
+        Thumbs-down any answer in Ask that's off. Flags queue here while offline and go to the laptop's
+        review log on the next sync — the same log the web app's thumbs use.
       </Text>
 
       {/* ── Read-only — the contract this app is built on ───────── */}

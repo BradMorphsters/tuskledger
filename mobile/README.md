@@ -235,6 +235,13 @@ architecture.
   phone". Anything else waits for the laptop. Read-only, insight-only;
   chat history lives in memory for the session.
 
+- **Flag an answer** — 👍/👎 under every Tusk reply (👎 asks for an optional
+  note). `src/ask/flags.ts` queues flags in the `meta` table while offline
+  and sends them to the laptop's review log after each sync
+  (`POST /api/mobile/ask/feedback`); Settings → Ask Tusk shows sent /
+  waiting counts. Same log as the web app's thumbs — read it at
+  `/api/assistant/feedback/review?format=md` on the laptop.
+
 Pure-function tests run in plain Node: `npm test` (pace, afford, alerts,
 ask-intent).
 
@@ -335,7 +342,8 @@ mobile/
     │   └── afford.ts             # "can I afford this?" pure verdict function
     ├── ask/
     │   ├── intent.ts             # on-device question → intent (pure, tested)
-    │   └── local.ts              # answers intents from the SQLite mirror
+    │   ├── local.ts              # answers intents from the SQLite mirror
+    │   └── flags.ts              # 👍/👎 queue → laptop review log
     ├── alerts/
     │   ├── rules.ts              # pure alert rules + dedupe ledger
     │   ├── scheduler.ts          # runs after sync; opt-in flag; fired keys

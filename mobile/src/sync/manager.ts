@@ -26,6 +26,7 @@ import {
 } from './api';
 import { clearInsights, storeInsights } from '../insights/store';
 import { runAlertsAfterSync } from '../alerts/scheduler';
+import { clearFlags, flushFlags } from '../ask/flags';
 import {
   clearAllPairing,
   loadCursor,
@@ -218,6 +219,8 @@ export async function syncNow(force = false): Promise<void> {
       // Sync-time local alerts (bill due, budget tier, unusual charge,
       // digest ready). Also best-effort and self-deduplicating.
       runAlertsAfterSync().catch(() => {});
+      // Any 👍/👎 given while offline → the laptop's review log.
+      flushFlags().catch(() => {});
     } catch (e) {
       if (e instanceof AuthError) {
         // Token revoked or unrecognized — wipe and prompt re-pair.
@@ -227,6 +230,7 @@ export async function syncNow(force = false): Promise<void> {
         await clearAllPairing();
         await resetMirror();
         await clearInsights();
+        await clearFlags();
         // Clear the widget's App Group snapshot too — otherwise the
         // home-screen widget keeps rendering the last real balances
         // after the token was revoked and the mirror wiped.

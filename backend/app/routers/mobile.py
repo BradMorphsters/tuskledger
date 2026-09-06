@@ -25,7 +25,9 @@ Why this router is structurally different from the others:
   - The phone is read-only. There are no POST/PATCH/DELETE handlers
     here for transactions or accounts. If we ever loosen the
     read-only-by-design constraint on mobile, those become explicit
-    additions, not implicit because we forgot to gate them.
+    additions, not implicit because we forgot to gate them. (POST /ask
+    asks a question; POST /ask/feedback files a note about an answer —
+    neither touches the ledger.)
 
 Pairing flow (high level):
 
@@ -996,6 +998,55 @@ def mobile_ask(
         found=bool(result.get("found", True)),
         rows=rows[:_ASK_MAX_ROWS],
     )
+
+
+class AskFeedbackItem(BaseModel):
+    question: str = Field(..., min_length=1, max_length=600)
+    answer: str = Field("", max_length=4000)
+    rating: str = Field(..., pattern="^(up|down)$")
+    origin: str = Field("laptop", pattern="^(laptop|phone)$",
+                        description="Which brain answered: the laptop assistant or the phone's offline parser.")
+    intent: Optional[str] = Field(None, max_length=40)
+    source: Optional[str] = Field(None, max_length=20)
+    comment: Optional[str] = Field(None, max_length=600)
+    asked_at: Optional[float] = Field(None, description="Client epoch seconds when the answer was shown (queued offline).")
+    model_config = {"extra": "ignore"}
+
+
+class AskFeedbackRequest(BaseModel):
+    items: list[AskFeedbackItem] = Field(..., min_length=1, max_length=50)
+    model_config = {"extra": "forbid"}
+
+
+class AskFeedbackResponse(BaseModel):
+    recorded: int
+    ids: list[str]
+
+
+@router.post("/ask/feedback", response_model=AskFeedbackResponse)
+def mobile_ask_feedback(
+    body: AskFeedbackRequest,
+    device: DeviceToken = Depends(require_device_token),
+    db: Session = Depends(get_db),
+):
+    """Flagged answers from the phone (👍/👎 under a Tusk reply), sent in a batch — the phone queues
+    them while offline and flushes after each sync. Lands in the SAME review log as the laptop's
+    thumbs (var/assistant_feedback), tagged device='phone', so one list covers both apps.
+
+    This is the one write the phone makes, and it isn't a write to your finances: it's a note about
+    an answer, kept beside the ledger, never in it. The read-only contract on transactions,
+    accounts and budgets is untouched."""
+    from app.services import assistant_feedback as fb
+
+    ids: list[str] = []
+    for it in body.items:
+        try:
+            res = fb.record(db, it.question, it.answer, it.rating, it.intent, comment=it.comment,
+                            device="phone", source=it.source, origin=it.origin, asked_at=it.asked_at)
+            ids.append(res["feedback_id"])
+        except Exception:  # noqa: BLE001 — one bad item must not lose the rest of the batch
+            continue
+    return AskFeedbackResponse(recorded=len(ids), ids=ids)
 
 
 class BriefingResponse(BaseModel):

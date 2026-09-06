@@ -221,21 +221,94 @@ def analyze(db, question: str, answer_text: str, intent: Optional[str]) -> dict:
 
 # ── public API ───────────────────────────────────────────────────────────
 def record(db, question: str, answer_text: str, rating: str,
-           intent: Optional[str] = None, rows=None, comment: Optional[str] = None) -> dict:
+           intent: Optional[str] = None, rows=None, comment: Optional[str] = None, *,
+           device: str = "laptop", source: Optional[str] = None, origin: Optional[str] = None,
+           asked_at: Optional[float] = None) -> dict:
     """Log a thumbs up/down. For a down-thumb, diagnose + (if possible) propose a grounded correction
-    and open it for approval. Returns ``{feedback_id, rating, diagnosis?}``."""
+    and open it for approval. Returns ``{feedback_id, rating, diagnosis?}``.
+
+    ``device`` is where the rating was given ('laptop' | 'phone'); ``origin`` is which brain produced
+    the answer ('laptop' — the grounded assistant, 'phone' — the on-device offline parser); ``source``
+    is the assistant's provenance (ollama | retrieval | guarded | refusal | template) when known.
+    ``asked_at`` is the client's timestamp for a rating that was queued offline and sent later."""
     fid = uuid.uuid4().hex[:12]
     ev = {"id": fid, "ts": time.time(), "event": "feedback", "rating": rating,
-          "question": question, "answer": answer_text, "intent": intent, "comment": comment}
+          "question": question, "answer": answer_text, "intent": intent, "comment": comment,
+          "device": device, "origin": origin or "laptop", "source": source, "asked_at": asked_at}
     _append_event(ev)
     out = {"feedback_id": fid, "rating": rating}
     if rating == "down":
-        diag = analyze(db, question, answer_text, intent)
+        # Phone-offline answers never went through a retriever, so a mis-route diagnosis against the
+        # laptop catalog is still useful: it tells us what the laptop WOULD have said.
+        diag = analyze(db, question, answer_text, intent if (origin or "laptop") == "laptop" else None)
         rec = {"id": fid, "ts": ev["ts"], "status": "open", "question": question,
-               "answer": answer_text, "intent": intent, "comment": comment, **diag}
+               "answer": answer_text, "intent": intent, "comment": comment,
+               "device": device, "origin": origin or "laptop", "source": source, **diag}
         _save_open(fid, rec)
         out["diagnosis"] = diag
     return out
+
+
+def review(days: int = 90, rating: str = "down") -> list[dict]:
+    """Everything flagged in the last ``days`` days, newest first, each joined with what happened to
+    it since (open / approved→intent / rejected). This is the "look at this later" list — the
+    append-only events log made readable. Nothing here mutates anything."""
+    since = time.time() - days * 86400
+    items: dict[str, dict] = {}
+    p = _events_path()
+    if not p.exists():
+        return []
+    for line in p.read_text().splitlines():
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("event") == "feedback":
+            if ev.get("ts", 0) < since or (rating != "all" and ev.get("rating") != rating):
+                continue
+            items[ev["id"]] = {**ev, "status": "open"}
+        elif ev.get("event") in ("approved", "rejected") and ev.get("id") in items:
+            items[ev["id"]]["status"] = ev["event"]
+            if ev.get("applied_intent"):
+                items[ev["id"]]["applied_intent"] = ev["applied_intent"]
+    open_now = _load_open()
+    out = []
+    for fid, it in items.items():
+        rec = open_now.get(fid) or {}
+        it.setdefault("diagnosis_type", rec.get("type"))
+        it.setdefault("suggested_intent", rec.get("suggested_intent"))
+        it.setdefault("natural_route", rec.get("natural_route"))
+        if fid not in open_now and it["status"] == "open":
+            it["status"] = "closed"
+        out.append(it)
+    return sorted(out, key=lambda r: -r.get("ts", 0))
+
+
+def review_markdown(items: list[dict]) -> str:
+    """The review list as a Markdown document — easy to paste into a chat or a ticket. Deliberately
+    verbatim: the point is to see exactly what was asked and exactly what came back."""
+    if not items:
+        return "# Ask Tusk — flagged answers\n\nNothing flagged in this window.\n"
+    lines = ["# Ask Tusk — flagged answers", "",
+             f"{len(items)} item(s), newest first. `device` = where it was rated; `origin` = which brain answered.", ""]
+    for it in items:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(it.get("asked_at") or it.get("ts", 0)))
+        lines.append(f"## {when} · {it.get('device', 'laptop')} · answered by {it.get('origin', 'laptop')}"
+                     f" · {it.get('status', 'open')}" + (f" → {it['applied_intent']}" if it.get("applied_intent") else ""))
+        lines.append(f"- **Q:** {it.get('question', '')}")
+        lines.append(f"- **A:** {it.get('answer', '')}")
+        meta = [f"intent={it.get('intent')}", f"source={it.get('source')}"]
+        if it.get("natural_route"):
+            meta.append(f"router={it['natural_route']}")
+        if it.get("diagnosis_type"):
+            meta.append(f"diagnosis={it['diagnosis_type']}")
+        if it.get("suggested_intent"):
+            meta.append(f"suggested={it['suggested_intent']}")
+        lines.append(f"- {' · '.join(meta)}")
+        if it.get("comment"):
+            lines.append(f"- **Note:** {it['comment']}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def correct(db, fid: str, hint: str) -> Optional[dict]:

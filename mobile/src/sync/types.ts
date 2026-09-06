@@ -277,6 +277,24 @@ export interface AskResponse {
   rows: unknown[];
 }
 
+export interface AskFeedbackItemWire {
+  question: string;
+  answer: string;
+  rating: 'up' | 'down';
+  /** Which brain answered: the laptop assistant or this phone's offline parser. */
+  origin: 'laptop' | 'phone';
+  intent?: string | null;
+  source?: string | null;
+  comment?: string | null;
+  /** Epoch seconds when the answer was shown (set when queued offline). */
+  asked_at?: number | null;
+}
+
+export interface AskFeedbackResponse {
+  recorded: number;
+  ids: string[];
+}
+
 export interface BriefingResponse {
   briefing: string;
   source: string;

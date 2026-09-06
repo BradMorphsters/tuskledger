@@ -6,6 +6,52 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Flagged-answer capture on both apps (pass 12)
+- One review log for Ask Tusk across the laptop and the phone. The web
+  panel's existing 👍/👎 now records the answer's provenance; the phone's
+  Ask tab gains 👍/👎 under every reply (👎 offers an optional one-line
+  note), queued in the mirror while offline and flushed to
+  `POST /api/mobile/ask/feedback` after each sync. Both land in
+  `var/assistant_feedback/events.jsonl` tagged `device` (laptop | phone)
+  and `origin` (which brain answered), and a 👎 still opens the existing
+  diagnose-and-correct flow.
+- `GET /api/assistant/feedback/review?days=90&rating=down&format=json|md`
+  — every flag in the window joined with what happened to it since
+  (open / approved → intent / rejected), as JSON or a paste-ready Markdown
+  document. Linked from the web Ask panel; Settings on the phone shows
+  sent / waiting counts and a "Send now".
+
+### Improved — Ask Tusk answers the everyday questions (pass 11)
+- Laptop brain (`assistant_retrieval`): new intents for greetings/help,
+  "how am I doing" briefings, advice questions (declined with facts),
+  "can I afford $X" (safe-to-spend), "when is my next paycheck",
+  "did I pay the mortgage", and "anything unusual / more expensive".
+  Router fixes: "top 3 expenses" → individual purchases (loan payments
+  excluded), "where does my money go" → categories with shares, "how much on
+  coffee" → the store when the word is a merchant, "last time at X" → the
+  single most recent charge, "how often at X" → visit rate, "when is the
+  mortgage due" → the bill not the payoff year, "what do I owe on the card"
+  → that balance, "why is my spending up" → month-vs-month with category
+  drivers, "$X a month on utilities" → per-category monthly average,
+  "what did I buy yesterday" → the list, "since July" / "in August" /
+  "this weekend" / "last 14 days" windows.
+- Answer quality: bills are listed by name, date and minimum; net-worth
+  change honours the named window; month comparisons use the same days of
+  last month; duplicates mean same place, same amount, within days (not a
+  daily coffee habit); subscriptions exclude mortgage/loan payments and
+  grocery/fuel cadences; accounts overview names the accounts; dates read
+  as "Sep 1" / "January 2045"; "in this month" grammar fixed; unknown
+  merchants are named back ("I don't see any charges from Costco").
+- Regression net: `backend/tests/test_ask_common_questions.py` — 89 everyday
+  phrasings pinned to their retriever plus 30 content checks, on fictional
+  data with the model off.
+- Phone offline parser rewritten with ordered rules and 22 intents; it now
+  also answers affordability, payday, anomalies and a briefing from the
+  cached insights, cross-falls between store and category ("on Amazon",
+  "at restaurants"), understands "food" as groceries + dining, and returns
+  "needs the laptop" instead of a confident wrong total. The Ask tab falls
+  back to the phone when the laptop finds nothing grounded.
+
 ### Added — Mobile wave 2: Ask Tusk on the phone (pass 10)
 - New **Ask** tab in the iOS app: a chat with the laptop's grounded
   assistant over the same device-token auth as sync (`POST /api/mobile/ask`,

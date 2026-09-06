@@ -14,6 +14,8 @@
  */
 import { loadDemoMode, loadPairedHost, loadToken } from './storage';
 import type {
+  AskFeedbackItemWire,
+  AskFeedbackResponse,
   AskResponse,
   AskTurnWire,
   BriefingResponse,
@@ -167,6 +169,22 @@ export async function askTusk(question: string, history: AskTurnWire[] = []): Pr
   if (res.status === 404) throw new Error('Your laptop needs an update before the phone can ask questions.');
   if (!res.ok) throw new Error(`Ask failed (${res.status}).`);
   return (await res.json()) as AskResponse;
+}
+
+/**
+ * Flagged answers (👍/👎) in a batch → the laptop's review log. null on an
+ * older backend (404) so the caller keeps them queued rather than dropping them.
+ */
+export async function sendAskFeedback(items: AskFeedbackItemWire[]): Promise<AskFeedbackResponse | null> {
+  const res = await authedFetch('/api/mobile/ask/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+    timeoutMs: 15000,
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Feedback failed (${res.status}).`);
+  return (await res.json()) as AskFeedbackResponse;
 }
 
 export async function fetchBriefing(): Promise<BriefingResponse | null> {

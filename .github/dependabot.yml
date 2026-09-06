@@ -1,17 +1,19 @@
-# Dependabot config — opens weekly PRs for dependency updates so the
-# maintenance burden stays manageable. Each PR runs through CI, so a
-# breaking update fails loudly instead of silently degrading the app.
+# Dependabot config — SECURITY UPDATES ONLY.
 #
-# Strategy:
-#   - groups patch + minor updates per ecosystem (one PR per week)
-#     instead of a separate PR per dep — cuts Issue noise dramatically
-#   - majors get their own PRs because they always need human review
-#   - GitHub Actions gets its own ecosystem because runner image bumps
-#     have caused mysterious CI failures historically
+# History: this used to open weekly version-bump PRs (grouped patches +
+# minors, separate majors) for pip, npm and GitHub Actions. For a
+# single-maintainer, local-first app that produced a steady pile of
+# unreviewed PRs (11 open at once on 2026-09-06, six of them majors that
+# would break the app as written — recharts 3, react-router 7, lucide 1.x,
+# plaid-python 39, …). The noise outweighed the value.
 #
-# Tweak: bump open-pull-requests-limit if you find PRs piling up; lower
-# the schedule cadence to monthly if weekly feels too noisy for your
-# review bandwidth.
+# `open-pull-requests-limit: 0` disables VERSION updates for an ecosystem
+# while leaving Dependabot SECURITY updates on (those are governed by the
+# repo's Security settings, not by this limit), so a real CVE in a
+# dependency still gets a PR; routine bumps don't.
+#
+# To bring scheduled bumps back for one ecosystem, raise its limit and
+# (optionally) restore the patch/minor groups from git history.
 
 version: 2
 updates:
@@ -19,52 +21,32 @@ updates:
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    groups:
-      backend-patches:
-        applies-to: version-updates
-        update-types: ["patch"]
-      backend-minors:
-        applies-to: version-updates
-        update-types: ["minor"]
-    # Majors stay un-grouped so each one gets a focused PR with its
-    # own changelog notes for review.
+      interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "backend"]
 
   # ── npm (frontend) ─────────────────────────────────────────────────
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    groups:
-      frontend-patches:
-        applies-to: version-updates
-        update-types: ["patch"]
-      frontend-minors:
-        applies-to: version-updates
-        update-types: ["minor"]
-    # Hold React + the Vite/Vitest pair to manual review — these are
-    # the libraries most likely to have breaking changes within a minor.
-    ignore:
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "vite"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "vitest"
-        update-types: ["version-update:semver-major"]
+      interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "frontend"]
+
+  # ── npm (mobile / Expo) ────────────────────────────────────────────
+  # Expo pins its SDK's native module versions; bumps must go through
+  # `npx expo install`, never a bare version PR. Security-only here too.
+  - package-ecosystem: "npm"
+    directory: "/mobile"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 0
+    labels: ["dependencies", "mobile"]
 
   # ── GitHub Actions ─────────────────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 3
+      interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "ci"]

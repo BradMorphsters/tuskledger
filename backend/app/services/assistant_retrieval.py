@@ -31,6 +31,44 @@ from app.models.transaction import Transaction
 
 
 # ── formatting ───────────────────────────────────────────────────────────
+# "Today" for the current answer() call. The router's parse_window may hand a retriever an `end` that is
+# NOT today (e.g. "last month" → Aug 31); retrievers that need the real calendar today read this instead
+# of date.today() so tests and the eval harness can pin the clock. Single-user app: a module global is fine.
+_TODAY: Optional[date] = None
+
+
+def _now() -> date:
+    return _TODAY or date.today()
+
+
+def _fmt_day(iso: str) -> str:
+    """'2026-09-01' → 'Sep 1' (adds the year when it isn't this year) — dates are read aloud, ISO isn't
+    how people say them."""
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+        return f"{d.strftime('%b')} {d.day}" + (f", {d.year}" if d.year != _now().year else "")
+    except (TypeError, ValueError):
+        return str(iso)
+
+
+def _fmt_month_year(iso: str) -> str:
+    """'2045-01-29' → 'January 2045' — payoff horizons don't need a day."""
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+        return d.strftime("%B %Y")
+    except (TypeError, ValueError):
+        return str(iso)
+
+
+def _in(label: str) -> str:
+    """'in the last 30 days' but 'this month' / 'last month' / 'today' — calendar labels already read as
+    adverbs, so prefixing 'in' produces 'in this month'."""
+    lbl = (label or "").strip()
+    if re.match(r"^(this|last|today|yesterday|so far|since)", lbl):
+        return lbl
+    return f"in {lbl}"
+
+
 def _money(n) -> str:
     try:
         return "${:,.2f}".format(float(n)) if float(n) % 1 else "${:,.0f}".format(float(n))
@@ -39,6 +77,17 @@ def _money(n) -> str:
 
 
 # ── time-window parsing ──────────────────────────────────────────────────
+_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
+           "october", "november", "december"]
+
+
+def _month_index(word: str) -> int:
+    w = (word or "").lower()[:3]
+    for i, m in enumerate(_MONTHS, start=1):
+        if m.startswith(w):
+            return i
+    return 1
+
 def parse_window(question: str, today: Optional[date] = None) -> tuple[date, date, str]:
     """Map natural-language time phrases to (start, end, label). CALENDAR periods ('this month',
     'last year') are real calendar boundaries — NOT rolling windows; 'this month' = the 1st to today,
@@ -50,6 +99,33 @@ def parse_window(question: str, today: Optional[date] = None) -> tuple[date, dat
         return d, d, "yesterday"
     if "today" in q:
         return today, today, "today"
+    # "since March" / "since the start of the year" → from that point to today
+    ms = re.search(r"\bsince\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b", q)
+    if ms:
+        mi = _month_index(ms.group(1))
+        yr = today.year if mi <= today.month else today.year - 1
+        return date(yr, mi, 1), today, f"since {date(yr, mi, 1).strftime('%B')}"
+    if re.search(r"\bsince (the )?(start|beginning) of (the|this) year\b|\bsince january 1\b", q):
+        return date(today.year, 1, 1), today, "this year"
+    # a named month ("in July", "for August") — the most recent instance of that month
+    mn = re.search(r"\b(?:in|for|during|back in)?\s*\b(january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\b", q)
+    if mn and not re.search(r"\b(may)\b", q):   # 'may' is too ambiguous as a bare word
+        mi = _month_index(mn.group(1))
+        yr = today.year if mi <= today.month else today.year - 1
+        first = date(yr, mi, 1)
+        last = (date(yr + (mi == 12), (mi % 12) + 1, 1) - timedelta(days=1))
+        return first, min(last, today), first.strftime("%B")
+    # weekends: "this weekend" = the most recent Sat–Sun; "last weekend" = the one before
+    if re.search(r"\b(this|last|past|the) weekend\b", q):
+        back = (today.weekday() + 2) % 7            # days since the most recent Saturday
+        sat = today - timedelta(days=back)
+        if re.search(r"\blast weekend\b", q) and back < 2:
+            sat -= timedelta(days=7)
+        return sat, min(sat + timedelta(days=1), today), "last weekend" if "last" in q else "this weekend"
+    mp = re.search(r"\b(?:past|last)\s+(\d{1,3})\s+days\b", q)
+    if mp and int(mp.group(1)) not in (7, 30, 90):
+        n = int(mp.group(1))
+        return today - timedelta(days=n), today, f"the last {n} days"
     # calendar month-to-date / last calendar month
     if re.search(r"\b(this month|month[ -]to[ -]date|\bmtd\b|so far this month)\b", q):
         return today.replace(day=1), today, "this month"
@@ -88,7 +164,79 @@ _SPEND = re.compile(r"\b(purchase|transaction|charge|buy|bought|expense|item|thi
 
 
 def _intent_for(q: str) -> Optional[str]:
+    q = q.strip()
+    # 0) greetings / capability questions
+    if re.fullmatch(r"(hi|hello|hey|yo|howdy|good (morning|afternoon|evening)|hi tusk|hello tusk|hey tusk|thanks|thank you|help)[!. ]*", q) \
+            or re.search(r"\b(what can (you|i) (do|ask)|how do (you|i) (work|use this)|what do you know)\b", q):
+        return "help"
+    # 0a) advice — Tusk reports, it doesn't recommend
+    if re.search(r"^(should i|shall i|do you think i should)\b|\b(is it (a good idea|smart|wise|worth it) to)\b|\bwhat should i (do|buy|sell|pay)\b|\brecommend\b", q) \
+            and not re.search(r"\bhow much should i\b", q):
+        return "advice"
+    # 0b) affordability → safe-to-spend
+    if re.search(r"\b(afford|can i (buy|spend|swing)|safe to spend|okay to spend|ok to spend|room to spend|after (my |the )?bills|left after bills|until payday)\b", q):
+        return "affordability"
+    # 0c) next paycheck / payday
+    if re.search(r"\b(next (paycheck|pay ?day|deposit from work)|when('?s| is| do i) .*\b(paid|payday|paycheck)|pay ?day)\b", q):
+        return "next_paycheck"
+    # 0d) unusual / suspicious / anomalies / price changes
+    if re.search(r"\b(unusual|weird|strange|odd|suspicious|anomal\w*|out of the ordinary|anything (i should|to) (worry|know) about|red flags?|price (hike|increase)s?|went up|charging me more|(get|got|gotten|become) more expensive|gone up)\b", q) \
+            and not re.search(r"\bnet ?worth\b", q):
+        return "unusual_charges"
+    # 0e) "how am I doing / what's new / summary" → the proactive briefing
+    if re.search(r"^(how am i doing|how'?s it (going|looking)|how are things( looking)?|what'?s new|what'?s (up|going on)|anything new)[?!. ]*$", q) \
+            or re.search(r"\b(summary|summarize|rundown|overview|recap|briefing|catch me up|the headlines|big picture)\b", q):
+        return "briefing"
+    # 0f) "did I pay the mortgage / is the card payment made"
+    if re.search(r"\b(did i pay|have i paid|was .* paid|is .* (payment )?(made|posted|paid|through)|did (the|my) .* (payment|autopay) (go|post|clear))\b", q) \
+            and re.search(r"\b(mortgage|card|rent|loan|bill|payment)\b", q):
+        return "payment_made"
+    # 0g0) visit frequency at a store
+    if re.search(r"\b(how often|how many times|how frequently)\b", q) and re.search(r"\b(go to|shop at|visit|eat at|stop at|at|buy from|order from)\b", q):
+        return "merchant_spend"
+    # 0g1) "why is my spending up / higher" → month-vs-month with category drivers
+    if re.search(r"\b(why|what('?s| is) driving|what drove)\b", q) and re.search(r"\b(spend|spending|spent|expenses?)\b", q):
+        return "spending_compare"
+    # 0g) counts
+    if re.search(r"\bhow many (transactions?|purchases?|charges?|times did i (buy|shop|spend))\b", q) and not re.search(r"\bat\b", q):
+        return "spending_total"
+    # 0h) money-on-hand phrasings
+    if re.search(r"^(how much money do i have|what('?s| is) my balance|how much do i have)[?!. ]*$", q) \
+            or re.search(r"\bchecking and savings\b|\bsavings and checking\b|\bhow much money (do i have|is there)\b", q):
+        return "cash_balance"
+    # 0i) "how much did I save / have I saved" over a period → in vs out
+    if re.search(r"\bhow much (did|have) i save[d]?\b|\bincome (vs\.?|versus|and|compared to|against) (my )?spend", q):
+        return "cash_flow"
+    # 0j) "how much is left this month" → budget remaining
+    if re.search(r"\b(left|remaining) (this month|for the month|to spend)\b", q):
+        return "budget_status"
+    # 0k) per-week averages
+    if re.search(r"\b(per week|a week|each week|every week|weekly)\b", q) and re.search(r"\b(usually|typically|on average|average|spend|spending)\b", q):
+        return "monthly_average"
+    # 0l) "average grocery bill" is a purchase-size question, not a due-date one
+    if re.search(r"\b(average|typical|usual)\b.{0,20}\b(bill|run|trip|order|purchase)\b", q):
+        return "average_spend"
     superl = bool(_SUPERLATIVE.search(q))
+    # "top 3 expenses", "top purchases" → individual largest transactions
+    if re.search(r"\btop\s*\d*\s*(expenses?|purchases?|transactions?|charges?|buys?|spends?)\b", q):
+        return "largest_transactions"
+    # "where does my money go" / "what am I spending most on" → category breakdown
+    if re.search(r"\bwhere (does|is|did|do) (most of )?(my|the) money (go|going|went)\b|\bwhat (am i|do i|did i) spend(ing)? (the )?most on\b|\bbreak ?down\b.*\bspend", q):
+        return "top_categories"
+    # "am I saving money" → in vs out (savings RATE is handled later by its own rule)
+    if re.search(r"\b(am i saving|saving (any )?money|did i save|save any(thing)?|in the (black|red)|living within my means)\b", q) \
+            and not re.search(r"\bsavings? rate\b|\bhow much\b|\b(each|per|a|every) month\b", q):
+        return "cash_flow"
+    # "when is the mortgage/card due" → the bill, not the loan's payoff math
+    if re.search(r"\bdue\b", q) and re.search(r"\b(mortgage|card|bill|payment|rent|loan)\b", q) and not re.search(r"\boverdue\b", q):
+        return "upcoming_bills"
+    # "what do I owe on the card" / "card balance" → that account's balance
+    if re.search(r"\b(credit )?card\b", q) and re.search(r"\b(owe|balance|statement)\b", q) and not re.search(r"\b(interest|apr|payoff|paid off)\b", q):
+        return "account_balance"
+    # "$X a month on utilities" → per-month average for a category/merchant
+    if re.search(r"\b(a month|per month|each month|every month|monthly)\b", q) and re.search(r"\b(spend|spending|spent|pay|paying|cost)\b", q) \
+            and not re.search(r"\b(this month|last month)\b", q):
+        return "monthly_average"
     has_spend_verb = bool(re.search(r"\b(spend|spent|spending|paid?|pay)\b", q))
     spend_ctx = has_spend_verb or "how much" in q          # "how much at Costco" has no spend verb
     invest_ctx = bool(_HOLDING.search(q) or re.search(r"\b(invest(ed|ment|ments)?|portfolio)\b", q))
@@ -250,6 +398,9 @@ def _intent_for(q: str) -> Optional[str]:
     # 24) portfolio overview
     if re.search(r"\b(portfolio|invest(ed|ments?)?)\b", q):
         return "portfolio"
+    # 24b) a spend question that names a category ("how much have I spent eating out")
+    if spend_ctx and (_HAS_CATEGORY_HINT.search(q) or any(re.search(r"\b" + re.escape(k) + r"\b", q) for k in _CATEGORY_SYNONYMS)):
+        return "category_spend"
     # 25) spending total
     if re.search(r"\b(spend|spent|spending|how much did i (spend|pay)|outflow|expenses?)\b", q):
         return "spending_total"
@@ -262,8 +413,9 @@ def _intent_for(q: str) -> Optional[str]:
 # Category-ish words that signal a per-category budget question (kept loose; the retriever does the
 # real category match against the user's actual budget rows).
 _HAS_CATEGORY_HINT = re.compile(
-    r"\b(dining|food|grocer|gas|fuel|shopping|travel|entertainment|health|utilit|rent|coffee|"
-    r"transport|restaurant|subscription|category)\b")
+    r"\b(dining|food|grocer\w*|gas|fuel|shopping|travel|entertainment|health\w*|medical|utilit\w*|rent|coffee|"
+    r"transport\w*|restaurants?|subscriptions?|categor\w*|eating out|takeout|kids|pets?|gifts?|insurance|clothes|"
+    r"home improvement|personal care|pharmacy|internet|electric)\b")
 
 
 def route(question: str, context: str = "") -> Optional[str]:
@@ -294,20 +446,34 @@ def _result(intent, label, answer, *, rows=None, facts=None, found=True):
             "rows": rows or [], "facts": facts or [], "found": found, "grounded": True}
 
 
+_LOAN_PAYMENT_CATEGORY = re.compile(r"mortgage|loan|credit card payment|debt payment", re.I)
+
+
 def largest_transactions(db, start, end, label, question: str = "", *, limit: int = 8) -> dict:
-    """The biggest INDIVIDUAL purchases in the window — the answer to 'most expensive thing'.
-    This is a single-transaction query, deliberately NOT a per-merchant aggregate."""
+    """The biggest INDIVIDUAL purchases in the window — the answer to 'most expensive thing' or
+    'top 3 expenses'. This is a single-transaction query, deliberately NOT a per-merchant aggregate.
+    Mortgage/loan payments are skipped: they're obligations, not purchases, and otherwise they win
+    every month."""
+    q = (question or "").lower()
+    m = re.search(r"\btop\s+(\d{1,2})\b", q)
+    want = max(1, min(int(m.group(1)), 10)) if m else (3 if re.search(r"\btop\b", q) else 1)
     txns = (_spend_q(db)
             .filter(Transaction.date >= start, Transaction.date <= end)
-            .order_by(Transaction.amount.desc()).limit(limit).all())
+            .order_by(Transaction.amount.desc()).limit(limit + 6).all())
+    txns = [t for t in txns if not _LOAN_PAYMENT_CATEGORY.search(t.display_category or "")][:limit]
     rows = [{"date": t.date.isoformat(), "merchant": t.display_name,
              "amount": round(float(t.amount), 2), "category": t.display_category} for t in txns]
     if not rows:
-        return _result("largest_transactions", label, f"I don't see any purchases in {label}.",
+        return _result("largest_transactions", label, f"I don't see any purchases {_in(label)}.",
                        found=False)
+    if want > 1:
+        shown = rows[:want]
+        listing = "; ".join(f"{_money(r['amount'])} at {r['merchant']} ({_fmt_day(r['date'])})" for r in shown)
+        ans = f"Your top {len(shown)} purchases {_in(label)}: {listing}."
+        return _result("largest_transactions", label, ans, rows=rows, facts=[r["amount"] for r in rows])
     top = rows[0]
-    ans = (f"Your most expensive single purchase in {label} was {_money(top['amount'])} "
-           f"at {top['merchant']} on {top['date']}.")
+    ans = (f"Your most expensive single purchase {_in(label)} was {_money(top['amount'])} "
+           f"at {top['merchant']} on {_fmt_day(top['date'])}.")
     if len(rows) > 1:
         ans += f" The next was {_money(rows[1]['amount'])} at {rows[1]['merchant']}."
     return _result("largest_transactions", label, ans, rows=rows, facts=[r["amount"] for r in rows])
@@ -317,10 +483,10 @@ def spending_total(db, start, end, label, question: str = "") -> dict:
     txns = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end)
             .with_entities(Transaction.amount).all())
     if not txns:
-        return _result("spending_total", label, f"I don't see any spending in {label}.", found=False)
+        return _result("spending_total", label, f"I don't see any spending {_in(label)}.", found=False)
     total = round(sum(float(a) for (a,) in txns), 2)
     n = len(txns)
-    ans = f"You spent about {_money(total)} across {n} purchases in {label}."
+    ans = f"You spent about {_money(total)} across {n} purchase{'s' if n != 1 else ''} {_in(label)}."
     return _result("spending_total", label, ans,
                    rows=[{"total": total, "count": n}], facts=[total, n])
 
@@ -328,7 +494,7 @@ def spending_total(db, start, end, label, question: str = "") -> dict:
 def top_merchant(db, start, end, label, question: str = "", *, limit: int = 5) -> dict:
     txns = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all())
     if not txns:
-        return _result("top_merchant", label, f"I don't see any spending in {label}.", found=False)
+        return _result("top_merchant", label, f"I don't see any spending {_in(label)}.", found=False)
     agg: dict[str, list] = {}
     for t in txns:
         m = t.display_name or "Unknown"
@@ -337,7 +503,7 @@ def top_merchant(db, start, end, label, question: str = "", *, limit: int = 5) -
     ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit]
     rows = [{"merchant": m, "total": round(v[0], 2), "count": v[1]} for m, v in ranked]
     top = rows[0]
-    ans = (f"Your top merchant by total spend in {label} was {top['merchant']} at "
+    ans = (f"Your top merchant by total spend {_in(label)} was {top['merchant']} at "
            f"{_money(top['total'])} across {top['count']} purchase(s).")
     return _result("top_merchant", label, ans, rows=rows,
                    facts=[r["total"] for r in rows] + [r["count"] for r in rows])
@@ -346,17 +512,22 @@ def top_merchant(db, start, end, label, question: str = "", *, limit: int = 5) -
 def top_categories(db, start, end, label, question: str = "", *, limit: int = 6) -> dict:
     txns = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all())
     if not txns:
-        return _result("top_categories", label, f"I don't see any spending in {label}.", found=False)
+        return _result("top_categories", label, f"I don't see any spending {_in(label)}.", found=False)
     agg: dict[str, float] = {}
     for t in txns:
         agg[t.display_category] = agg.get(t.display_category, 0.0) + float(t.amount)
+    grand = sum(agg.values()) or 1.0
     ranked = sorted(agg.items(), key=lambda kv: -kv[1])[:limit]
-    rows = [{"category": c, "total": round(v, 2)} for c, v in ranked]
+    rows = [{"category": c, "total": round(v, 2), "share_pct": round(100 * v / grand, 1)} for c, v in ranked]
     top = rows[0]
-    ans = f"Your biggest spending category in {label} was {top['category']} at {_money(top['total'])}."
-    if len(rows) > 1:
+    ans = (f"Most of your spending {_in(label)} went to {top['category']} — {_money(top['total'])}, "
+           f"about {round(top['share_pct'])}% of the total.")
+    if len(rows) > 2:
+        ans += f" Then {rows[1]['category']} ({_money(rows[1]['total'])}) and {rows[2]['category']} ({_money(rows[2]['total'])})."
+    elif len(rows) > 1:
         ans += f" Then {rows[1]['category']} at {_money(rows[1]['total'])}."
-    return _result("top_categories", label, ans, rows=rows, facts=[r["total"] for r in rows])
+    return _result("top_categories", label, ans, rows=rows,
+                   facts=[r["total"] for r in rows] + [round(top["share_pct"])])
 
 
 def net_worth(db, start, end, label, question: str = "") -> dict:
@@ -367,11 +538,11 @@ def net_worth(db, start, end, label, question: str = "") -> dict:
     snap = db.query(NetWorthSnapshot).order_by(NetWorthSnapshot.date.desc()).first()
     if not snap:
         return _result("net_worth", label, "I don't have a net-worth snapshot recorded yet.", found=False)
-    asof = snap.date.isoformat()
+    asof = _fmt_day(snap.date.isoformat())
     nw = round(float(snap.net_worth or 0), 2)
     assets = round(float(snap.total_assets or 0), 2)
     liab = round(float(snap.total_liabilities or 0), 2)
-    rows = [{"date": asof, "total_assets": assets, "total_liabilities": liab, "net_worth": nw}]
+    rows = [{"date": snap.date.isoformat(), "total_assets": assets, "total_liabilities": liab, "net_worth": nw}]
     q = (question or "").lower()
     if re.search(r"\bassets\b", q) and not re.search(r"\bnet ?worth\b", q):
         ans = (f"Your total assets are about {_money(assets)} as of {asof}"
@@ -397,7 +568,7 @@ def cash_balance(db, start, end, label, question: str = "") -> dict:
     total = round(sum(float(a.current_balance or 0) for a in cash), 2)
     rows = sorted(({"account": a.custom_name or a.name, "balance": round(float(a.current_balance or 0), 2),
                     "kind": a.subtype or a.type} for a in cash), key=lambda r: -r["balance"])
-    ans = f"You have about {_money(total)} in cash across {len(cash)} account(s)."
+    ans = f"You have about {_money(total)} in cash across {len(cash)} account{'s' if len(cash) != 1 else ''}."
     if len(rows) > 1:
         ans += f" Largest: {rows[0]['account']} at {_money(rows[0]['balance'])}."
     return _result("cash_balance", "now", ans, rows=rows, facts=[total, len(cash)])
@@ -464,10 +635,15 @@ def portfolio(db, start, end, label, question: str = "") -> dict:
 # ── entity extraction (which category / merchant / account the question names) ──
 _CATEGORY_SYNONYMS = {
     "groceries": "groceries", "grocery": "groceries", "dining": "dining", "restaurants": "dining",
-    "eating out": "dining", "gas": "gas", "fuel": "gas", "transport": "transport",
-    "shopping": "shopping", "travel": "travel", "entertainment": "entertainment",
-    "health": "health", "utilities": "utilities", "rent": "rent", "mortgage": "mortgage",
-    "subscriptions": "subscription", "coffee": "coffee",
+    "restaurant": "dining", "eating out": "dining", "takeout": "dining", "take-out": "dining",
+    "food": "food", "gas": "gas", "fuel": "gas", "transport": "transport", "uber": "transport", "car": "transport",
+    "shopping": "shopping", "travel": "travel", "vacation": "travel", "flights": "travel",
+    "entertainment": "entertainment", "movies": "entertainment", "streaming": "entertainment",
+    "health": "health", "medical": "health", "doctor": "health", "pharmacy": "health",
+    "utilities": "utilities", "electric": "utilities", "power bill": "utilities", "internet": "utilities",
+    "rent": "rent", "mortgage": "mortgage", "subscriptions": "subscription", "coffee": "coffee",
+    "kids": "kids", "pets": "pets", "gifts": "gifts", "insurance": "insurance", "clothes": "shopping",
+    "home improvement": "home", "hardware": "home", "personal care": "personal care", "haircut": "personal care",
 }
 
 
@@ -493,13 +669,34 @@ def _match_category(question: str, known: set[str]) -> Optional[str]:
     if best:
         return best
     # synonyms → find a known category whose name contains the canonical word
-    for syn, canon in _CATEGORY_SYNONYMS.items():
-        if syn in q:
+    for syn, canon in sorted(_CATEGORY_SYNONYMS.items(), key=lambda kv: -len(kv[0])):
+        if re.search(r"\b" + re.escape(syn) + r"\b", q):
             for cat in known:
                 if canon in cat.lower():
                     return cat
+            # "gas" when the ledger uses "Transportation", "dining" when it uses "Food & Dining", etc.
+            for cat in known:
+                if canon in _CATEGORY_FAMILIES.get(cat.lower(), ()):
+                    return cat
             return canon.title()   # name it even if no exact category row matches
     return None
+
+
+# Which canonical words a real category "covers" — so a synonym still lands when the ledger's own
+# taxonomy folds it in (Plaid's Transportation includes fuel; Food & Dining includes groceries).
+_CATEGORY_FAMILIES = {
+    "transportation": ("gas", "transport"),
+    "auto & transport": ("gas", "transport"),
+    "gas & fuel": ("gas",),
+    "food & dining": ("dining", "groceries", "food"),
+    "dining": ("food",),
+    "groceries": ("food",),
+    "bills & utilities": ("utilities", "rent", "internet"),
+    "health & medical": ("health",),
+    "home": ("home", "hardware"),
+    "shopping": ("shopping",),
+    "entertainment": ("entertainment", "subscription"),
+}
 
 
 def _known_merchants(db, *, scan: int = 2000) -> list[str]:
@@ -513,25 +710,52 @@ def _known_merchants(db, *, scan: int = 2000) -> list[str]:
 
 def _match_merchant(question: str, names: list[str]) -> Optional[str]:
     q = (question or "").lower()
-    best = None
-    for n in names:
+    full = None
+    for n in names:                                    # pass 1: the full merchant name is in the question
         nl = (n or "").lower()
-        if not nl:
-            continue
-        if nl in q:                                    # full merchant name present
-            if best is None or len(nl) > len(best.lower()):
-                best = n
-        elif best is None:                             # a distinctive single token ("costco")
-            toks = [t for t in re.split(r"\W+", nl) if len(t) > 3]
-            if toks and any(t in q for t in toks):
-                best = n
-    return best
+        if nl and nl in q and (full is None or len(nl) > len(full.lower())):
+            full = n
+    if full:
+        return full
+    for n in names:                                    # pass 2: a distinctive token ("costco"), whole-word
+        nl = (n or "").lower()
+        toks = [t for t in re.split(r"\W+", nl) if len(t) > 3]
+        if toks and any(re.search(r"\b" + re.escape(t) + r"\b", q) for t in toks):
+            return n
+    return None
 
 
 def category_spend(db, start, end, label, question: str = "") -> dict:
     """Spend in ONE category over the window — 'how much did I spend on groceries this month'."""
-    cat = _match_category(question, _known_categories(db))
+    q0 = (question or "").lower()
+    known = _known_categories(db)
+    cat = _match_category(question, known)
+    # "food" with separate Groceries + Dining categories → answer for both together.
+    if re.search(r"\bfood\b", q0) and not any("food" in k.lower() for k in known):
+        fam = [k for k in known if re.search(r"grocer|dining|restaurant", k, re.I)]
+        if fam:
+            txns = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all())
+            txns = [t for t in txns if t.display_category in fam]
+            total = round(sum(float(t.amount) for t in txns), 2)
+            if txns:
+                parts = {}
+                for t in txns:
+                    parts[t.display_category] = round(parts.get(t.display_category, 0.0) + float(t.amount), 2)
+                detail = ", ".join(f"{k} {_money(v)}" for k, v in sorted(parts.items(), key=lambda kv: -kv[1]))
+                return _result("category_spend", label,
+                               f"You spent about {_money(total)} on food {_in(label)} — {detail}.",
+                               rows=[{"category": k, "total": v} for k, v in parts.items()],
+                               facts=[total] + list(parts.values()))
     if not cat:
+        # "how much do I spend on coffee" — coffee isn't a category, but it IS a merchant token.
+        if _match_merchant(question, _known_merchants(db)):
+            return merchant_spend(db, start, end, label, question)
+        guess = re.search(r"\b(?:on|for)\s+([a-z0-9][a-z0-9 &'.-]{1,30}?)(?:\s+(?:this|last|in|over|during|yesterday|today|a month|per month)\b|[?.!]|$)", q0)
+        who = guess.group(1).strip() if guess else None
+        if who and who not in ("it", "that", "things", "stuff", "everything"):
+            return _result("category_spend", label,
+                           f"I don't see any spending on {who} {_in(label)} — no matching category or merchant in your transactions.",
+                           found=False)
         return _result("category_spend", label,
                        "I couldn't tell which category you meant — try the exact name from your Categories tab.",
                        found=False)
@@ -552,39 +776,74 @@ def category_spend(db, start, end, label, question: str = "") -> dict:
     total = round(sum(float(t.amount) for t in txns), 2)
     n = len(txns)
     if n == 0:
-        return _result("category_spend", label, f"I don't see any {cat} spending in {label}.", found=False)
-    ans = f"You spent about {_money(total)} on {cat} in {label} across {n} purchase(s)."
+        if _match_merchant(question, _known_merchants(db)):
+            return merchant_spend(db, start, end, label, question)
+        return _result("category_spend", label, f"I don't see any {cat} spending {_in(label)}.", found=False)
+    ans = f"You spent about {_money(total)} on {cat} {_in(label)} across {n} purchase{'s' if n != 1 else ''}."
     return _result("category_spend", label, ans,
                    rows=[{"category": cat, "total": total, "count": n}], facts=[total, n])
 
 
 def merchant_spend(db, start, end, label, question: str = "") -> dict:
     """Spend at ONE merchant over the window — 'how much did I spend at Costco'."""
+    q = (question or "").lower()
     m = _match_merchant(question, _known_merchants(db))
+    if not m and _match_category(question, _known_categories(db)):
+        return category_spend(db, start, end, label, question)   # "at restaurants" is a category, not a store
     if not m:
-        return _result("merchant_spend", label,
-                       "I couldn't tell which merchant you meant — try the name as it appears in Transactions.",
-                       found=False)
+        guess = re.search(r"\b(?:at|from|to)\s+([a-z0-9][a-z0-9 &'.-]{1,40}?)(?:\s+(?:this|last|in|over|during|yesterday|today)\b|[?.!]|$)", q)
+        who = guess.group(1).strip().title() if guess else None
+        msg = (f"I don't see any charges from {who} in your synced transactions."
+               if who else "I couldn't tell which merchant you meant — try the name as it appears in Transactions.")
+        return _result("merchant_spend", label, msg, found=False)
+    if re.search(r"\b(last time|most recent(ly)?|latest|last visit|last trip)\b", q):
+        recent = [t for t in _spend_q(db).order_by(Transaction.date.desc(), Transaction.id.desc()).limit(2000).all()
+                  if t.display_name == m]
+        if not recent:
+            return _result("merchant_spend", "most recent", f"I don't see any charges at {m}.", found=False)
+        last = recent[0]
+        amt = round(float(last.amount), 2)
+        return _result("merchant_spend", "most recent",
+                       f"Last time at {m} you spent {_money(amt)}, on {_fmt_day(last.date.isoformat())}.",
+                       rows=[{"date": last.date.isoformat(), "merchant": m, "amount": amt}], facts=[amt])
     txns = [t for t in _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all()
             if t.display_name == m]
     total = round(sum(float(t.amount) for t in txns), 2)
     n = len(txns)
     if n == 0:
-        return _result("merchant_spend", label, f"I don't see any spending at {m} in {label}.", found=False)
-    ans = f"You spent about {_money(total)} at {m} in {label} across {n} purchase(s)."
+        return _result("merchant_spend", label, f"I don't see any spending at {m} {_in(label)}.", found=False)
+    avg = round(total / n, 2)
+    if re.search(r"\b(how often|how many times|how frequently|visits?)\b", q):
+        days = max((end - start).days, 1)
+        per_week = round(n / (days / 7), 1)
+        ans = (f"{n} time{'s' if n != 1 else ''} at {m} {_in(label)} — about {per_week} a week, "
+               f"{_money(total)} in total ({_money(avg)} a visit).")
+        return _result("merchant_spend", label, ans, rows=[{"merchant": m, "count": n, "total": total, "per_week": per_week}],
+                       facts=[n, per_week, total, avg])
+    ans = f"You spent about {_money(total)} at {m} {_in(label)} across {n} purchase{'s' if n != 1 else ''}"
+    ans += f" — about {_money(avg)} each." if n > 1 else "."
     return _result("merchant_spend", label, ans,
-                   rows=[{"merchant": m, "total": total, "count": n}], facts=[total, n])
+                   rows=[{"merchant": m, "total": total, "count": n}], facts=[total, n, avg])
 
 
 def recent_transactions(db, start, end, label, question: str = "", *, limit: int = 8) -> dict:
     """The most recent purchases (by date) — 'what are my recent transactions'."""
-    txns = (_spend_q(db).order_by(Transaction.date.desc(), Transaction.id.desc()).limit(limit).all())
+    m = _match_merchant(question, _known_merchants(db))
+    cat = None if m else _match_category(question, _known_categories(db))
+    base = _spend_q(db).order_by(Transaction.date.desc(), Transaction.id.desc())
+    if m or cat:
+        pool = base.limit(3000).all()
+        pool = [t for t in pool if (t.display_name == m if m else (t.display_category or "").lower() == cat.lower())]
+        txns = pool[:limit]
+    else:
+        txns = base.limit(limit).all()
     rows = [{"date": t.date.isoformat(), "merchant": t.display_name,
              "amount": round(float(t.amount), 2), "category": t.display_category} for t in txns]
+    scope = f" at {m}" if m else f" in {cat}" if cat else ""
     if not rows:
-        return _result("recent_transactions", "recent", "I don't see any recent purchases.", found=False)
-    lead = ", ".join(f"{_money(r['amount'])} at {r['merchant']}" for r in rows[:3])
-    ans = f"Your most recent purchases: {lead}."
+        return _result("recent_transactions", "recent", f"I don't see any recent purchases{scope}.", found=False)
+    lead = ", ".join(f"{_money(r['amount'])}{'' if m else ' at ' + r['merchant']} ({_fmt_day(r['date'])})" for r in rows[:3])
+    ans = f"Your most recent purchases{scope}: {lead}."
     return _result("recent_transactions", "recent", ans, rows=rows, facts=[r["amount"] for r in rows])
 
 
@@ -595,10 +854,10 @@ def income_total(db, start, end, label, question: str = "") -> dict:
                     Transaction.date >= start, Transaction.date <= end)
             .with_entities(Transaction.amount).all())
     if not rows:
-        return _result("income_total", label, f"I don't see any deposits in {label}.", found=False)
+        return _result("income_total", label, f"I don't see any deposits {_in(label)}.", found=False)
     total = round(sum(-float(a) for (a,) in rows), 2)
     n = len(rows)
-    ans = (f"About {_money(total)} in deposits hit your accounts in {label} across {n}. "
+    ans = (f"About {_money(total)} came in {_in(label)} across {n} deposit{'s' if n != 1 else ''}. "
            "That's bank-visible income only — pre-tax 401(k) isn't included.")
     return _result("income_total", label, ans,
                    rows=[{"total": total, "count": n}], facts=[total, n])
@@ -615,10 +874,13 @@ def cash_flow(db, start, end, label, question: str = "") -> dict:
     outflow = round(sum(float(a) for (a,) in out_rows), 2)
     inflow = round(sum(-float(a) for (a,) in in_rows), 2)
     if not out_rows and not in_rows:
-        return _result("cash_flow", label, f"I don't see any activity in {label}.", found=False)
+        return _result("cash_flow", label, f"I don't see any activity {_in(label)}.", found=False)
     net = round(inflow - outflow, 2)
-    ans = (f"In {label}, about {_money(inflow)} came in and {_money(outflow)} went out — "
-           f"net {'+' if net >= 0 else '-'}{_money(abs(net))}.")
+    lead = _in(label)
+    lead = lead[0].upper() + lead[1:]
+    ans = (f"{lead}, about {_money(inflow)} came in and {_money(outflow)} went out — "
+           f"net {'+' if net >= 0 else '-'}{_money(abs(net))}"
+           f"{', so you saved money' if net > 0 else ', so you spent more than came in' if net < 0 else ''}.")
     return _result("cash_flow", label, ans,
                    rows=[{"inflow": inflow, "outflow": outflow, "net": net}],
                    facts=[inflow, outflow, abs(net)])
@@ -676,9 +938,16 @@ def accounts_overview(db, start, end, label, question: str = "") -> dict:
                      if (a.type or "").lower() in ("credit", "loan")), 2)
     rows = sorted(({"account": a.custom_name or a.name, "balance": round(float(a.current_balance or 0), 2),
                     "kind": a.subtype or a.type} for a in accts), key=lambda r: -abs(r["balance"]))[:10]
-    ans = (f"You have {len(accts)} accounts: about {_money(assets)} in assets and "
-           f"{_money(liab)} in liabilities across them.")
-    return _result("accounts_overview", "now", ans, rows=rows, facts=[assets, liab, len(accts)])
+    pos = [a for a in accts if (a.type or "").lower() not in ("credit", "loan")]
+    neg = [a for a in accts if (a.type or "").lower() in ("credit", "loan")]
+    fmt = lambda a: f"{a.custom_name or a.name} {_money(round(float(a.current_balance or 0), 2))}"  # noqa: E731
+    pos_s = ", ".join(fmt(a) for a in sorted(pos, key=lambda a: -float(a.current_balance or 0))[:5])
+    neg_s = ", ".join(fmt(a) for a in sorted(neg, key=lambda a: -float(a.current_balance or 0))[:4])
+    ans = f"You have {len(accts)} accounts. Assets: {pos_s}" + (f" ({_money(assets)} total)" if len(pos) > 1 else "") + "."
+    if neg:
+        ans += f" Owed: {neg_s}" + (f" ({_money(liab)} total)" if len(neg) > 1 else "") + "."
+    return _result("accounts_overview", "now", ans, rows=rows,
+                   facts=[assets, liab, len(accts)] + [round(float(a.current_balance or 0), 2) for a in accts])
 
 
 # ── reuse of existing deterministic builders (chat_prompts) ──────────────
@@ -693,6 +962,27 @@ def _reuse_bundle(db, pid: str):
 
 
 def net_worth_change(db, start, end, label, question: str = "") -> dict:
+    """How net worth moved — over the window the question names ('this year', 'last month', 'since
+    March') or the default recent horizon."""
+    q = (question or "").lower()
+    if re.search(r"\b(this|last|past)\s+(year|month|quarter|week|\d+\s+(days|months|weeks))\b|\bytd\b|\bsince\b|\byear to date\b", q):
+        from app.models.net_worth_snapshot import NetWorthSnapshot
+        first = (db.query(NetWorthSnapshot).filter(NetWorthSnapshot.date >= start)
+                 .order_by(NetWorthSnapshot.date.asc()).first())
+        last = (db.query(NetWorthSnapshot).filter(NetWorthSnapshot.date <= end)
+                .order_by(NetWorthSnapshot.date.desc()).first())
+        if first and last and first.date < last.date:
+            chg = round(float(last.net_worth) - float(first.net_worth), 2)
+            pct = round(100 * chg / float(first.net_worth), 1) if first.net_worth else None
+            ans = (f"Your net worth is {_money(last.net_worth)}, {'up' if chg >= 0 else 'down'} {_money(abs(chg))}"
+                   f"{f' ({abs(pct)}%)' if pct is not None else ''} {_in(label)} — from {_money(first.net_worth)} on "
+                   f"{_fmt_day(first.date.isoformat())}.")
+            return _result("net_worth_change", label, ans,
+                           rows=[{"from_date": first.date.isoformat(), "from": round(float(first.net_worth), 2),
+                                  "to_date": last.date.isoformat(), "to": round(float(last.net_worth), 2),
+                                  "change": chg, "change_pct": pct}],
+                           facts=[round(float(last.net_worth), 2), abs(chg), round(float(first.net_worth), 2)]
+                                 + ([abs(pct)] if pct is not None else []))
     b = _reuse_bundle(db, "net_worth_change")
     if not b or b.get("no_data"):
         return _result("net_worth_change", label, "I don't have enough net-worth history recorded yet.", found=False)
@@ -710,16 +1000,67 @@ def net_worth_change(db, start, end, label, question: str = "") -> dict:
 
 
 def upcoming_bills(db, start, end, label, question: str = "") -> dict:
-    b = _reuse_bundle(db, "upcoming_bills")
-    if not b or b.get("no_data"):
-        return _result("upcoming_bills", label,
+    """Upcoming mortgage + credit-card due dates — 'what bills are due', 'when is the mortgage due'.
+    Lists each bill with its date; a named bill ('mortgage', 'card', an account name) filters."""
+    from app.routers.bills import collect_upcoming_bills
+    q = (question or "").lower()
+    try:
+        bills = collect_upcoming_bills(db, days_ahead=45, include_overdue=True)
+    except Exception:  # noqa: BLE001
+        bills = []
+    if not bills:
+        return _result("upcoming_bills", "the next 45 days",
                        "No mortgage or credit-card bills with due-date data are scheduled. "
-                       "(Manual liabilities like Apple Card aren't tracked here.)", found=False)
-    cnt = b.get("bill_count")
-    tot = b.get("total_due_dollars")
-    lbl = b.get("horizon_label", "soon")
-    ans = f"{cnt} bill(s) totaling {_money(tot)} due {lbl} (mortgage + credit cards only)."
-    return _result("upcoming_bills", lbl, ans, rows=b.get("bills") or [], facts=[tot, cnt])
+                       "(Manual liabilities aren't tracked here.)", found=False)
+    want = None
+    if re.search(r"\bmortgage|home loan|house payment\b", q):
+        want = [b for b in bills if b.kind == "mortgage"]
+    elif re.search(r"\b(credit )?card\b", q):
+        want = [b for b in bills if b.kind == "credit_card"]
+    else:
+        named = [b for b in bills if any(t in q for t in re.split(r"\W+", (b.account_name or "").lower()) if len(t) > 3)]
+        if named:
+            want = named
+    if want is not None and not want:
+        return _result("upcoming_bills", "the next 45 days", "I don't see a due date on file for that one.", found=False)
+    sel = want or bills
+    # "what's due this week / by Friday / this month" → only bills inside that horizon
+    if re.search(r"\b(this|next) week\b|\bnext (7|seven) days\b", q):
+        sel = [b for b in sel if b.days_until <= 7]
+        if not sel:
+            return _result("upcoming_bills", "this week", "Nothing is due in the next 7 days.", rows=[], facts=[])
+    elif re.search(r"\bthis month\b", q):
+        today = _now()
+        eom = (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        sel = [b for b in sel if b.due_date <= eom]
+        if not sel:
+            return _result("upcoming_bills", "this month", "Nothing else is due this month.", rows=[], facts=[])
+    if re.search(r"\b(biggest|largest|most expensive)\b", q):
+        sel = sorted([b for b in sel if b.amount is not None], key=lambda b: -float(b.amount))[:1] or sel[:1]
+    rows = [{"name": b.account_name, "kind": b.kind, "due_date": b.due_date.isoformat(), "days_until": b.days_until,
+             "amount": b.amount, "minimum": b.minimum} for b in sel]
+
+    def _when(b):
+        if b.days_until < 0:
+            return f"{-b.days_until} day{'s' if b.days_until != -1 else ''} overdue"
+        if b.days_until == 0:
+            return "due today"
+        return f"due {_fmt_day(b.due_date.isoformat())} (in {b.days_until} day{'s' if b.days_until != 1 else ''})"
+
+    def _amt(b):
+        if b.amount is None:
+            return "amount unknown"
+        extra = f", minimum {_money(b.minimum)}" if b.minimum and b.kind == "credit_card" and b.minimum < b.amount else ""
+        return f"{_money(b.amount)}{extra}"
+
+    facts = [x for b in sel for x in (b.amount, b.minimum, abs(b.days_until)) if x is not None]
+    if len(sel) == 1:
+        b = sel[0]
+        return _result("upcoming_bills", "the next 45 days", f"{b.account_name}: {_amt(b)}, {_when(b)}.", rows=rows, facts=facts)
+    tot = round(sum(float(b.amount or 0) for b in sel), 2)
+    listing = "; ".join(f"{b.account_name} {_amt(b)} {_when(b)}" for b in sel[:5])
+    ans = f"{len(sel)} bills coming up totaling {_money(tot)}: {listing}."
+    return _result("upcoming_bills", "the next 45 days", ans, rows=rows, facts=facts + [tot, len(sel)])
 
 
 def budget_status(db, start, end, label, question: str = "") -> dict:
@@ -880,7 +1221,15 @@ def subscriptions(db, start, end, label, question: str = "") -> dict:
     except Exception:  # noqa: BLE001
         res = None
     items = res.get("recurring") if isinstance(res, dict) else (res or [])
-    subs = [r for r in (items or []) if not r.get("is_income") and r.get("kind") in ("subscription", "bill")]
+    subs = [r for r in (items or []) if not r.get("is_income") and r.get("kind") in ("subscription", "bill")
+            and not _LOAN_PAYMENT_CATEGORY.search(str(r.get("category") or ""))
+            and not re.search(r"mortgage|home loan|lender|loan", str(r.get("merchant") or ""), re.I)]
+    q0 = (question or "").lower()
+    if re.search(r"\b(subscriptions?|memberships?|streaming)\b", q0):
+        # "What subscriptions am I paying for" means services — not the weekly grocery run or fuel that the
+        # cadence detector also sees as recurring.
+        subs = [r for r in subs if not re.search(r"grocer|dining|restaurant|food|fuel|gas|transport|shopping|pharmacy",
+                                                 str(r.get("category") or "") + " " + str(r.get("merchant") or ""), re.I)]
     if not subs:
         return _result("subscriptions", "now", "I don't see any recurring subscriptions or bills detected yet.", found=False)
     ranked = sorted(subs, key=lambda r: -(r.get("annual_cost") or 0))
@@ -1144,7 +1493,7 @@ def loan_detail(db, start, end, label, question: str = "") -> dict:
     if re.search(r"\b(payment|monthly|per month)\b", q) and pay:
         return _result("loan_detail", "now", f"Your {nm} monthly payment is {_money(pay)}.", rows=[t], facts=[pay])
     if re.search(r"\b(paid off|payoff|pay off|when|how long)\b", q) and payoff:
-        return _result("loan_detail", "now", f"At the current payment, your {nm} is projected paid off by {payoff}.",
+        return _result("loan_detail", "now", f"At the current payment, your {nm} is projected to be paid off around {_fmt_month_year(payoff)}.",
                        rows=[t], facts=[bal])
     ans = f"Your {nm} balance is {_money(bal)}"
     facts = [bal]
@@ -1152,7 +1501,7 @@ def loan_detail(db, start, end, label, question: str = "") -> dict:
         ans += f" at {rate}%"
         facts.append(rate)
     if payoff:
-        ans += f", projected paid off by {payoff}"
+        ans += f", projected to be paid off around {_fmt_month_year(payoff)}"
     return _result("loan_detail", "now", ans + ".", rows=[t], facts=facts)
 
 
@@ -1180,7 +1529,7 @@ def retirement(db, start, end, label, question: str = "") -> dict:
         return _result("retirement", "now",
                        f"Of your {_money(total)} in retirement, about {_money(pretax)} is pre-tax and {_money(roth)} is Roth (tax-free).",
                        rows=rows, facts=[pretax, roth, total])
-    ans = f"You have about {_money(total)} across {len(accts)} retirement account(s)."
+    ans = f"You have about {_money(total)} across {len(accts)} retirement account{'s' if len(accts) != 1 else ''}."
     if re.search(r"\b(on track|retire|projection|enough|when can i)\b", ql):
         ans += " A full on-track projection depends on the assumptions you set — open the Retirement tab for that."
     return _result("retirement", "now", ans, rows=rows, facts=[total, len(accts)])
@@ -1417,6 +1766,19 @@ def transaction_search(db, start, end, label, question: str = "") -> dict:
         except ValueError:
             minamt = None
     if not (m or cat or minamt is not None):
+        # "what did I buy yesterday / this week" — a time window IS the filter.
+        if re.search(r"\b(yesterday|today|this week|last week|this month|last month|weekend|\d+ days)\b", q):
+            txns = (_spend_q(db).filter(Transaction.date >= start, Transaction.date <= end)
+                    .order_by(Transaction.date.desc(), Transaction.amount.desc()).all())
+            if not txns:
+                return _result("transaction_search", label, f"No purchases {_in(label)}.", found=False)
+            total = round(sum(float(t.amount) for t in txns), 2)
+            rows = [{"date": t.date.isoformat(), "merchant": t.display_name, "amount": round(float(t.amount), 2),
+                     "category": t.display_category} for t in txns[:12]]
+            lead = ", ".join(f"{_money(r['amount'])} at {r['merchant']}" for r in rows[:4])
+            more = f" and {len(txns) - 4} more" if len(txns) > 4 else ""
+            ans = f"{len(txns)} purchase{'s' if len(txns) != 1 else ''} {_in(label)} totaling {_money(total)}: {lead}{more}."
+            return _result("transaction_search", label, ans, rows=rows, facts=[len(txns), total] + [r["amount"] for r in rows])
         return _result("transaction_search", label,
                        "Tell me a merchant, category, or amount to filter by (e.g. 'purchases over $200 at Costco').",
                        found=False)
@@ -1437,20 +1799,61 @@ def transaction_search(db, start, end, label, question: str = "") -> dict:
         crit.append(f"over {_money(minamt)}")
     crit_s = (" " + " ".join(crit)) if crit else ""
     if not filt:
-        return _result("transaction_search", label, f"I don't see any purchases{crit_s} in {label}.", found=False)
+        return _result("transaction_search", label, f"I don't see any purchases{crit_s} {_in(label)}.", found=False)
     filt.sort(key=lambda t: -float(t.amount))
     total = round(sum(float(t.amount) for t in filt), 2)
     n = len(filt)
     rows = [{"date": t.date.isoformat(), "merchant": t.display_name, "amount": round(float(t.amount), 2),
              "category": t.display_category} for t in filt[:12]]
-    ans = (f"I found {n} purchase(s){crit_s} in {label} totaling {_money(total)}; "
+    ans = (f"I found {n} purchase(s){crit_s} {_in(label)} totaling {_money(total)}; "
            f"the largest was {_money(filt[0].amount)} at {filt[0].display_name}.")
     return _result("transaction_search", label, ans, rows=rows, facts=[n, total, round(float(filt[0].amount), 2)])
 
 
 def spending_compare(db, start, end, label, question: str = "") -> dict:
     """This-period vs prior-period spending — 'did I spend more this month than last', 'how does my
-    spending compare to last month'. Reuses the spending_total bundle's built-in comparison."""
+    spending compare to last month'. Calendar phrasing compares month-to-date with the same days of
+    last month (a fair pace comparison) and also gives last month's full total."""
+    q = (question or "").lower()
+    # Calendar comparison is the default — people mean "this month vs last month" unless they say
+    # "30 days" / "this week" / "this year" explicitly.
+    if not re.search(r"\b(\d+ days|week|year|quarter)\b", q):
+        today = _now()
+        mtd_start = today.replace(day=1)
+        prev_end_full = mtd_start - timedelta(days=1)
+        prev_start = prev_end_full.replace(day=1)
+        prev_same = min(today.day, prev_end_full.day)
+        prev_end_same = prev_start.replace(day=prev_same)
+        cur = round(sum(float(a) for (a,) in _spend_q(db).filter(Transaction.date >= mtd_start, Transaction.date <= today)
+                        .with_entities(Transaction.amount).all()), 2)
+        prev_same_total = round(sum(float(a) for (a,) in _spend_q(db).filter(Transaction.date >= prev_start, Transaction.date <= prev_end_same)
+                                    .with_entities(Transaction.amount).all()), 2)
+        prev_full = round(sum(float(a) for (a,) in _spend_q(db).filter(Transaction.date >= prev_start, Transaction.date <= prev_end_full)
+                              .with_entities(Transaction.amount).all()), 2)
+        if prev_full == 0 and cur == 0:
+            return _result("spending_compare", "this month", "I don't see spending in either month to compare.", found=False)
+        chg = round(cur - prev_same_total, 2)
+        direction = "more" if chg > 0 else "less" if chg < 0 else "the same"
+        ans = (f"So far this month you've spent {_money(cur)}, {_money(abs(chg))} {direction} than by day {today.day} of "
+               f"last month ({_money(prev_same_total)}). Last month finished at {_money(prev_full)}.")
+        facts = [cur, abs(chg), prev_same_total, prev_full, today.day]
+        if re.search(r"\b(why|what('?s| is) driving|driver|drove|because|where|which categor)\b", q):
+            # Name the categories that moved most vs the same days last month.
+            def _by_cat(a, b):
+                agg = {}
+                for t in _spend_q(db).filter(Transaction.date >= a, Transaction.date <= b).all():
+                    agg[t.display_category] = agg.get(t.display_category, 0.0) + float(t.amount)
+                return agg
+            cur_c, prev_c = _by_cat(mtd_start, today), _by_cat(prev_start, prev_end_same)
+            deltas = sorted(((c, round(cur_c.get(c, 0.0) - prev_c.get(c, 0.0), 2)) for c in set(cur_c) | set(prev_c)),
+                            key=lambda kv: -abs(kv[1]))
+            ups = [(c, d) for c, d in deltas if d > 0][:3]
+            if ups:
+                ans += " The biggest increases: " + ", ".join(f"{c} +{_money(d)}" for c, d in ups) + "."
+                facts += [d for _, d in ups]
+        return _result("spending_compare", "this month", ans,
+                       rows=[{"mtd": cur, "last_month_same_day": prev_same_total, "last_month_total": prev_full, "change": chg}],
+                       facts=facts)
     b = _reuse_bundle(db, "spending_total")
     comp = (b or {}).get("comparison")
     if not b or b.get("no_data") or not comp:
@@ -1536,8 +1939,8 @@ def average_spend(db, start, end, label, question: str = "") -> dict:
     """Average purchase size, optionally scoped to a merchant or category — 'average size of my
     Amazon orders', 'what's my typical grocery run'."""
     q = (question or "").lower()
-    m = _match_merchant(q, _known_merchants(db))
-    cat = None if m else _match_category(q, _known_categories(db))
+    cat = _match_category(q, _known_categories(db))
+    m = None if cat else _match_merchant(q, _known_merchants(db))
     txns = _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all()
     scope = ""
     if m:
@@ -1547,27 +1950,44 @@ def average_spend(db, start, end, label, question: str = "") -> dict:
         txns = [t for t in txns if (t.display_category or "").lower() == cat.lower()]
         scope = f" on {cat}"
     if not txns:
-        return _result("average_spend", label, f"I don't see any purchases{scope} in {label}.", found=False)
+        return _result("average_spend", label, f"I don't see any purchases{scope} {_in(label)}.", found=False)
     avg = round(sum(float(t.amount) for t in txns) / len(txns), 2)
     return _result("average_spend", label,
-                   f"Your average purchase{scope} in {label} is about {_money(avg)} across {len(txns)} transaction(s).",
+                   f"Your average purchase{scope} {_in(label)} is about {_money(avg)} across {len(txns)} transaction{'s' if len(txns) != 1 else ''}.",
                    facts=[avg, len(txns)])
 
 
 def duplicate_charges(db, start, end, label, question: str = "") -> dict:
     """Possible duplicate charges — same merchant + same amount more than once in the window."""
-    txns = _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).all()
+    txns = _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end).order_by(Transaction.date).all()
     groups: dict = {}
     for t in txns:
         groups.setdefault((t.display_name, round(float(t.amount), 2)), []).append(t)
-    dups = sorted([(k, v) for k, v in groups.items() if len(v) > 1], key=lambda kv: -kv[0][1])
+    # A real duplicate is the SAME merchant + SAME amount within a few days. Twelve $6 coffees over a
+    # month is a habit, not a billing error — so pair up charges no more than 3 days apart.
+    dups = []
+    for (nm, amt), v in groups.items():
+        # <2 can't be a duplicate; ≥5 identical charges in a month is a habit (the daily coffee), and
+        # tiny amounts aren't worth a flag.
+        if len(v) < 2 or len(v) >= 5 or amt < 10:
+            continue
+        v.sort(key=lambda t: t.date)
+        for a, b in zip(v, v[1:]):
+            if 0 <= (b.date - a.date).days <= 3:
+                dups.append({"merchant": nm, "amount": amt, "first": a.date.isoformat(), "second": b.date.isoformat()})
+    dups.sort(key=lambda d: -d["amount"])
     if not dups:
-        return _result("duplicate_charges", label, f"I don't see any obvious duplicate charges in {label}.")
-    (nm, amt), v = dups[0]
-    rows = [{"merchant": k[0], "amount": k[1], "count": len(vv)} for k, vv in dups[:8]]
-    return _result("duplicate_charges", label,
-                   f"I found {len(dups)} possible duplicate(s) in {label} — e.g. {len(v)} charges of {_money(amt)} at {nm}.",
-                   rows=rows, facts=[len(dups)])
+        return _result("duplicate_charges", label,
+                       f"I don't see any likely duplicate charges {_in(label)} — nothing billed twice at the same "
+                       "place for the same amount within a few days.")
+    d0 = dups[0]
+    same_day = d0["first"] == d0["second"]
+    when = f"on {_fmt_day(d0['first'])}" if same_day else f"on {_fmt_day(d0['first'])} and again {_fmt_day(d0['second'])}"
+    ans = (f"{len(dups)} possible duplicate{'s' if len(dups) != 1 else ''} {_in(label)}: {_money(d0['amount'])} at "
+           f"{d0['merchant']} {when}.")
+    if len(dups) > 1:
+        ans += f" Also {_money(dups[1]['amount'])} at {dups[1]['merchant']}."
+    return _result("duplicate_charges", label, ans, rows=dups[:8], facts=[len(dups)] + [d["amount"] for d in dups[:2]])
 
 
 def home_equity(db, start, end, label, question: str = "") -> dict:
@@ -1681,8 +2101,27 @@ def monthly_average(db, start, end, label, question: str = "", *, months: int = 
     month', 'average monthly income'."""
     from datetime import date as _date, timedelta as _td
     q = (question or "").lower()
-    since = _date.today() - _td(days=months * 30)
+    since = _now() - _td(days=months * 30)
+    weekly = bool(re.search(r"\b(per week|a week|each week|every week|weekly)\b", q))
     income = bool(re.search(r"\b(income|earn|made|paycheck|deposit)\b", q)) and not re.search(r"\bspend", q)
+    cat = None if income else _match_category(q, _known_categories(db))
+    merch = None if (income or cat) else _match_merchant(q, _known_merchants(db))
+    if cat or merch:
+        txns = _spend_q(db).filter(Transaction.date >= since).all()
+        if cat:
+            txns = [t for t in txns if (t.display_category or "").lower() == cat.lower()]
+            what = f"on {cat}"
+        else:
+            txns = [t for t in txns if t.display_name == merch]
+            what = f"at {merch}"
+        if not txns:
+            return _result("monthly_average", f"{months} months", f"I don't see any spending {what} in the last {months} months.", found=False)
+        tot = round(sum(float(t.amount) for t in txns), 2)
+        avg = round(tot / months, 2)
+        return _result("monthly_average", f"{months} months",
+                       f"You spend about {_money(avg)} a month {what}, averaged over the last {months} months ({_money(tot)} total).",
+                       rows=[{"target": cat or merch, "monthly_average": avg, "total": tot, "months": months}],
+                       facts=[avg, tot, months])
     if income:
         rows = (db.query(Transaction).filter(Transaction.amount < 0, Transaction.is_transfer.is_(False), Transaction.is_refund.is_(False),
                                              Transaction.date >= since).with_entities(Transaction.amount).all())
@@ -1694,12 +2133,166 @@ def monthly_average(db, start, end, label, question: str = "", *, months: int = 
         kind = "spending"
     if not rows:
         return _result("monthly_average", f"{months} months", f"I don't see enough history to average your {kind}.", found=False)
+    if weekly:
+        wavg = round(tot / (months * 30 / 7), 2)
+        return _result("monthly_average", f"{months} months",
+                       f"You usually {'bring in' if kind == 'income' else 'spend'} about {_money(wavg)} a week, averaged over the last {months} months.",
+                       rows=[{"weekly_average": wavg}], facts=[wavg])
     avg = round(tot / months, 2)
     return _result("monthly_average", f"{months} months",
                    f"Your average monthly {kind} over the last {months} months is about {_money(avg)}.", facts=[avg])
 
 
+def help_intent(db, start, end, label, question: str = "") -> dict:
+    """Greeting / 'what can you do' — a short menu of what Ask Tusk answers (no figures)."""
+    ans = ("Hi. Ask me anything about your own numbers: what you spent this month or at a store, your "
+           "balances and net worth, what's due, how the budget is doing, your subscriptions, or how your "
+           "investments are positioned. I only read — I never change anything.")
+    return _result("help", "now", ans, rows=[], facts=[])
+
+
+def advice_refusal(db, start, end, label, question: str = "") -> dict:
+    """'Should I…' questions — Tusk is insight-only, not an advisor. Says so, then offers the relevant
+    facts it CAN state (balances, cash flow) so the person can decide."""
+    from app.models.account import Account
+    accts = db.query(Account).all()
+    cash = round(sum(float(a.current_balance or 0) for a in accts if (a.type or "").lower() == "depository"), 2)
+    debt = round(sum(float(a.current_balance or 0) for a in accts if (a.type or "").lower() in ("credit", "loan")), 2)
+    ans = ("That's a judgment call I'll leave to you — I report, I don't advise. What I can tell you: "
+           f"you have about {_money(cash)} in cash accounts and {_money(debt)} in balances owed. "
+           "Ask me for any specific figure that would help you decide.")
+    return _result("advice", "now", ans, rows=[{"cash": cash, "debt": debt}], facts=[cash, debt])
+
+
+def affordability(db, start, end, label, question: str = "") -> dict:
+    """'Can I afford $X?' — checks the amount against the safe-to-spend estimate (checking − bills due
+    before payday − usual spending before payday). An estimate, never a yes/no promise."""
+    from app.services.safe_to_spend import compute_safe_to_spend
+    q = (question or "").lower()
+    m = re.search(r"\$\s*([\d,]+(?:\.\d+)?)\s*(k)?|([\d,]+(?:\.\d+)?)\s*(k|dollars|bucks)\b", q)
+    amount = None
+    if m:
+        raw = (m.group(1) or m.group(3) or "").replace(",", "")
+        try:
+            amount = float(raw) * (1000 if (m.group(2) or m.group(4)) == "k" else 1)
+        except ValueError:
+            amount = None
+    sts = compute_safe_to_spend(db, today=end)
+    safe = round(float(sts.get("safe_to_spend") or 0), 2)
+    payday = _fmt_day(sts.get("next_paycheck_date", ""))
+    usual = round(float(sts.get("budget_remaining_pro_rata") or 0), 2)
+    if amount is None:
+        ans = (f"Your safe-to-spend estimate is {_money(safe)} until {payday} — checking cash minus bills due "
+               f"and your usual spending before then. Tell me an amount and I'll check it against that.")
+        return _result("affordability", "until payday", ans, rows=[sts], facts=[safe])
+    remaining = round(safe - amount, 2)
+    if amount <= safe:
+        verdict = f"Yes, comfortably — that leaves {_money(remaining)} safe to spend until {payday}."
+    elif amount <= safe + usual:
+        verdict = (f"It's tight. It fits only if you spend {_money(round(amount - safe, 2))} less than usual on "
+                   f"everything else before {payday}.")
+    else:
+        verdict = (f"Not without dipping into bill money or savings — it's {_money(abs(remaining))} more than "
+                   f"what's safe to spend before {payday}.")
+    ans = f"{verdict} (Safe to spend right now: {_money(safe)}; an estimate, not a guarantee.)"
+    return _result("affordability", "until payday", ans, rows=[{"amount": amount, "safe_to_spend": safe, "remaining": remaining}],
+                   facts=[amount, safe, abs(remaining), usual, round(amount - safe, 2)])
+
+
+def next_paycheck(db, start, end, label, question: str = "") -> dict:
+    """'When is my next paycheck / payday' — projected from the recurring-income cadence."""
+    from app.services.safe_to_spend import next_paycheck as _np
+    d, source = _np(db, end)
+    days = (d - end).days
+    when = "today" if days == 0 else "tomorrow" if days == 1 else f"in {days} days"
+    if source == "recurring_income":
+        ans = f"Your next paycheck should land around {_fmt_day(d.isoformat())} — {when}, going by your usual deposit rhythm."
+    else:
+        ans = (f"I can't see a regular paycheck pattern in your deposits, so I'm assuming the 1st of next month "
+               f"({_fmt_day(d.isoformat())}, {when}).")
+    return _result("next_paycheck", "upcoming", ans, rows=[{"date": d.isoformat(), "source": source, "days": days}], facts=[days])
+
+
+def briefing_read(db, start, end, label, question: str = "") -> dict:
+    """'How am I doing / what's new / give me a rundown' — the deterministic proactive read the Ask
+    panel greets with: net-worth move, this month's spending pace, the top alert."""
+    from app.services import assistant as A
+    snap = A.gather_snapshot(db)
+    text = A._briefing_text(snap)
+    return _result("briefing", "now", text or "Nothing notable to report right now.", rows=[], facts=_all_numbers(snap))
+
+
+def payment_made(db, start, end, label, question: str = "") -> dict:
+    """'Did I pay the mortgage this month / has the card payment gone through' — looks for the payment
+    itself in the ledger (mortgage/loan category, or a card-payment transfer) inside the window."""
+    q = (question or "").lower()
+    if not re.search(r"\b(this month|last month|yesterday|today|week|days|in [a-z]+)\b", q):
+        start, end = _now().replace(day=1), _now()
+        label = "this month"
+    if re.search(r"\bmortgage|home loan|house payment\b", q):
+        kind, pat = "mortgage payment", re.compile(r"mortgage|home loan|lender", re.I)
+    elif re.search(r"\bcard\b", q):
+        kind, pat = "card payment", re.compile(r"card|autopay|payment", re.I)
+    elif re.search(r"\brent\b", q):
+        kind, pat = "rent", re.compile(r"rent", re.I)
+    else:
+        kind, pat = "payment", re.compile(r"payment|autopay|loan|mortgage", re.I)
+    txns = (db.query(Transaction).filter(Transaction.date >= start, Transaction.date <= end, Transaction.amount > 0)
+            .order_by(Transaction.date.desc()).all())
+    hits = [t for t in txns if pat.search(f"{t.display_category or ''} {t.display_name or ''} {t.name or ''}")]
+    if kind == "card payment":
+        hits = [t for t in hits if t.is_transfer or re.search(r"payment|autopay", (t.name or "").lower())]
+    if not hits:
+        return _result("payment_made", label, f"I don't see a {kind} posted {_in(label)} yet.", rows=[], facts=[])
+    t = hits[0]
+    amt = round(float(t.amount), 2)
+    return _result("payment_made", label,
+                   f"Yes — {_money(amt)} to {t.display_name} on {_fmt_day(t.date.isoformat())}.",
+                   rows=[{"date": t.date.isoformat(), "merchant": t.display_name, "amount": amt}], facts=[amt])
+
+
+def unusual_charges(db, start, end, label, question: str = "") -> dict:
+    """Anything out of the ordinary in the window — unusually large charges vs a merchant's history,
+    possible price hikes on recurring charges, first-time merchants. Same rules as the weekly digest."""
+    from app.services.weekly_digest import _notable
+    try:
+        n = _notable(db, start, end)
+    except Exception:  # noqa: BLE001
+        n = {"large_transactions": [], "price_hikes": [], "new_merchants": []}
+    large, hikes, new = n.get("large_transactions", []), n.get("price_hikes", []), n.get("new_merchants", [])
+    large_names = {t["merchant"] for t in large}
+    # A one-off big charge at a place you also visit regularly shows up in BOTH lists; keep it once,
+    # and a "hike" of several hundred percent is a one-off, not a price change.
+    hikes = [h for h in hikes if h["merchant"] not in large_names and h.get("delta_pct", 0) <= 150]
+    if not (large or hikes or new):
+        return _result("unusual_charges", label, f"Nothing looks out of the ordinary {_in(label)} — no unusually large charges, "
+                       "price hikes or first-time merchants.", rows=[], facts=[])
+    parts, facts = [], []
+    if large:
+        t = large[0]
+        parts.append(f"{_money(t['amount'])} at {t['merchant']} on {_fmt_day(t['date'])} is well above your usual "
+                     f"{_money(t['typical_amount'])} there")
+        facts += [t["amount"], t["typical_amount"]]
+    if hikes:
+        h = hikes[0]
+        parts.append(f"{h['merchant']} charged {_money(h['latest_amount'])}, up {round(h['delta_pct'])}% from about "
+                     f"{_money(h['typical_amount'])} — a possible price hike")
+        facts += [h["latest_amount"], round(h["delta_pct"]), h["typical_amount"]]
+    if new:
+        names = ", ".join(x["merchant"] for x in new[:3])
+        parts.append(f"first-time merchant{'s' if len(new) > 1 else ''}: {names}")
+    ans = f"{_in(label)[0].upper()}{_in(label)[1:]}: " + "; ".join(parts) + "."
+    return _result("unusual_charges", label, ans, rows=large + hikes + new, facts=facts)
+
+
 RETRIEVERS = {
+    "help": help_intent,
+    "briefing": briefing_read,
+    "payment_made": payment_made,
+    "advice": advice_refusal,
+    "affordability": affordability,
+    "next_paycheck": next_paycheck,
+    "unusual_charges": unusual_charges,
     "largest_transactions": largest_transactions,
     "transaction_search": transaction_search,
     "spending_compare": spending_compare,
@@ -1797,9 +2390,9 @@ def _all_numbers(obj) -> list:
     return out
 
 
-_REFUSAL = ("I can give you exact reads on your net worth, spending, largest purchases, top "
-            "merchants, categories, and holdings. I don't have that particular figure in view — "
-            "the matching tab will have the detail.")
+_REFUSAL = ("I don't have a grounded answer for that one. I can tell you exactly what you spent (by month, "
+            "category or store), your balances and net worth, what's due, how your budget is doing, and how "
+            "your investments are positioned — try one of those, or ask on the laptop for the full picture.")
 
 from app.services import assistant_persona as persona
 
@@ -1872,6 +2465,8 @@ def _llm_route(question: str) -> Optional[str]:
 def answer(db, question: str, history: Optional[list] = None, *, today: Optional[date] = None) -> dict:
     """Top-level: route → retrieve → grounded answer. Returns
     ``{source, intent, window, answer, rows, found, grounded}``. Never raises on data gaps."""
+    global _TODAY
+    _TODAY = today or date.today()
     context = " ".join((t or {}).get("text", "") for t in (history or [])[-4:]) if history else ""
     intent = route(question, context)
     # Learned routing override from an APPROVED thumbs-down correction wins over the keyword router,

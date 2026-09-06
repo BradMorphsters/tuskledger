@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -27,6 +28,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { flagAnswer } from '../ask/flags';
 import { parseLocalIntent } from '../ask/intent';
 import { answerLocally, type LocalAnswer } from '../ask/local';
 import Chip from '../components/Chip';
@@ -46,6 +48,13 @@ interface Message {
   basis?: string;
   rows?: LocalAnswer['rows'];
   pending?: boolean;
+  /** The question this reply answers (for the review log). */
+  q?: string;
+  /** Retriever / parser intent and assistant provenance, when known. */
+  intent?: string | null;
+  source?: string | null;
+  /** 👍/👎 given on this reply. */
+  rated?: 'up' | 'down';
 }
 
 const SUGGESTIONS = [
@@ -120,22 +129,40 @@ export default function AskScreen() {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     };
 
+    const intent = parseLocalIntent(question);
+    const answerOnPhone = async (why: string) => {
+      const a = await answerLocally(intent!);
+      finish({
+        text: a.answer,
+        origin: 'phone',
+        basis: a.basis.startsWith('Answered') ? a.basis : `Answered on this phone${why} · ${a.basis}`,
+        rows: a.rows,
+        q: question,
+        intent: intent!.kind,
+        source: null,
+      });
+    };
     try {
       const r = await askTusk(question, history);
-      finish({ text: r.answer || "I didn't get an answer back.", origin: 'laptop', basis: sourceLabel(r.source, r.grounded) });
+      // The laptop found nothing grounded, but the phone's own parser knows this one → use it
+      // rather than showing a refusal (the laptop's catalog and the phone's overlap but aren't equal).
+      if (!r.found && intent && intent.kind !== 'help') {
+        try { await answerOnPhone(''); return; } catch { /* fall through to the laptop's text */ }
+      }
+      finish({
+        text: r.answer || "I didn't get an answer back.",
+        origin: 'laptop',
+        basis: sourceLabel(r.source, r.grounded),
+        q: question,
+        intent: r.intent,
+        source: r.source,
+      });
       return;
     } catch (e) {
       const offline = e instanceof NetworkError || e instanceof AuthError;
-      const intent = parseLocalIntent(question);
       if (intent) {
         try {
-          const a = await answerLocally(intent);
-          finish({
-            text: a.answer,
-            origin: 'phone',
-            basis: offline ? `Answered on this phone (laptop unreachable) · ${a.basis}` : `Answered on this phone · ${a.basis}`,
-            rows: a.rows,
-          });
+          await answerOnPhone(offline ? ' (laptop unreachable)' : '');
           return;
         } catch {
           // fall through
@@ -150,8 +177,46 @@ export default function AskScreen() {
     }
   }, [text, busy, messages]);
 
+  /**
+   * 👍/👎 → the review log. A 👎 offers an optional one-line note ("wrong store",
+   * "that's last month's number") because the note is usually the most useful
+   * part of the flag when it's reviewed weeks later.
+   */
+  const rate = useCallback((item: Message, rating: 'up' | 'down') => {
+    const submit = async (comment?: string) => {
+      setMessages((m) => m.map((x) => (x.id === item.id ? { ...x, rated: rating } : x)));
+      try {
+        await flagAnswer({
+          question: item.q ?? '',
+          answer: item.text,
+          rating,
+          origin: item.origin === 'phone' ? 'phone' : 'laptop',
+          intent: item.intent ?? null,
+          source: item.source ?? null,
+          comment: comment?.trim() || null,
+        });
+      } catch {
+        // queued or dropped silently — never interrupt the conversation
+      }
+    };
+    if (rating === 'up' || Platform.OS !== 'ios') {
+      submit();
+      return;
+    }
+    Alert.prompt(
+      'What was off?',
+      'Optional — a few words help when this gets reviewed later.',
+      [
+        { text: 'Skip', onPress: () => submit(), style: 'cancel' },
+        { text: 'Flag', onPress: (note?: string) => submit(note) },
+      ],
+      'plain-text',
+    );
+  }, []);
+
   const renderItem = ({ item }: { item: Message }) => {
     const mine = item.who === 'you';
+    const ratable = !mine && !item.pending && item.origin !== 'system' && !!item.q;
     return (
       <View style={[styles.bubbleRow, mine && { justifyContent: 'flex-end' }]}>
         <View style={[styles.bubble, mine ? styles.bubbleYou : styles.bubbleTusk, item.origin === 'system' && styles.bubbleSystem]}>
@@ -180,6 +245,24 @@ export default function AskScreen() {
                 <Text style={[type.small, { marginTop: space(1.5), color: item.origin === 'phone' ? colors.warning : colors.textFaint, fontSize: 11 }]}>
                   {item.basis}
                 </Text>
+              )}
+              {ratable && (
+                <View style={styles.rateRow}>
+                  {item.rated ? (
+                    <Text style={[type.small, { fontSize: 11, color: colors.textFaint }]}>
+                      {item.rated === 'down' ? 'Flagged for review' : 'Thanks'}
+                    </Text>
+                  ) : (
+                    <>
+                      <Pressable onPress={() => rate(item, 'up')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Good answer" style={styles.rateBtn}>
+                        <Text style={styles.rateGlyph}>👍</Text>
+                      </Pressable>
+                      <Pressable onPress={() => rate(item, 'down')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Wrong or unhelpful — flag for review" style={styles.rateBtn}>
+                        <Text style={styles.rateGlyph}>👎</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
               )}
             </>
           )}
@@ -284,6 +367,20 @@ const styles = StyleSheet.create({
     marginTop: space(1.5),
   },
   tabular: { fontVariant: ['tabular-nums'] },
+  rateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    marginTop: space(2),
+  },
+  rateBtn: {
+    minWidth: 32,
+    minHeight: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.7,
+  },
+  rateGlyph: { fontSize: 14 },
   suggestions: {
     flexDirection: 'row',
     flexWrap: 'wrap',

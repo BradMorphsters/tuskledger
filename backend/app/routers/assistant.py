@@ -95,6 +95,7 @@ class FeedbackIn(BaseModel):
     rating: str = Field(..., pattern="^(up|down)$")
     intent: Optional[str] = Field(None, max_length=40)
     comment: Optional[str] = Field(None, max_length=600)
+    source: Optional[str] = Field(None, max_length=20, description="Assistant provenance (ollama|retrieval|…) if the UI has it.")
     model_config = {"extra": "ignore"}
 
 
@@ -110,7 +111,8 @@ def assistant_feedback(body: FeedbackIn, db: Session = Depends(get_db)):
     proposed for your approval. Returns ``{feedback_id, rating, diagnosis?}``."""
     from app.services import assistant_feedback as fb
     try:
-        return fb.record(db, body.question, body.answer, body.rating, body.intent, comment=body.comment)
+        return fb.record(db, body.question, body.answer, body.rating, body.intent, comment=body.comment,
+                         device="laptop", source=body.source, origin="laptop")
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -120,6 +122,21 @@ def assistant_feedback_list():
     """Open (un-resolved) down-thumb corrections awaiting your approval."""
     from app.services import assistant_feedback as fb
     return {"pending": fb.pending()}
+
+
+@router.get("/feedback/review")
+def assistant_feedback_review(
+    days: int = Query(90, ge=1, le=3650),
+    rating: str = Query("down", pattern="^(up|down|all)$"),
+    format: str = Query("json", pattern="^(json|md)$"),
+):
+    """The review log: every flagged answer from the laptop AND the phone in the window, with what
+    happened to it since. ``?format=md`` returns a Markdown document to paste into a review session."""
+    from app.services import assistant_feedback as fb
+    items = fb.review(days=days, rating=rating)
+    if format == "md":
+        return Response(content=fb.review_markdown(items), media_type="text/markdown; charset=utf-8")
+    return {"count": len(items), "items": items}
 
 
 @router.get("/feedback/intents")

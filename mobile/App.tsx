@@ -28,6 +28,7 @@ import InvestmentsScreen from './src/screens/InvestmentsScreen';
 import PairingScreen from './src/screens/PairingScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
+import { hydrateFlags } from './src/ask/flags';
 import { hydrateInsights } from './src/insights/store';
 import { hydrateDemoMode } from './src/state/appStore';
 import {
@@ -84,6 +85,7 @@ export default function App() {
       // Cached safe-to-spend + weekly digest from the last sync, so the
       // Dashboard cards render immediately (and offline).
       hydrateInsights();
+      hydrateFlags();
       const [host, token] = await Promise.all([loadPairedHost(), loadToken()]);
       const isPaired = !!(host && token);
       setPaired(isPaired);

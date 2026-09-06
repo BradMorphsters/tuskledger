@@ -32,7 +32,7 @@ function fmtCell(key, v) {
 // Feedback: 👍/👎 on an answer. A 👎 captures the Q&A, shows the backend's diagnosis, and — if a
 // grounded correction is proposed (or the user picks the right read) — offers Approve, which teaches
 // the router. Self-contained: it only needs the turn's question/answer/intent.
-function Feedback({ q, answer, intent, onCorrected }) {
+function Feedback({ q, answer, intent, source, onCorrected }) {
   const [state, setState] = useState('idle')   // idle | up | down | thanks | dismissed
   const [fid, setFid] = useState(null)
   const [diag, setDiag] = useState(null)
@@ -40,11 +40,11 @@ function Feedback({ q, answer, intent, onCorrected }) {
   const [hint, setHint] = useState('')
   if (!q || !answer || !answer.trim()) return null
 
-  const up = async () => { setState('up'); try { await submitFeedback({ question: q, answer, rating: 'up', intent }) } catch { /* */ } }
+  const up = async () => { setState('up'); try { await submitFeedback({ question: q, answer, rating: 'up', intent, source }) } catch { /* */ } }
   const down = async () => {
     setState('down')
     try {
-      const r = await submitFeedback({ question: q, answer, rating: 'down', intent })
+      const r = await submitFeedback({ question: q, answer, rating: 'down', intent, source })
       setFid(r.feedback_id); setDiag(r.diagnosis || null)
       if (r.diagnosis && r.diagnosis.suggested_answer) setSuggested({ answer: r.diagnosis.suggested_answer, rows: r.diagnosis.suggested_rows })
     } catch { /* */ }
@@ -322,6 +322,7 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
             intent: (payload && payload.intent) ?? meta?.intent,
             window: (payload && payload.window) ?? meta?.window,
             grounded: meta?.grounded,
+            source: meta?.source,
           })
           enqueueSpeech('', { flush: true })
           if (!ttsPlayingRef.current && !ttsQueueRef.current.length) finishAnswer()
@@ -510,6 +511,11 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
         {turns.length === 0 && <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
           {canVoice ? 'Press “Start conversation” and ask about your net worth, spending, or holdings — or type below.'
             : 'Ask about your net worth, spending, or holdings. (Install Parakeet + Kokoro for voice — see services/voice.py.)'}
+          {' '}Thumbs-down any answer that's off — it lands in the{' '}
+          <a href="/api/assistant/feedback/review?format=md" target="_blank" rel="noreferrer"
+             style={{ color: 'var(--accent-blue)' }} title="Every flagged answer from this app and the phone, as Markdown">
+            review log
+          </a>{' '}for a later pass.
         </p>}
         {turns.map((t, i) => (
           <div key={i} style={{ alignSelf: t.who === 'you' ? 'flex-end' : 'flex-start', maxWidth: '85%',
@@ -517,7 +523,7 @@ export default function AskTusk({ floating = false, panelOpen = true }) {
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 2 }}>{t.who === 'you' ? 'You' : 'Tusk'}</div>
             <div style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{t.text || (t.who === 'tusk' && state === 'thinking' ? '…' : '')}</div>
             {t.who === 'tusk' && <Receipts intent={t.intent} window={t.window} rows={t.rows} />}
-            {t.who === 'tusk' && t.text && state !== 'thinking' && <Feedback q={t.q} answer={t.text} intent={t.intent} onCorrected={(patch) => patchTurnAt(i, patch)} />}
+            {t.who === 'tusk' && t.text && state !== 'thinking' && <Feedback q={t.q} answer={t.text} intent={t.intent} source={t.source} onCorrected={(patch) => patchTurnAt(i, patch)} />}
           </div>
         ))}
       </div>

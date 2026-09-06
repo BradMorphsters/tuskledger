@@ -355,3 +355,40 @@ def test_briefing_is_short_text(client):
     body = r.json()
     assert set(body) == {"briefing", "source"}
     assert isinstance(body["briefing"], str)
+
+
+# ─── Flagged answers from the phone ──────────────────────────────────────
+
+def test_ask_feedback_requires_token(client):
+    r = client.post("/api/mobile/ask/feedback", json={"items": [{"question": "q", "answer": "a", "rating": "down"}]})
+    assert r.status_code == 401
+
+
+def test_ask_feedback_batch_lands_in_review_log(client, tmp_path, monkeypatch):
+    from app.config import settings
+    from app.services import assistant_feedback as fb
+    monkeypatch.setattr(settings, "ASSISTANT_FEEDBACK_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LLM_ENABLED", False)
+    fb.reset_cache()
+    token = _pair(client)
+    r = client.post("/api/mobile/ask/feedback", headers=_hdr(token), json={"items": [
+        {"question": "how much at costco", "answer": "No charges from Costco.", "rating": "down",
+         "origin": "phone", "intent": "spend_merchant", "comment": "wrong store name", "asked_at": 1700000000.0},
+        {"question": "what's my net worth", "answer": "Your net worth is about $100.", "rating": "up",
+         "origin": "laptop", "source": "retrieval"},
+    ]})
+    assert r.status_code == 200, r.text
+    assert r.json()["recorded"] == 2 and len(r.json()["ids"]) == 2
+    items = fb.review(days=36500, rating="all")
+    assert len(items) == 2
+    down = next(i for i in items if i["rating"] == "down")
+    assert down["device"] == "phone" and down["origin"] == "phone" and down["comment"] == "wrong store name"
+    assert down["asked_at"] == 1700000000.0
+    assert len(fb.pending()) == 1            # the down-thumb opened a diagnosis, the up-thumb didn't
+
+
+def test_ask_feedback_validates_items(client):
+    token = _pair(client)
+    assert client.post("/api/mobile/ask/feedback", headers=_hdr(token), json={"items": []}).status_code == 422
+    assert client.post("/api/mobile/ask/feedback", headers=_hdr(token),
+                       json={"items": [{"question": "q", "answer": "a", "rating": "meh"}]}).status_code == 422

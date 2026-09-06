@@ -557,8 +557,10 @@ export const streamAssistantAsk = (question, history, handlers) =>
 export const getAssistantBriefing = () => request('/assistant/briefing');
 // Feedback loop — thumbs up/down on an answer; a down-thumb is diagnosed and (when fixable) a
 // grounded correction is proposed for approval, which learns a routing override.
-export const submitFeedback = ({ question, answer, rating, intent = null, comment = null }) =>
-  request('/assistant/feedback', { method: 'POST', body: JSON.stringify({ question, answer, rating, intent, comment }) });
+export const submitFeedback = ({ question, answer, rating, intent = null, comment = null, source = null }) =>
+  request('/assistant/feedback', { method: 'POST', body: JSON.stringify({ question, answer, rating, intent, comment, source }) });
+/** The review log — every flagged answer (laptop + phone) with what happened to it since. */
+export const getFeedbackReview = (days = 90, rating = 'down') => request(`/assistant/feedback/review?days=${days}&rating=${rating}`);
 export const getFeedbackIntents = () => request('/assistant/feedback/intents');
 export const feedbackCorrect = (fid, intent) =>
   request(`/assistant/feedback/${fid}/correct`, { method: 'POST', body: JSON.stringify({ intent }) });

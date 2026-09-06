@@ -64,6 +64,64 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 ## Passes
 
+### 2026-09-06 — Pass 12 · Flagged-answer capture (D10 feedback loop → both apps)
+
+**Ask:** "a capture system on the phone app and the computer app where it
+logs bad flagged answers for further review." The laptop already had it
+(👎 → `assistant_feedback` events + diagnosis); the phone had nothing, and
+there was no single readable list.
+
+**Shipped (uncommitted on the Mac):** `assistant_feedback.record()` gains
+`device` / `origin` / `source` / `asked_at`; new `review(days, rating)` joins
+the append-only events with approve/reject outcomes; `review_markdown()`.
+`GET /api/assistant/feedback/review` (json | md). `POST /api/mobile/ask/feedback`
+(device-token auth, batch ≤50, one bad item never loses the rest). Phone:
+`ask/flags.ts` (meta-table queue, single-flight flush after sync and on
+flag, counts in a Zustand store), 👍/👎 under Tusk replies in `AskScreen`
+(👎 → optional note via `Alert.prompt`), Settings "Ask Tusk" section (sent /
+waiting / Send now), cleared on unpair. Web: `AskTusk.jsx` passes `source`
+with each rating and links the review log; `client.js` `getFeedbackReview`.
+Tests: 3 new in `test_assistant_feedback.py`, 3 in `test_mobile_sync.py`.
+
+**Read-only note:** the phone's feedback POST is a note about an answer,
+stored beside the ledger, never in it — accounts/transactions/budgets stay
+read-only from the phone.
+
+**How to use the log:** open `/api/assistant/feedback/review?format=md` on
+the laptop (or the "review log" link in the Ask panel) and paste it into a
+review session; each entry has the exact Q, exact A, device, origin,
+intent, provenance, and any note.
+
+### 2026-09-06 — Pass 11 · Ask Tusk quality — the everyday-question corpus (D10)
+
+**Trigger:** Eduardo: "the responses are not the best." An eval harness of
+~90 common phrasings on a fictional household (LLM off, so the deterministic
+path — what the phone shows and what the model must stay grounded to)
+found the pattern: the router was tuned for the *hard* questions (holdings,
+wash sales, agent status) and tripped on the *easy* ones. Before: 9 of 48
+first-round questions refused or mis-routed, several answers grammatically
+off ("in this month", "across 1.", ISO dates read aloud), "biggest purchase"
+was always the mortgage payment, "duplicates" flagged the daily coffee.
+
+**Shipped (uncommitted on the Mac):** see CHANGELOG "Improved — Ask Tusk".
+Backend: `assistant_retrieval.py` (+12 KB: 7 new retrievers, ~20 router
+rules, `_in()`/`_fmt_day()`/`_now()` helpers, family-aware category
+synonyms, two-pass merchant matching), new `tests/test_ask_common_questions.py`
+(119 tests). Phone: `ask/intent.ts` rewritten (22 intents, ordered rules,
+null over wrong), `ask/local.ts` (synonym table, store↔category fallback,
+cached-insight answers), `AskScreen.tsx` (phone fallback on laptop refusals),
+`scripts/test-ask-intent.mjs` (100 assertions).
+
+**Verification:** 297 backend tests across the assistant, feedback,
+mobile-router and corpus suites pass against Eduardo's current test files;
+node parser suite ALL PASS; Babel + stubbed strict tsc clean. Pre-existing,
+unrelated: 5 `test_insights.py` cases fail on the untouched checkpoint too
+(direct-call `limit=Query(...)` slice) — left for a separate fix.
+
+**Still open:** the model's narration quality (`_maybe_rephrase`) isn't
+exercised here (no Ollama in the container); the 👎 feedback loop remains
+the way to teach routing for phrasings the corpus doesn't cover.
+
 ### 2026-09-06 — Pass 10 · Mobile wave 2 — Ask Tusk on the phone (D10 · D8)
 
 **Why:** D10 (assistant) was the least-exercised dimension and lived only

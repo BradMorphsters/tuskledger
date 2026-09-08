@@ -108,6 +108,26 @@ def test_readonly_device_cookie_blocks_mutations(client):
     assert r.status_code == 403
 
 
+def test_gate_is_not_fooled_by_a_crafted_host_header(client):
+    """The gate must read the path routing actually used, not the one
+    rebuilt from the request's Host header.
+
+    `request.url` is reconstructed from the client-supplied Host, so a Host
+    containing a slash used to push an allowlisted prefix onto the front of
+    `.path` — the gate saw "/api/view/..." and waved the request through
+    while the router still dispatched to the mutating endpoint. Reading
+    `request.scope["path"]` closes that. Regression for the CVE-2026-48710
+    class of bug; a 422 here (body validation) means the mutation was
+    reached and the gate was bypassed.
+    """
+    settings.DEMO_LOCKED = True
+    for host in ("h/api/view/", "h/api/auth/login", "h/api/demo/mode"):
+        r = client.post(
+            "/api/transactions/manual", json={}, headers={"Host": host},
+        )
+        assert r.status_code == 403, f"gate bypassed via Host: {host}"
+
+
 # ---------------------------------------------------------------------------
 # Login brute-force lockout + TOTP replay
 # ---------------------------------------------------------------------------

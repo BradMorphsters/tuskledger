@@ -343,6 +343,9 @@ def _intent_for(q: str) -> Optional[str]:
     # 13) upcoming bills
     if re.search(r"\b(bills?|due|upcoming|owe soon|payments? due)\b", q):
         return "upcoming_bills"
+    # 13b) "largest NON-recurring / one-off charge" — the negation wins over the word "recurring"
+    if _NON_RECURRING.search(q) and (superl or re.search(r"\btop\b", q) or _SPEND.search(q)):
+        return "largest_transactions"
     # 14) subscriptions / recurring (+ "what can I cancel", "when's my next X charge")
     if re.search(r"\b(subscriptions?|recurring|memberships?|streaming|monthly charges?|cancel)\b", q) \
             or re.search(r"\bnext\b.*\b(charge|renewal)\b", q):
@@ -447,6 +450,19 @@ def _result(intent, label, answer, *, rows=None, facts=None, found=True):
 
 
 _LOAN_PAYMENT_CATEGORY = re.compile(r"mortgage|loan|credit card payment|debt payment", re.I)
+_NON_RECURRING = re.compile(r"\b(non[- ]?recurring|one[- ]?off|one[- ]?time|not recurring|non[- ]?subscription|excluding (subscriptions?|bills|recurring))\b")
+
+
+def _recurring_merchants(db) -> set[str]:
+    """Merchants the recurring detector considers cadenced outflows (subscriptions + bills), keyed the
+    same way Transaction.display_name is — so a one-off question can exclude them."""
+    try:
+        from app.routers.analytics import detect_recurring
+        res = detect_recurring(db)
+        items = res.get("recurring") if isinstance(res, dict) else (res or [])
+        return {(r.get("merchant") or "").lower() for r in (items or []) if not r.get("is_income")}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def largest_transactions(db, start, end, label, question: str = "", *, limit: int = 8) -> dict:
@@ -457,22 +473,26 @@ def largest_transactions(db, start, end, label, question: str = "", *, limit: in
     q = (question or "").lower()
     m = re.search(r"\btop\s+(\d{1,2})\b", q)
     want = max(1, min(int(m.group(1)), 10)) if m else (3 if re.search(r"\btop\b", q) else 1)
+    one_off = bool(_NON_RECURRING.search(q))
+    skip = _recurring_merchants(db) if one_off else set()
     txns = (_spend_q(db)
             .filter(Transaction.date >= start, Transaction.date <= end)
-            .order_by(Transaction.amount.desc()).limit(limit + 6).all())
-    txns = [t for t in txns if not _LOAN_PAYMENT_CATEGORY.search(t.display_category or "")][:limit]
+            .order_by(Transaction.amount.desc()).limit(limit + 40 if one_off else limit + 6).all())
+    txns = [t for t in txns if not _LOAN_PAYMENT_CATEGORY.search(t.display_category or "")
+            and (t.display_name or "").lower() not in skip][:limit]
     rows = [{"date": t.date.isoformat(), "merchant": t.display_name,
              "amount": round(float(t.amount), 2), "category": t.display_category} for t in txns]
+    what = "one-off purchase (excluding recurring bills and subscriptions)" if one_off else "single purchase"
     if not rows:
-        return _result("largest_transactions", label, f"I don't see any purchases {_in(label)}.",
+        return _result("largest_transactions", label, f"I don't see any {'one-off ' if one_off else ''}purchases {_in(label)}.",
                        found=False)
     if want > 1:
         shown = rows[:want]
         listing = "; ".join(f"{_money(r['amount'])} at {r['merchant']} ({_fmt_day(r['date'])})" for r in shown)
-        ans = f"Your top {len(shown)} purchases {_in(label)}: {listing}."
+        ans = f"Your top {len(shown)} {'one-off ' if one_off else ''}purchases {_in(label)}: {listing}."
         return _result("largest_transactions", label, ans, rows=rows, facts=[r["amount"] for r in rows])
     top = rows[0]
-    ans = (f"Your most expensive single purchase {_in(label)} was {_money(top['amount'])} "
+    ans = (f"Your most expensive {what} {_in(label)} was {_money(top['amount'])} "
            f"at {top['merchant']} on {_fmt_day(top['date'])}.")
     if len(rows) > 1:
         ans += f" The next was {_money(rows[1]['amount'])} at {rows[1]['merchant']}."
@@ -1250,7 +1270,29 @@ def subscriptions(db, start, end, label, question: str = "") -> dict:
             return _result("subscriptions", "now",
                            f"Your next {tgt.get('merchant')} charge (~{_money(amt)}) is expected around {tgt.get('next_expected')}.",
                            rows=rows, facts=[amt] if amt else [])
-    if re.search(r"\b(most expensive|biggest|priciest|largest)\b", q):
+    if re.search(r"\b(most expensive|biggest|priciest|largest|highest)\b", q):
+        # A named period ("last month", "in August") means the largest charge that actually POSTED then —
+        # not the detector's estimated monthly rate.
+        if re.search(r"\b(this|last|previous)\s+(month|week|year)\b|\byesterday\b|\bsince\b", q) \
+                or re.search(r"\b(january|february|march|april|june|july|august|september|october|november|december)\b", q):
+            names = {(r.get("merchant") or "").lower() for r in subs}
+            hits = [t for t in _spend_q(db).filter(Transaction.date >= start, Transaction.date <= end)
+                    .order_by(Transaction.amount.desc()).limit(500).all()
+                    if (t.display_name or "").lower() in names]
+            if not hits:
+                return _result("subscriptions", label, f"None of your recurring charges posted {_in(label)}.", rows=rows, found=False)
+            t = hits[0]
+            usual = next((r for r in subs if (r.get("merchant") or "").lower() == (t.display_name or "").lower()), {})
+            usual_amt = usual.get("avg_amount")
+            amt = round(float(t.amount), 2)
+            ans = (f"Your largest recurring charge {_in(label)} was {_money(amt)} at {t.display_name} on "
+                   f"{_fmt_day(t.date.isoformat())}" + (f" — it usually runs about {_money(usual_amt)}." if usual_amt else "."))
+            top3 = "; ".join(f"{_money(round(float(x.amount), 2))} {x.display_name}" for x in hits[1:3])
+            if top3:
+                ans += f" Next: {top3}."
+            return _result("subscriptions", label, ans,
+                           rows=[{"merchant": x.display_name, "amount": round(float(x.amount), 2), "date": x.date.isoformat()} for x in hits[:8]],
+                           facts=[round(float(x.amount), 2) for x in hits[:3]] + ([usual_amt] if usual_amt else []))
         top = ranked[0]
         return _result("subscriptions", "now",
                        f"Your most expensive recurring charge is {top.get('merchant')} at about {_money((top.get('annual_cost') or 0) / 12)}/month.",

@@ -470,7 +470,16 @@ async def read_only_gate(request: Request, call_next):
             or request.cookies.get("tuskledger_view") == "readonly"
         )
         if is_readonly_device:
-            path = request.url.path
+            # Read the path from the ASGI scope, NOT from request.url.
+            # request.url is reconstructed from the client-supplied Host
+            # header, so a Host containing a slash can push an allowlisted
+            # prefix onto the front of .path while the router still
+            # dispatches from scope["path"] — i.e. this gate could be
+            # talked out of 403ing a mutation. Starlette hardened its URL
+            # reconstruction in 1.0.1 (CVE-2026-48710), but scope["path"]
+            # is the value routing actually used, so it's the correct
+            # thing to gate on regardless of Starlette version.
+            path = request.scope["path"]
             if not any(path.startswith(p) for p in _MUTATION_ALLOWLIST_PREFIXES):
                 return JSONResponse(
                     status_code=403,

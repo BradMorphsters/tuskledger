@@ -224,20 +224,76 @@ async function topCategories(period: Period): Promise<LocalAnswer> {
   return { answer, basis: `${LOCAL} · transfers excluded`, rows: rows.map((r) => ({ label: r.category, sub: `${Math.round((100 * r.total) / grand)}%`, value: formatCurrency(r.total) })) };
 }
 
-async function biggest(period: Period, limit: number): Promise<LocalAnswer> {
+/**
+ * Merchants that look recurring from the mirror alone: charged in at least 3
+ * of the last 4 months. A phone-side stand-in for the laptop's cadence
+ * detector — good enough to separate "one-off" from "bill/subscription".
+ */
+async function recurringMerchants(now: Date): Promise<Set<string>> {
   const db = await getDb();
-  const rows = await db.getAllAsync<{ name: string; amount: number; date: string; category: string }>(
+  const since = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const rows = await db.getAllAsync<{ name: string; months: number }>(
+    `SELECT LOWER(COALESCE(merchant_name, name)) AS name, COUNT(DISTINCT substr(date, 1, 7)) AS months
+     FROM transactions WHERE date >= ? AND ${SPEND} GROUP BY 1 HAVING months >= 3`, [iso(since)]);
+  return new Set(rows.map((r) => r.name));
+}
+
+async function biggest(period: Period, limit: number, oneOff: boolean, now: Date): Promise<LocalAnswer> {
+  const db = await getDb();
+  const skip = oneOff ? await recurringMerchants(now) : new Set<string>();
+  const all = await db.getAllAsync<{ name: string; amount: number; date: string; category: string }>(
     `SELECT COALESCE(merchant_name, name) AS name, amount, date, ${CAT_SQL} AS category FROM transactions
      WHERE date >= ? AND date < ? AND amount > 0 AND is_transfer = 0
        AND LOWER(${CAT_SQL}) NOT LIKE '%mortgage%' AND LOWER(${CAT_SQL}) NOT LIKE '%loan%'
      ORDER BY amount DESC LIMIT ?`,
-    [period.start, period.end, limit],
+    [period.start, period.end, oneOff ? limit + 40 : limit],
   );
-  if (!rows.length) return { answer: `No purchases recorded ${period.label}.`, basis: LOCAL };
-  const answer = limit > 1
+  const rows = all.filter((r) => !skip.has(r.name.toLowerCase())).slice(0, limit);
+  const what = oneOff ? 'one-off purchase' : 'purchase';
+  if (!rows.length) return { answer: `No ${oneOff ? 'one-off ' : ''}purchases recorded ${period.label}.`, basis: LOCAL };
+  const answer = limit > 1 && !oneOff
     ? `Your top ${rows.length} purchases ${period.label}: ${rows.map((r) => `${formatCurrency(r.amount)} at ${r.name} (${formatDate(r.date)})`).join('; ')}.`
-    : `Your biggest purchase ${period.label}: ${rows[0].name}, ${formatCurrency(rows[0].amount)} on ${formatDate(rows[0].date)}.`;
-  return { answer, basis: `${LOCAL} · transfers and loan payments excluded`, rows: rows.map((r) => ({ label: r.name, sub: formatDate(r.date), value: formatCurrency(r.amount) })) };
+    : `Your biggest ${what} ${period.label}: ${rows[0].name}, ${formatCurrency(rows[0].amount)} on ${formatDate(rows[0].date)}${rows[1] ? `. Next: ${formatCurrency(rows[1].amount)} at ${rows[1].name}` : ''}.`;
+  return {
+    answer,
+    basis: `${LOCAL} · transfers and loan payments excluded${oneOff ? ' · recurring bills and subscriptions excluded' : ''}`,
+    rows: rows.map((r) => ({ label: r.name, sub: formatDate(r.date), value: formatCurrency(r.amount) })),
+  };
+}
+
+async function subscriptions(period: Period | null, largest: boolean, now: Date): Promise<LocalAnswer> {
+  const db = await getDb();
+  const names = await recurringMerchants(now);
+  if (!names.size) return { answer: "I can't see a recurring pattern in the local copy yet — the laptop's detector has the full picture.", basis: LOCAL };
+  const list = [...names].map((n) => `'${n.replace(/'/g, "''")}'`).join(',');
+  if (period) {
+    const rows = await db.getAllAsync<{ name: string; amount: number; date: string }>(
+      `SELECT COALESCE(merchant_name, name) AS name, amount, date FROM transactions
+       WHERE date >= ? AND date < ? AND ${SPEND} AND LOWER(COALESCE(merchant_name, name)) IN (${list})
+         AND LOWER(${CAT_SQL}) NOT LIKE '%mortgage%' AND LOWER(${CAT_SQL}) NOT LIKE '%loan%'
+         AND LOWER(${CAT_SQL}) NOT LIKE '%grocer%' AND LOWER(${CAT_SQL}) NOT LIKE '%dining%' AND LOWER(${CAT_SQL}) NOT LIKE '%gas%'
+       ORDER BY amount DESC LIMIT 12`, [period.start, period.end]);
+    if (!rows.length) return { answer: `None of your recurring charges posted ${period.label}.`, basis: LOCAL };
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    const answer = largest
+      ? `Your largest recurring charge ${period.label}: ${formatCurrency(rows[0].amount)} at ${rows[0].name} on ${formatDate(rows[0].date)}${rows[1] ? `. Next: ${formatCurrency(rows[1].amount)} ${rows[1].name}` : ''}.`
+      : `${plural(rows.length, 'recurring charge')} ${period.label} totaling ${formatCurrency(total)}; largest ${formatCurrency(rows[0].amount)} at ${rows[0].name}.`;
+    return { answer, basis: `${LOCAL} · merchants charged in 3+ of the last 4 months`, rows: rows.map((r) => ({ label: r.name, sub: formatDate(r.date), value: formatCurrency(r.amount) })) };
+  }
+  // No period: typical monthly amount per recurring merchant over the last 3 months.
+  const rows = await db.getAllAsync<{ name: string; monthly: number }>(
+    `SELECT COALESCE(merchant_name, name) AS name, SUM(amount) / 3.0 AS monthly FROM transactions
+     WHERE date >= date('now', '-3 months') AND ${SPEND} AND LOWER(COALESCE(merchant_name, name)) IN (${list})
+       AND LOWER(${CAT_SQL}) NOT LIKE '%mortgage%' AND LOWER(${CAT_SQL}) NOT LIKE '%loan%'
+       AND LOWER(${CAT_SQL}) NOT LIKE '%grocer%' AND LOWER(${CAT_SQL}) NOT LIKE '%dining%' AND LOWER(${CAT_SQL}) NOT LIKE '%gas%'
+     GROUP BY 1 ORDER BY monthly DESC LIMIT 12`);
+  if (!rows.length) return { answer: 'No recurring charges found in the local copy.', basis: LOCAL };
+  const total = rows.reduce((s, r) => s + r.monthly, 0);
+  const answer = largest
+    ? `Your most expensive recurring charge is ${rows[0].name} at about ${formatCurrency(rows[0].monthly)} a month.`
+    : `About ${plural(rows.length, 'recurring charge')} costing roughly ${formatCurrency(total)} a month. Biggest: ${rows[0].name} (~${formatCurrency(rows[0].monthly)}/mo).`;
+  return { answer, basis: `${LOCAL} · 3-month average; the laptop's detector is more precise`, rows: rows.map((r) => ({ label: r.name, value: `${formatCurrency(r.monthly)}/mo` })) };
 }
 
 async function averageSpend(target: string | null, unit: 'purchase' | 'week' | 'month', now: Date): Promise<LocalAnswer> {
@@ -506,7 +562,8 @@ export async function answerLocally(intent: LocalIntent, now: Date = new Date())
     case 'spend_merchant': return spendMerchant(intent.merchant, intent.period, intent.lastOnly, intent.visits);
     case 'spend_compare': return spendCompare(now);
     case 'top_categories': return topCategories(intent.period);
-    case 'biggest_expenses': return biggest(intent.period, intent.limit);
+    case 'biggest_expenses': return biggest(intent.period, intent.limit, intent.oneOff, now);
+    case 'subscriptions': return subscriptions(intent.period, intent.largest, now);
     case 'average_spend': return averageSpend(intent.target, intent.unit, now);
     case 'recent_transactions': return recent(intent.merchant, intent.period);
     case 'income_total': return incomeTotal(intent.period);

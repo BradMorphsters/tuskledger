@@ -75,6 +75,7 @@ def household(db):
             tx(card, -900.0, d, "Card Co", "Transfer", is_transfer=True)
         d += dt.timedelta(days=1)
     tx(card, 640.0, TODAY - dt.timedelta(days=5), "Hardware Barn", "Shopping")
+    tx(card, 300.0, dt.date(2026, 8, 12), "Bike Shop", "Shopping")          # a one-off last month
     tx(card, -45.0, TODAY - dt.timedelta(days=3), "Mega Mart", "Shopping", is_refund=True)
     # a genuine same-day duplicate
     tx(card, 39.99, TODAY - dt.timedelta(days=2), "Gadget Hub", "Shopping")
@@ -144,6 +145,10 @@ ROUTES = [
     ("did anything get more expensive", "unusual_charges"),
     ("Did I get charged twice for anything?", "duplicate_charges"),
     ("What subscriptions am I paying for?", "subscriptions"),
+    ("What was my largest non recurring charge last month", "largest_transactions"),
+    ("biggest one-off purchase last month", "largest_transactions"),
+    ("what was my largest subscription charge last month", "subscriptions"),
+    ("what's my most expensive subscription", "subscriptions"),
     # lists
     ("What did I buy yesterday?", "transaction_search"),
     ("list my transactions over $100 this month", "transaction_search"),
@@ -382,3 +387,27 @@ def test_accounts_overview_names_accounts(household):
 def test_refusal_is_helpful(household):
     r = ask(household, "what's the weather like")
     assert not r["found"] and "try one of those" in r["answer"]
+
+
+# ── from the review log (2026-09-06, phone flag) ────────────────────────
+def test_non_recurring_negation_excludes_subscriptions_and_honours_window(household):
+    r = ask(household, "What was my largest non recurring charge last month")
+    assert r["intent"] == "largest_transactions"
+    assert "one-off" in r["answer"] and "last month" in r["answer"]
+    assert r["answer"].startswith("Your most expensive one-off purchase (excluding recurring bills and subscriptions) last month was $300 at Bike Shop")
+    # The cadenced bills/subscriptions are excluded; an irregular twice-a-month store run is not a
+    # subscription and may legitimately appear as the runner-up.
+    for recurring in ("City Power", "Fiber Net", "StreamBox", "Home Lender"):
+        assert recurring not in r["answer"]
+
+
+def test_largest_subscription_in_a_period_uses_posted_charges(household):
+    r = ask(household, "what was my largest subscription charge last month")
+    assert r["intent"] == "subscriptions" and r["found"]
+    assert "last month" in r["answer"] and "City Power" in r["answer"] and "Aug 14" in r["answer"]
+    assert "usually runs" in r["answer"]
+
+
+def test_most_expensive_subscription_without_period_is_the_rate(household):
+    r = ask(household, "what's my most expensive subscription")
+    assert "/month" in r["answer"]

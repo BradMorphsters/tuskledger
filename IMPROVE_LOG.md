@@ -64,6 +64,65 @@ Scores are 1–5 against best-in-class (see rubric in `IMPROVE_LOOP.md`). Baseli
 
 ## Passes
 
+### 2026-09-06 — Pass 14 · Read-only gate hardened (D6 · D8)
+
+**Found by:** the dependency audit, not a test. Chasing what a Starlette
+upgrade would change surfaced that `read_only_gate` gates on
+`request.url.path` while routing dispatches from `scope["path"]` — and
+`request.url` is rebuilt from the client's `Host` header.
+
+**Confirmed, not theorised:** against the TestClient with `DEMO_LOCKED=true`,
+a POST to a mutating endpoint returned 403 as designed; the identical
+request with `Host: h/api/view/` returned 422 — body validation, meaning
+the gate had been bypassed and the route was reached. On the public demo
+that middleware is the only write guard.
+
+**Fixed:** read `request.scope["path"]`. One line plus a comment
+explaining why, and `test_gate_is_not_fooled_by_a_crafted_host_header`
+in `test_http_security.py` exercising three allowlisted prefixes as
+crafted Hosts. Security suite 14 pass; full suite unchanged before/after
+(same 888 pass / 39 fail / 43 error, all pre-existing environment gaps).
+
+**Worth noting:** this is the CVE-2026-48710 class, and Starlette ≥1.0.1
+hardens URL reconstruction — but `scope["path"]` is the correct thing to
+gate on regardless of version, so the fix doesn't wait on the upgrade
+plan. Audit + six-wave upgrade plan captured separately.
+
+### 2026-09-06 — Pass 13 · First flag from the phone → two router bugs (D10)
+
+**Trigger:** the first 👎 to arrive through the new phone capture. Question
+shape: *"what was my largest non recurring charge last month"*. Both brains
+routed it to `subscriptions`, which (a) ignored the negation — "non
+recurring" was matched as "recurring" — and (b) ignored "last month"
+entirely, answering with the standing monthly rate instead of anything that
+posted in the window. Confident, wrong, and wrong twice. Exactly the class
+of miss the review log exists to catch.
+
+**Fixed, laptop (`assistant_retrieval`):** `_NON_RECURRING` negation guard
+checked before the subscriptions rule; `_recurring_merchants(db)` (the
+detector's merchants) so `largest_transactions` can answer the one-off
+reading — "your most expensive one-off purchase (excluding recurring bills
+and subscriptions) last month was …". `subscriptions` is now period-aware:
+a superlative plus a window reports the largest charge that actually posted
+in that window, with its date and usual rate, and still excludes
+loan/mortgage payments and grocery/dining/fuel-type merchants when the
+question says subscription/membership/streaming. Corpus: +4 routes, +3
+content tests → 299 pass across the four Ask suites.
+
+**Fixed, phone (`ask/intent.ts`, `ask/local.ts`):** same negation guard;
+`biggest_expenses.oneOff` excludes merchants charged in ≥3 of the last 4
+months; new `subscriptions` intent with `period`/`largest` — window → largest
+posted charge among recurring merchants; no window → 3-month average per
+merchant. `scripts/test-ask-intent.mjs` extended; all pass.
+
+**Open question for Eduardo:** his note read the question the other way
+("the largest cost that *was* a sub"). Both readings now work — the plain
+phrasing gives the one-off answer, "largest subscription charge last month"
+gives the recurring one. Confirm which he meant; no figures recorded here.
+
+**Loop note:** capture → review → fix took one sitting. Keep doing it from
+the review log rather than guessing at phrasings.
+
 ### 2026-09-06 — Pass 12 · Flagged-answer capture (D10 feedback loop → both apps)
 
 **Ask:** "a capture system on the phone app and the computer app where it

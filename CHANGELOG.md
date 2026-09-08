@@ -6,6 +6,31 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Security — Read-only gate no longer trusts the Host header
+- `read_only_gate` decided whether to 403 a mutation by testing
+  `request.url.path` against the mutation allowlist. `request.url` is
+  reconstructed from the client-supplied `Host` header, so a `Host`
+  containing a slash pushed an allowlisted prefix onto the front of
+  `.path` while the router still dispatched from `scope["path"]` — the
+  gate waved the request through to the mutating endpoint. Confirmed
+  against the test client: a `DEMO_LOCKED` instance returned 403 for a
+  plain request and routed the same request when the header was crafted.
+  Now reads `request.scope["path"]`, the value routing actually used.
+  Regression test in `test_http_security.py`. This is the CVE-2026-48710
+  class of bug; the fix is independent of the pending Starlette upgrade.
+
+### Fixed — Ask Tusk: "non recurring" and "largest … last month" (pass 13)
+- First fix to come out of the phone review log. "What was my largest
+  non recurring charge last month" was routed to subscriptions on both
+  brains: the negation was missed and the period was ignored. Now
+  "non-recurring / one-off / one-time" questions rank individual purchases
+  with recurring merchants excluded, and a superlative subscription
+  question with a window ("largest subscription charge last month")
+  reports the biggest charge that actually posted in that window, with its
+  date and usual rate. Without a window, "most expensive subscription"
+  still gives the monthly rate. Laptop: `assistant_retrieval`; phone:
+  `ask/intent.ts`, `ask/local.ts`. Corpus tests extended on both.
+
 ### Added — Flagged-answer capture on both apps (pass 12)
 - One review log for Ask Tusk across the laptop and the phone. The web
   panel's existing 👍/👎 now records the answer's provenance; the phone's

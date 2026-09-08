@@ -4,7 +4,7 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-07-07T03:05:01Z",
+    "last_updated": "2026-09-08T15:10:44Z",
     "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
@@ -265,11 +265,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$53.31",
+        "price": "$54.53",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -282,8 +282,8 @@
       "catalysts": [
         {
           "due": "2027-01",
-          "description": "Magnet ramp into DFARS defense-sourcing deadline",
-          "status": "upcoming",
+          "description": "Magnet ramp into DFARS defense-sourcing deadline — Q2-2026 (Aug 6): Independence delivered magnets to GM for qualification testing; initial commercial shipments still expected Q4 2026, then gradual ramp; magnet start-up costs $14.4M in Q2",
+          "status": "in_progress",
           "impact": "high"
         },
         {
@@ -316,6 +316,19 @@
           "url": "https://www.fool.com/investing/2026/07/03/heres-why-shares-in-mp-materials-declined-in-june/",
           "as_of": "2026-07",
           "confidence": "medium"
+        },
+        {
+          "date": "2026-08-06",
+          "title": "MP Q2 2026 results: revenue $108.5M (+89% y/y) on NdPr volume/pricing; adj EBITDA $28.5M (+$41M y/y); new long-term gadolinium deal with US aerospace customer; Independence magnet qualification advancing, GM sales 2026 / Apple 2027 on track. Corrob: StockTitan + MP IR.",
+          "url": "https://www.stocktitan.net/news/MP/mp-materials-reports-second-quarter-2026-zcf328rdr260.html",
+          "confidence": "high"
+        },
+        {
+          "title": "MP Materials Reports Second Quarter 2026 Results",
+          "url": "https://www.stocktitan.net/news/MP/mp-materials-reports-second-quarter-2026-zcf328rdr260.html",
+          "as_of": "2026-08-06",
+          "confidence": "high",
+          "note": "Q2-26: rev +89% y/y to $108.5M; adj EBITDA +$28.5M; NdPr prod 840t (+41%), sales 1,006t; GM qualification magnets delivered; commercial magnet shipments expected Q4-2026"
         }
       ],
       "review": {
@@ -323,18 +336,18 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-07-05",
+      "updated_at": "2026-08-09",
       "price_targets": {
-        "low": 65,
+        "low": 61,
         "base": 79,
-        "high": 94,
+        "high": 100,
         "currency": "USD",
-        "as_of": "2026-06",
+        "as_of": "2026-07",
         "basis": "sell-side analyst consensus (12-mo targets)",
-        "n_analysts": 20,
-        "source": "stockanalysis.com / MarketBeat aggregate (~20 analysts, median ~$79)",
-        "url": "https://stockanalysis.com/stocks/mp/forecast/",
-        "confidence": "high"
+        "n_analysts": 18,
+        "source": "S&P Global aggregate via public.com/TipRanks; Wedbush raise to $100 (Jul 2026), Deutsche Bank cut to $61; some aggregates show low $69",
+        "url": "https://www.tipranks.com/stocks/mp/forecast",
+        "confidence": "medium"
       }
     },
     {
@@ -364,11 +377,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$13.77",
+        "price": "$14.47",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -381,14 +394,14 @@
       "catalysts": [
         {
           "due": "2026-Q4",
-          "description": "Commercial heavy-REE (Dy/Tb) separation",
+          "description": "Commercial heavy-REE (Dy/Tb) separation - Aug 19 2026: terbium oxide produced at the White Mesa Mill (UT) passed ALL qualification testing by the largest permanent-magnet manufacturer in Japan, which confirmed it meets specification and is approved for use in commercial rare-earth permanent-magnet production with no further qualification or validation required. First customer qualification of a US-produced 'heavy' rare earth; Tb oxide ~$5.5M/tonne (Benchmark Mineral Intelligence, CIF Europe). No offtake volume, price or contract disclosed - this is a specification gate, not revenue.",
           "status": "in_progress",
           "impact": "high"
         },
         {
           "due": "2027",
-          "description": "White Mesa Phase 2 REE expansion FID",
-          "status": "upcoming",
+          "description": "White Mesa Phase 2 heavy-REE expansion FID — construction began Jul 29, 2026 (~$104M mill expansion; Phase 1 circuits up to 20 tpa Tb / 120 tpa Dy targeted end-2027, Sm/Eu/Gd end-2028)",
+          "status": "hit",
           "impact": "med"
         },
         {
@@ -399,9 +412,15 @@
         },
         {
           "due": "2027-Q1",
-          "description": "Close $1.9B VAC (Vacuumschmelze) acquisition — mine-to-magnet integration; $718M cash + 65.85M new shares; subject to regulatory/foreign-investment approvals",
-          "status": "upcoming",
+          "description": "Close $1.9B VAC (Vacuumschmelze) acquisition - mine-to-magnet integration; $718M cash + 65.853M new shares (plus up to $135M of new preferred to Ara Partners if UUUU trades below $20.93 at close); $250M Goldman Sachs term-loan commitment to refinance VAC debt; Ara to own 19.9% of UUUU post-close with one board nominee. Company guidance has been CLOSE IN EARLY 2027 since the Jun 23 2026 definitive agreement - 'The transaction is expected to close in early 2027 subject to customary closing conditions, including the receipt of applicable regulatory approvals, including foreign investment, antitrust and other government approvals' - and the Aug 5 2026 Q2 release restates the same early-2027 expectation. CORRECTED 2026-08-22 (scheduled-daily): this catalyst previously read due 2026-Q3 / 'company expects close end of Aug 2026'; that end-August date belongs to the ASM scheme implementation, not VAC. Australian FIRB approval obtained; German/EU foreign-investment and antitrust clearances are the gating items.",
+          "status": "in_progress",
           "impact": "high"
+        },
+        {
+          "due": "2026-Q3",
+          "description": "Close US$299M all-scrip acquisition of Australian Strategic Materials (announced Jan 20, 2026) — COMPLETED Aug 28, 2026. ASM securityholders approved at the Aug 12 Perth scheme meetings; Federal Court of Australia approved both the Share Scheme and Option Scheme; schemes effective Aug 19-20; ASX suspension at the close of Aug 19 and removal from official quotation Aug 31. Consideration: 0.053 new Energy Fuels CDIs + A$0.13 cash per ASM share; A$0.50 cash per ASM option. Adds ASM's operating Korean Metals Plant (Ochang, South Korea) — commercial-scale RE metal and alloy capacity — and the Dubbo project (NSW). Energy Fuels becomes dual-listed (NYSE American / ASX CDIs). Extends the platform from mine/oxide into metals and alloys, one step short of magnets.",
+          "status": "hit",
+          "impact": "med"
         }
       ],
       "risks": [
@@ -433,6 +452,60 @@
           "url": "https://investors.energyfuels.com/2026-06-23-Energy-Fuels-Announces-Definitive-Agreement-to-Acquire-VAC-for-1-9-Billion-Equity-Value",
           "as_of": "2026-07",
           "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels to acquire Australian Strategic Materials (US$299M, Jan 20 2026); scheme meetings moved to Aug 2026, FIRB approved",
+          "url": "https://investors.energyfuels.com/2026-01-20-Energy-Fuels-to-acquire-Australian-Strategic-Materials-to-create-new-mine-to-metal-alloy-rare-earth-champion",
+          "as_of": "2026-07-26",
+          "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels PR Jul 29 2026: commercial-scale heavy-REE plant under construction at White Mesa (~$104M)",
+          "url": "https://investors.energyfuels.com/2026-07-29-Commercial-Scale-Heavy-Rare-Earth-Plant-Now-Under-Construction-in-Utah",
+          "as_of": "2026-08-04",
+          "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels supplementary ASM scheme booklet — meetings Aug 12, implementation ~Aug 28, 2026",
+          "url": "https://www.tradingview.com/news/tradingview:bb63575460215:0-energy-fuels-submits-supplementary-asm-scheme-booklet-disclosing-725m-osc-financing-and-vac-acquisition/",
+          "as_of": "2026-08-05",
+          "confidence": "medium"
+        },
+        {
+          "date": "2026-08-06",
+          "title": "UUUU Q2 2026: revenue $25.1M (+617% y/y), net loss $33.4M, EPS -$0.13 vs -$0.04 est (miss); build-out phase continues (call Aug 6). Corrob: AP/WTOP + MarketBeat.",
+          "url": "https://wtop.com/news/2026/08/energy-fuels-q2-earnings-snapshot/",
+          "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels Q2-2026 results (Aug 5, 2026) - FY uranium production guidance reached in H1; VAC acquisition restated at ~$1.9B with close expected EARLY 2027. CORRECTED 2026-08-22: an earlier version of this entry read 'VAC close expected end of Aug 2026' - that end-August date is the ASM scheme implementation, not VAC. Verified against the Jun 23 2026 definitive-agreement PR and the Aug 5 2026 Q2 PR, both of which say early 2027.",
+          "url": "https://investors.energyfuels.com/2026-08-05-Energy-Fuels-Announces-Q2-2026-Results",
+          "as_of": "2026-08-08",
+          "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels' acquisition of Australian Strategic Materials wins securityholder approval (Aug 12, 2026): 98.23% of shares / 99.97% of options voted in favour; Federal Court approval set Aug 18, scheme effective ~Aug 19, implementation/close Aug 28, 2026",
+          "url": "https://investors.energyfuels.com/2026-08-12-Energy-Fuels-Acquisition-of-Australian-Strategic-Materials-Wins-Shareholder-Approval",
+          "as_of": "2026-08-16",
+          "confidence": "high"
+        },
+        {
+          "title": "ASM ASX announcement Aug 18 2026 (via TipRanks Australian newsdesk): Federal Court of Australia approved the share + option schemes of arrangement for acquisition by EFR Critical Materials (Energy Fuels subsidiary); triggers ASX suspension timetable, effective date Aug 19, implementation Aug 28. Corroborated against ASM's own published timetable (Aug 12 PR: second court hearing 18 Aug 2026; last ASX trading day 19 Aug 2026). ASM corporate site had not yet posted the announcement at time of check.",
+          "url": "https://www.tipranks.com/news/company-announcements/court-clears-energy-fuels-takeover-of-australian-strategic-materials",
+          "as_of": "2026-08-18",
+          "confidence": "medium"
+        },
+        {
+          "title": "Energy Fuels PR Aug 19 2026: '\"Heavy\" Rare Earths Produced by Energy Fuels Qualified for Use by Largest Permanent Magnet Manufacturer in Japan' - White Mesa terbium oxide approved for commercial REPM production, no further qualification required; Tb oxide ~$5.5M/tonne (Benchmark, CIF Europe). Corroborated: Mining Weekly, Seeking Alpha, StockTitan, Investing News Network, SME Mining Engineering. UUUU +8.9% Fri Aug 21 to $15.14, ~+30% MTD.",
+          "url": "https://investors.energyfuels.com/2026-08-19-Heavy-Rare-Earths-Produced-by-Energy-Fuels-Qualified-for-Use-by-Largest-Permanent-Magnet-Manufacturer-in-Japan",
+          "as_of": "2026-08-19",
+          "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels PR Aug 28, 2026: 'Energy Fuels Completes Acquisition of Australian Strategic Materials' — scheme implemented; acquires ASM's operating Korean Metals Plant (Ochang) for commercial-scale RE metal/alloy production plus the Dubbo project. Corroborated: Investing.com, Junior Mining Network, and the Aug 20 Motley Fool AU report confirming scheme effectiveness; ASX removal Aug 31.",
+          "url": "https://www.prnewswire.com/news-releases/energy-fuels-completes-acquisition-of-australian-strategic-materials-302863022.html",
+          "as_of": "2026-08-28",
+          "confidence": "high"
         }
       ],
       "review": {
@@ -440,7 +513,7 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-07-05",
+      "updated_at": "2026-08-29",
       "price_targets": {
         "low": 15,
         "base": 22,
@@ -481,11 +554,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$133.72",
+        "price": "$126.28",
         "market_cap": "~$20B",
         "revenue": "$5.4B FY25",
         "cash": "~$2.7B liq.",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -552,11 +625,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.94",
+        "price": "$6.79",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -623,11 +696,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$12.37",
+        "price": "$12.39",
         "market_cap": "~$1.6B",
         "revenue": "$110M FY25",
         "cash": "~$6M (high debt)",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -694,11 +767,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$70.19",
+        "price": "$57.30",
         "market_cap": "~$1.35B",
         "revenue": "~$86M H1",
         "cash": "n/a",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -765,11 +838,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$73.52",
+        "price": "$76.43",
         "market_cap": "~$23B",
         "revenue": "$4.5B TTM",
         "cash": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -836,11 +909,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$97.50",
+        "price": "$100.74",
         "market_cap": "~$47B",
         "revenue": "C$3.5B FY25",
         "cash": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -876,25 +949,31 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "CCJ analyst panel refreshed (S&P Global Market Intelligence via stockanalysis.com, panel data last updated Sep 3, 2026): 21 analysts, consensus Buy, low $85.57 / avg $130.18 / median $134.70 / high $174.09. Supersedes the June 2026 23-analyst 82/138/173 panel. Latest single actions on the same page: Jefferies (Laurence Alexander) initiates Buy $138 on Sep 3, 2026; Truist reiterates Buy $129->$130 (Aug 12); BofA reiterates Buy $140->$133 (Aug 6); Scotiabank maintains $127 (Aug 5); Stifel maintains $131 (Aug 4).",
+          "url": "https://stockanalysis.com/stocks/ccj/forecast/",
+          "as_of": "2026-09-08",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-09-08",
       "price_targets": {
-        "low": 82,
-        "base": 138,
-        "high": 173,
+        "low": 85.57,
+        "base": 130.18,
+        "high": 174.09,
         "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "sell-side analyst consensus (12-mo)",
-        "n_analysts": 23,
-        "source": "stockanalysis.com / aggregators",
-        "confidence": "high",
-        "url": "https://stockanalysis.com/stocks/ccj/forecast/"
+        "as_of": "2026-09",
+        "basis": "sell-side analyst consensus (12-mo targets); median $134.70",
+        "n_analysts": 21,
+        "source": "stockanalysis.com / S&P Global Market Intelligence aggregate (21 analysts), panel last updated Sep 3, 2026",
+        "url": "https://stockanalysis.com/stocks/ccj/forecast/",
+        "confidence": "high"
       }
     },
     {
@@ -924,11 +1003,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$10.59",
+        "price": "$12.08",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1011,11 +1090,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.32",
+        "price": "$1.24",
         "market_cap": "~$0.6B",
         "revenue": "ramping",
         "cash": "~$112M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1086,7 +1165,7 @@
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1153,15 +1232,15 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$162.13",
+        "price": "$173.89",
         "market_cap": "~$5B (verify)",
         "revenue": "$450-500M guide",
         "cash": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
-      "govt_support": "~$1B+ DOE (HALEU)",
+      "govt_support": "DOE HALEU: $900M task order signed Jul 2026 (options to ~$1.07B total); prior HALEU contract completed ahead of schedule",
       "risk_rating": "High",
       "thesis": {
         "summary": "The pure-play US enrichment monopoly federally funded to replace Russian supply.",
@@ -1176,7 +1255,7 @@
         },
         {
           "due": "2026",
-          "description": "Additional DOE / utility enrichment contracts",
+          "description": "Additional DOE / utility enrichment contracts — latest: Aug 6, 2026 X-energy supply contract (LEU + HALEU for Xe-100/TRISO-X, deliveries from 2030, customer prepayments fund ACP capacity build-out without dilution); Q2-2026 (Aug 6): $900M DOE task order (non-dilutive funding de-risking centrifuge build-out), backlog $4.5B through 2040",
           "status": "hit",
           "impact": "high"
         }
@@ -1199,6 +1278,48 @@
           "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026046801/ex991_haleu900mpr.htm",
           "as_of": "2026-07",
           "confidence": "high"
+        },
+        {
+          "title": "Centrus 8-K / PR Jul 1 2026: $900M DOE HALEU task order; 1 t HALEU UF6 by Mar 2032 + options; prior-contract final 900 kg completed mid-June",
+          "url": "https://www.prnewswire.com/news-releases/centrus-signs-contract-with-department-of-energy-for-900-million-award-intends-to-transition-haleu-production-cascade-to-commercial-operation-302816385.html",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "date": "2026-08-05",
+          "title": "Centrus Q2 2026 (rel. Aug 5 after close): revenue $176.1M (+14% y/y), GAAP EPS $0.77 beat; raised 2026 outlook alongside $900M DOE HALEU award; stock fell ~12% post-print on cost/valuation concerns. Corrob: Investing.com, SimplyWallSt, Yahoo/StockTitan (call Aug 6 8:30am ET).",
+          "url": "https://simplywall.st/stocks/us/energy/nyse-leu/centrus-energy/news/will-leus-2026-beat-and-haleu-expansion-shift-centrus-energy",
+          "confidence": "high"
+        },
+        {
+          "date": "2026-08-06",
+          "title": "Centrus signs LEU+HALEU supply contract with X-energy (Aug 6, 2026): Xe-100 reactors / TRISO-X fuel, deliveries start 2030 from American Centrifuge Plant; includes customer prepayments; expands ~$3B enrichment backlog. Corrob: Centrus IR + TipRanks.",
+          "url": "https://investors.centrusenergy.com/news-releases",
+          "confidence": "high"
+        },
+        {
+          "title": "Centrus Q2-2026 results (Aug 6, 2026) — $900M DOE task order; $4.5B backlog; 2026 revenue guidance $450–500M",
+          "url": "https://www.stocktitan.net/news/LEU/centrus-reports-second-quarter-2026-35seiz49gdqz.html",
+          "as_of": "2026-08-08",
+          "confidence": "high"
+        },
+        {
+          "title": "UBS cuts Centrus price target to $170 from $195, maintains Neutral (Aug 18, 2026) — lower 2026/27/28 adj. EBITDA on higher operating costs tied to rapid hiring; wants more progress on long-term enrichment capacity build-out. Shares -4.9% to ~$167.93. Second broker cut in three weeks (JPMorgan to $178, Jul 29). NOT used to re-base the file's consensus range ($137/$270/$390, 13 analysts, as_of 2026-06) — single-broker prints are not a consensus.",
+          "url": "https://www.investing.com/news/analyst-ratings/ubs-cuts-centrus-energy-stock-price-target-on-higher-costs-93CH-4744290",
+          "as_of": "2026-08-18",
+          "confidence": "high"
+        },
+        {
+          "title": "UBS RAISES Centrus (LEU) price target to $185 from $170, maintains Neutral (on/about Aug 18-19 2026) - adj. EBITDA estimates for 2026/2027/2028 lifted to $60M/$90M/$73M from $45M/$79M/$65M, reflecting the Q2-2026 result and higher gross margins on higher contract average selling prices. IMPORTANT: this file's prior entry recorded a UBS CUT to $170 from $195 dated Aug 18 - that is the EARLIER action in the sequence $245 -> $195 -> $170 -> $185. The latest UBS action is a RAISE, not a cut. Corroborated: Investing.com analyst-ratings desk and MT Newswires (via moomoo); GuruFocus dates the raise Aug 18 2026.",
+          "url": "https://www.investing.com/news/analyst-ratings/ubs-raises-centrus-energy-stock-price-target-on-higher-margins-93CH-4867787",
+          "as_of": "2026-08-19",
+          "confidence": "medium"
+        },
+        {
+          "title": "Northland (Jeff Grampp) RAISES Centrus (LEU) price target to $300 from $275, maintains Outperform (early Sept 2026). Full-panel pull same date: Investing.com consensus 14 analysts, avg $271.86 (low $170 / high $390); consensus rating Buy (11 buy / 5 hold / 0 sell). Corrob: TipRanks-theFly + Investing.com.",
+          "url": "https://www.tipranks.com/news/the-fly/centrus-energy-price-target-raised-to-300-from-275-at-northland-thefly",
+          "as_of": "2026-09-05",
+          "confidence": "medium"
         }
       ],
       "review": {
@@ -1206,24 +1327,18 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-07-03",
+      "updated_at": "2026-09-05",
       "price_targets": {
-        "low": 137,
-        "base": 270,
+        "low": 170,
+        "base": 271.86,
         "high": 390,
         "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "sell-side analyst consensus (12-mo)",
-        "n_analysts": 13,
-        "source": "stockanalysis.com / aggregators",
+        "as_of": "2026-09-05",
+        "basis": "sell-side analyst consensus (12-mo targets) - SEPT 2026 FULL-PANEL PULL, replaces the stale June-2026 panel. 14-analyst panel; consensus rating Buy (11/5/0). Most recent single-broker print is Northland $300 Outperform (raised from $275).",
+        "n_analysts": 14,
+        "source": "Investing.com consensus estimates (corrob. TipRanks)",
         "confidence": "medium",
-        "url": "https://stockanalysis.com/stocks/leu/forecast/"
-      },
-      "sources[-]": {
-        "title": "Centrus July 1, 2026 8-K/PR: signed $900M DOE HALEU task-order contract ($1.07B incl. options); final 900 kg HALEU delivered ahead of schedule; cascade transitioning to commercial operation",
-        "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026046801/ex991_haleu900mpr.htm",
-        "as_of": "2026-07",
-        "confidence": "high"
+        "url": "https://www.investing.com/equities/centrus-energy-consensus-estimates"
       }
     },
     {
@@ -1253,11 +1368,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$61.00",
+        "price": "$72.73",
         "market_cap": "~$92B",
         "revenue": "$25.9B FY25",
         "cash": "~$3.9B",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1324,11 +1439,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$173.87",
+        "price": "$198.76",
         "market_cap": "~$152B",
         "revenue": "$13.4B TTM",
         "cash": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1395,11 +1510,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$26.21",
+        "price": "$34.90",
         "market_cap": "~$2.9B",
         "revenue": "$263M Q1'26",
         "cash": "net debt ~$490M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1466,11 +1581,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$6.97",
+        "price": "$8.45",
         "market_cap": "~$2.2B",
         "revenue": "record FY25",
         "cash": "n/a",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1537,11 +1652,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$23.34",
+        "price": "$27.43",
         "market_cap": "~$8B",
         "revenue": "$757M Q1'26",
         "cash": "~$1.0B",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1608,12 +1723,12 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$7.43",
+        "price": "$5.20",
         "market_cap": "~$1.3B",
-        "revenue": "$125M guide",
-        "cash": "~$90M",
-        "as_of": "2026-07",
-        "source": "company filings / press releases (June 2026)",
+        "revenue": "FY26 guide cut to $60-75M (from $125M); Q2 rev $7.9M, ASP $13.70/lb (-52% y/y), volumes +26%",
+        "cash": "$62.2M cash+treasuries; H1'26 operating cash flow -$20.7M; $100M buyback authorized Aug 19, 2026 (authorization only — ceiling exceeds cash on hand)",
+        "as_of": "2026-09",
+        "source": "Q2-2026 results (Aug 11, 2026) press release / 8-K",
         "price_source": "stooq"
       },
       "govt_support": "$248M DLA contract",
@@ -1631,9 +1746,15 @@
         },
         {
           "due": "2026",
-          "description": "DLA stockpile delivery cadence toward $125M guidance",
+          "description": "DLA stockpile delivery cadence - FY26 gross revenue guidance CUT to $60-75M (from $125M, Aug 11 2026) on antimony ASP collapse (-52% y/y to $13.70/lb) despite volumes +26%; first Q2 shipments delivered (~82k lbs ingots, ~$2.6M invoiced Jun 2026; cumulative govt orders $57.3M)",
           "status": "in_progress",
           "impact": "high"
+        },
+        {
+          "due": "2026-Q3",
+          "description": "Radersburg, MT flotation mill wet commissioning (Jul 7, 2026 ribbon-cutting) — to process ~800 tons of Stibnite Hill antimony ore, feeding the $245M DLA MIL-SPEC contract and future Hydromet refinery plans | FEEDSTOCK UPDATE Aug 25, 2026: ~576 tons of high-grade stibnite ore moved from Stibnite Hill (Thompson Falls, MT) since operations resumed in April 2026, running ~3 truckloads / ~42 tons per operating day — more than double the 2025 daily rate. Ore-supply side of the Radersburg feed is tracking ahead of the ~800-ton design campaign; note this is ore MOVED, not concentrate produced, and FY26 revenue guidance ($60-75M) is unchanged.",
+          "status": "hit",
+          "impact": "med"
         }
       ],
       "risks": [],
@@ -1654,6 +1775,48 @@
           "url": "https://www.accessnewswire.com/newsroom/en/metals-and-mining/united-states-antimony-corporation-provides-update-on-antimony-shipments-to-the-d-1184955",
           "as_of": "2026-07",
           "confidence": "high"
+        },
+        {
+          "title": "UAMY PR Jul 1 2026: first DLA shipments delivered; $57.3M cumulative government orders; expanded Thompson Falls furnaces commissioned",
+          "url": "https://www.stocktitan.net/news/UAMY/united-states-antimony-corporation-provides-update-on-antimony-rbqtyalamvnu.html",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "title": "UAMY PR Jul 7 2026: wet commissioning of Radersburg, MT critical-mineral flotation mill (acquired Jan 2026 for $4.75M + ~$2M upgrades); ~800 tons Stibnite Hill ore",
+          "url": "https://www.stocktitan.net/news/UAMY/united-states-antimony-corporation-announces-today-wet-commissioning-e0b5kj8xjtvv.html",
+          "as_of": "2026-07",
+          "confidence": "high"
+        },
+        {
+          "title": "UAMY Q2-2026 results (Aug 11 2026): revenue $7.9M (vs $10.5M PY), GM 7%; FY26 gross revenue guidance cut to $60-75M from $125M; antimony ASP -52% to $13.70/lb, volumes +26%; $62.2M cash+treasuries. Watch: price normalization is a listed invalidation trigger (China export-curb suspension).",
+          "url": "https://www.juniorminingnetwork.com/junior-miner-news/press-releases/3396-nyse/uamy/208913-united-states-antimony-corporation-reports-second-quarter-and-six-months-ended-june-30-2026-financial-and-operating-results.html",
+          "as_of": "2026-08-11",
+          "confidence": "high"
+        },
+        {
+          "title": "UAMY 8-K Aug 19, 2026: board unanimously authorized a share repurchase program of up to US$100M of common stock (open market, privately negotiated, block trades, Rule 10b5-1; no fixed expiration), citing shares 'deemed to be undervalued' (chairman/CEO Gary Evans). Announced 8 days after the FY26 revenue guidance cut to $60-75M; shares +8% to $5.62 on the day (mkt cap ~$778M). NOTE: authorization only, no repurchases disclosed yet, and the $100M ceiling exceeds the $62.2M cash+treasuries balance against -$20.7M H1'26 operating cash flow. Corrob: Motley Fool (Aug 19), TipRanks, Yahoo Finance/Investing.com 8-K wire.",
+          "url": "https://www.fool.com/investing/2026/08/19/why-united-states-antimony-stock-is-rocketing-high/",
+          "as_of": "2026-08-19",
+          "confidence": "high"
+        },
+        {
+          "title": "UAMY analyst targets reset after the Aug 11 guidance cut: H.C. Wainwright lowered its target to $9.25 from $11.75 (Buy maintained) on/about Aug 12, 2026, citing FY26 revenue guidance cut and spot antimony falling from ~$28/lb to ~$10.50/lb in Q2; an Aug 15 aggregator read put the consensus 12-mo target at $9.25. Both sit BELOW the $10 low in this file's June panel — the recorded 10/13/17 range is stale, not re-based here (single broker + one aggregator is not a full panel).",
+          "url": "https://stocktwits.com/news-articles/markets/equity/uamy-stock-slumps-on-q2-results-analyst-says-buy/cZo8EqlRJWE",
+          "as_of": "2026-08-21",
+          "confidence": "medium"
+        },
+        {
+          "title": "United States Antimony PR Aug 25, 2026: mining update at Stibnite Hill (Thompson Falls, MT) — ~576 tons of high-grade stibnite ore moved since operations resumed April 2026, running ~3 truckloads (~42 tons) per operating day, more than double the 2025 daily rate; framed as strengthening domestic feedstock and reducing reliance on foreign/third-party ore. Operational datapoint only — no change to FY26 revenue guidance of $60-75M.",
+          "url": "https://www.stocktitan.net/news/UAMY/united-states-antimony-provides-update-on-mining-success-at-stibnite-fh08v7g2c2wz.html",
+          "confidence": "high",
+          "as_of": "2026-08-25"
+        },
+        {
+          "title": "UAMY full analyst-panel pull (the item queued as 'worst-calibrated target set in the file'). S&P Global Market Intelligence via stockanalysis.com, panel last updated Aug 13, 2026: 4 analysts, all Strong Buy — low $9.00 / avg $10.44 / median $9.63 / high $13.50. Underlying actions: H.C. Wainwright (Ihle) $12->$9.25 Aug 12; William Blair (Dingmann) Buy, no target, Aug 13; Alliance Global Partners (Sekelsky) $14 May 15; B. Riley (Giles) $11->$13 Mar 24. Note the file's prior n_analysts=10 did not match this source's panel size; 4 is what S&P Global carries. The band no longer sits entirely above where it did, but the low still sits well above the Sept 4 close, so UAMY remains 'oversold' for the rerating component either way.",
+          "url": "https://stockanalysis.com/stocks/uamy/forecast/",
+          "as_of": "2026-09-08",
+          "confidence": "high"
         }
       ],
       "review": {
@@ -1661,24 +1824,18 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-07-03",
+      "updated_at": "2026-09-08",
       "price_targets": {
-        "low": 10,
-        "base": 13,
-        "high": 17,
+        "low": 9.0,
+        "base": 10.44,
+        "high": 13.5,
         "currency": "USD",
-        "as_of": "2026-06",
-        "basis": "sell-side analyst consensus (12-mo)",
-        "n_analysts": 10,
-        "source": "stockanalysis.com / aggregators",
-        "confidence": "medium",
-        "url": "https://stockanalysis.com/stocks/uamy/forecast/"
-      },
-      "sources[-]": {
-        "title": "USAC July 1, 2026 PR: expanded Thompson Falls smelter furnaces commissioned; first DLA deliveries (~82,000 lb, ~$2.6M June invoices); $57.3M cumulative DLA orders",
-        "url": "https://www.accessnewswire.com/newsroom/en/metals-and-mining/united-states-antimony-corporation-provides-update-on-antimony-shipments-to-the-d-1184955",
-        "as_of": "2026-07",
-        "confidence": "high"
+        "as_of": "2026-08",
+        "basis": "sell-side analyst consensus (12-mo targets); median $9.63. THIN PANEL: 4 analysts. Re-based off the June 2026 10/13/17 range, which was flagged stale after the Aug 11 guidance cut.",
+        "n_analysts": 4,
+        "source": "stockanalysis.com / S&P Global Market Intelligence aggregate (4 analysts, all Strong Buy), panel last updated Aug 13, 2026",
+        "url": "https://stockanalysis.com/stocks/uamy/forecast/",
+        "confidence": "medium"
       }
     },
     {
@@ -1708,11 +1865,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$16.21",
+        "price": "$18.47",
         "market_cap": "~$5B",
-        "revenue": "$25M Q1'26 (+221%)",
+        "revenue": "$43.0M Q2'26 (+498% y/y)",
         "cash": "$260M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1725,14 +1882,20 @@
       "catalysts": [
         {
           "due": "2026",
-          "description": "Sangdong ramp to nameplate (revenue surge)",
+          "description": "Sangdong ramp to nameplate (revenue surge) — mill commenced processing operations Jul 1, 2026, treating ~139.7kt stockpile @ ~0.25% WO3; company transitions to saleable tungsten concentrate producer. Jun 2026: $800M convertible senior notes (2.25% due 2031) raised; joined Russell 1000/3000 Jun 29. Q2'26 (Aug 2026 6-K): revenue $43.0M (+498% y/y) at tungsten ~$3,075/MTU — ramp monetizing. NOTE: new shelf registration filed Aug 2026 (potential future equity issuance); ASX delisting final trade Aug 28, 2026. Shelf sized ~US$246.79M (filed Aug 11, 2026), including an ESOP/employee-equity component — earmarked for Sangdong Phase I optimization, potential Phase II and the adjacent molybdenum project. CAPITAL ALLOCATION PIVOT: on Aug 17, 2026 the board approved a new share repurchase program of up to US$300M / 14.4M shares (~5% of shares outstanding as of Aug 14), running 36 months from Aug 24, 2026 via Nasdaq open market and ATSs — announced ~1 week after the ~US$246.79M shelf, so buyback authorization now exceeds shelf capacity; shares +6-7% on the day.",
           "status": "in_progress",
           "impact": "high"
         },
         {
           "due": "2027",
-          "description": "US defense tungsten import ban takes effect",
+          "description": "US defense tungsten import ban takes effect (Jan 1, 2027: DoD procurement barred from China/Russia/Iran/North Korea tungsten). PRECURSOR POLICY NOW IN FORCE — BIS temporary final rule (published Federal Register Aug 6, 2026) is EFFECTIVE Aug 27, 2026 through Aug 27, 2027: US persons selling tungsten waste and scrap (and black mass) must allocate 100% of monthly sales to US persons absent a BIS adjustment/exception. Implements the Jul 30, 2026 Presidential Determination under DPA Sec. 101; company-specific exceptions available on a rolling basis (BIS targets 14-day responses); public comments due Nov 4, 2026. Effect: removes recycled/scrap tungsten units from the export market and tightens ex-China Western primary-tungsten demand ahead of the 2027 ban — supportive of Sangdong's contracted APT pricing. Second-order/indirect for ALM (it is a primary concentrate producer, not a US scrap seller); no company guidance change.",
           "status": "upcoming",
+          "impact": "high"
+        },
+        {
+          "due": "2026-07",
+          "description": "GTP offtake expanded to US$490M contracted annual revenue at current APT pricing; term 15->21 yrs; volume +40% to 4.41M MTU (Jul 14, 2026)",
+          "status": "hit",
           "impact": "high"
         }
       ],
@@ -1748,14 +1911,68 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Almonty PR Jul 1 2026: Sangdong processing plant throughput commenced — first saleable tungsten concentrate (139,700 t stockpile @ ~0.25% WO3); Russell 1000/3000 inclusion July 2026",
+          "url": "https://almonty.com/almonty-commences-processing-operations-at-sangdong-mine/",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "title": "Almonty Jul 14 2026 (6-K/PR): Sangdong offtake with Global Tungsten & Powders expanded to US$490M contracted annual revenue, 21-yr term, +40% volume to 4.41M MTU",
+          "url": "https://investingnews.com/almonty-expands-sangdong-tungsten-offtake-agreement-with-global-tungsten-powders-to-us-490-million-in-contracted-annual-revenue-at-current-apt-pricing/",
+          "as_of": "2026-07-15",
+          "confidence": "high"
+        },
+        {
+          "title": "Almonty PR Jul 1, 2026: Sangdong commences processing operations (transition to producer); Jun 2026 $800M convertible notes",
+          "url": "https://almonty.com/almonty-commences-processing-operations-at-sangdong-mine/",
+          "as_of": "2026-07",
+          "confidence": "high"
+        },
+        {
+          "title": "Media reports late Jul 2026: Almonty voluntary TSX delisting effective Jul 31, 2026; ASX delisting Sep 1 (consolidating on Nasdaq). Index/mandate-driven structural selling cited in ~25% one-week drawdown — non-fundamental; Sangdong ramp and offtake unchanged.",
+          "url": "https://www.newscase.com/almonty-industries-tightens-its-bourse-footprint-as-sangdong-output-begins-and-a-490-million-offtake-deal-locks-in-demand/",
+          "as_of": "2026-07-31",
+          "confidence": "medium"
+        },
+        {
+          "title": "Almonty 6-K Aug 2026: Q2'26 revenue $43.0M (+498% y/y) on tungsten ~$3,075/MTU; new shelf registration filed Aug 2026; ASX CDI final trading Aug 28, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1670061/000149315226002784/ex99-1.htm",
+          "as_of": "2026-08-13",
+          "confidence": "high"
+        },
+        {
+          "title": "Almonty shelf registration filed Aug 11, 2026: ~US$246.79M of common shares registered incl. an ESOP/employee-equity component; framed as a fresh equity overhang funding Sangdong Phase I optimization, Phase II and the adjacent molybdenum project",
+          "url": "https://simplywall.st/stocks/us/materials/nasdaq-alm/almonty-industries/news/is-almonty-industries-alm-new-shelf-and-esop-plan-reframing",
+          "as_of": "2026-08-17",
+          "confidence": "medium"
+        },
+        {
+          "title": "Almonty PR Aug 17, 2026 (Businesswire): new share repurchase program of up to US$300,000,000 / 14,400,000 common shares (~5% of shares outstanding as of Aug 14, 2026), 36-month term commencing Aug 24, 2026, open-market via Nasdaq and ATSs; management cites a gap between the share price and its view of tungsten asset value ahead of the Sangdong ramp. Corrob: TipRanks company announcements, Investing.com, MarketScreener.",
+          "url": "https://www.businesswire.com/news/home/20260817268823/en/Almonty-Announces-New-Share-Repurchase-Program-of-Up-to-US%24300000000",
+          "as_of": "2026-08-17",
+          "confidence": "high"
+        },
+        {
+          "title": "BIS temporary final rule effective Aug 27, 2026–Aug 27, 2027: US sellers of tungsten waste/scrap and black mass must allocate 100% of monthly sales to US persons absent a BIS adjustment/exception. Published in the Federal Register Aug 6, 2026, implementing the Jul 30, 2026 Presidential Determination under DPA Sec. 101; comments due Nov 4, 2026. Corrob: Holland & Knight, Steptoe, Baker McKenzie, Argus Media. Context for ALM: tightens Western tungsten units ahead of the Jan 1, 2027 US defense import ban — indirect (ALM is a primary producer, not a US scrap seller).",
+          "url": "https://www.hklaw.com/en/insights/publications/2026/08/bis-imposes-critical-minerals-export-restrictions-on-black-mass",
+          "as_of": "2026-08-27",
+          "confidence": "high"
+        },
+        {
+          "title": "Jefferies (Laurence Alexander) INITIATES coverage of Almonty Industries at Buy, price target $26.25 (on/about Sept 3-4, 2026) - first sell-side initiation on the Nasdaq listing; thesis is long-dated leverage to Western tungsten re-shoring via Sangdong, Panasqueira, Browns Lake plus planned downstream oxide capacity. Sits inside the existing $18-30 panel, so the range is NOT re-based on one broker. Corrob: Investing.com + DailyPolitical.",
+          "url": "https://in.investing.com/news/stock-market-news/jefferies-initiates-almonty-industries-stock-with-buy-on-tungsten-supply-93CH-5579387",
+          "as_of": "2026-09-05",
+          "confidence": "medium"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-09-05",
       "price_targets": {
         "low": 18,
         "base": 24,
@@ -1796,11 +2013,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.88",
+        "price": "$2.78",
         "market_cap": "~$460M",
         "revenue": "$7.8M Q3'26",
         "cash": "needs capital",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1867,11 +2084,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$5.93",
+        "price": "$3.02",
         "market_cap": "~$4B",
         "revenue": "has revenue",
         "cash": "n/a",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1936,15 +2153,15 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$19.35",
+        "price": "$17.61",
         "market_cap": "~$5.6B",
-        "revenue": "~$6M Q1'26",
-        "cash": "~$1.75B",
-        "as_of": "2026-07",
-        "source": "company filings / press releases (June 2026)",
+        "revenue": "$5.8M Q2'26 (vs ~$8M est - revenue miss)",
+        "cash": "~$1.53B",
+        "as_of": "2026-09",
+        "source": "Q2-2026 results (Aug 10, 2026): $10.3M net loss, ~$1.53B cash; Stillwater 600 t/yr run-rate reaffirmed for Q4-2026",
         "price_source": "stooq"
       },
-      "govt_support": "Commerce $277M + $1.3B loan (CHIPS); DOE $19M",
+      "govt_support": "Commerce $277M + $1.3B loan (CHIPS) — definitive documentation signed (announced with Q2 results, Aug 10 2026); DOE $19M; Serra Verde offtake SPV capitalized at $1.55B (Aug 24, 2026): DoW $750M equity + $500M bank revolver commitment + >=$300M/5yr federal forward purchase",
       "risk_rating": "High",
       "thesis": {
         "summary": "Cash-rich, government-backed mine-to-magnet challenger; Stillwater magnets now shipping.",
@@ -1959,14 +2176,20 @@
         },
         {
           "due": "2026-Q3",
-          "description": "Close TMRC takeout; advance Round Top feasibility",
-          "status": "upcoming",
+          "description": "Close TMRC takeout — COMPLETED Aug 7, 2026 (two-step merger; TMRC now wholly owned; USAR sole operator / 100% economic beneficiary of Round Top; ~3.82M USAR shares issued). Next: advance Round Top feasibility",
+          "status": "hit",
           "impact": "med"
         },
         {
           "due": "2027-Q1",
           "description": "Stillwater Phase 1b to 1,200 t/yr",
           "status": "upcoming",
+          "impact": "high"
+        },
+        {
+          "due": "2026-Q4",
+          "description": "Close Serra Verde (SVRE Holdings) merger — COMPLETED Sept 3, 2026 (announced Sept 4, 2026, 07:00 ET). Consideration: $300M cash + 126,849,307 shares (issuance approved by stockholders Aug 28, 2026), funded alongside the Aug 24 $1.55B government-backed offtake SPV. Adds the Pela Ema mine in Goiás, Brazil — the only scaled non-Asian producer of all four magnetic heavy rare earths — targeting ~4,000 tpa TREO run-rate by end-2026 and a second stage to ~6,400 tpa commissioning within 12 months. Governance: Thras Moraitis (ex-Serra Verde CEO) is President and succeeds Barbara Humpton as CEO on Oct 1, 2026; Sir Mick Davis joins the board. Note: Serra Verde Retained Finance Agreement debt is assumed, and the offtake counterparty must still finalize definitive debt financing.",
+          "status": "hit",
           "impact": "high"
         }
       ],
@@ -1978,6 +2201,14 @@
         {
           "desc": "Added to China's export-restriction list in late June 2026 (alongside MP) — restricted access to Chinese technology/inputs",
           "severity": "med"
+        },
+        {
+          "desc": "Integration + leadership transition risk: the Serra Verde combination closed Sept 3, 2026, and CEO Barbara Humpton retires Oct 1, 2026 with Serra Verde CEO Thras Moraitis succeeding her (Michael Blitzer Executive Chairman) — a new-country, new-asset integration handed to a changing executive team. Also assumes Serra Verde Retained Finance Agreement debt (restrictive covenants) and leaves the offtake SPV counterparty still to finalize definitive debt financing.",
+          "severity": "med"
+        },
+        {
+          "desc": "Shelf capacity + float overhang from the two Sept 4, 2026 S-3 filings: a $1.25B mixed securities shelf (issuance capacity, not issuance — nothing sold, requires effectiveness plus a takedown) and a 126,848,307-share resale registration that makes the Serra Verde consideration shares freely tradable. Watch for a prospectus supplement / 424B takedown as the event that would convert capacity into actual dilution; short interest is already elevated (~45% of float).",
+          "severity": "low"
         }
       ],
       "invalidation_triggers": [
@@ -2003,6 +2234,102 @@
           "url": "https://www.fool.com/investing/2026/07/05/heres-why-shares-in-usa-rare-earth-slumped-23-in-j/",
           "as_of": "2026-07",
           "confidence": "medium"
+        },
+        {
+          "title": "USAR 424B3 / TMRC: special meeting Jul 28 2026 to vote all-stock TMRC merger (3,823,328 USAR shares); USAR to hold 100% of Round Top",
+          "url": "https://www.stocktitan.net/sec-filings/USAR/424b3-usa-rare-earth-inc-prospectus-filed-pursuant-to-rule-424-b-3-64e5b24d9095.html",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR Jul 14 2026 PR: commercial-grade Dy oxide + NdPr oxide produced from recycled Stillwater magnet swarf at Wheat Ridge; swarf projected up to ~30% of future MREO feedstock",
+          "url": "https://www.globenewswire.com/news-release/2026/07/14/3326704/0/en/USA-Rare-Earth-Produces-Commercial-Grade-Dysprosium-Oxide-and-Neodymium-Praseodymium-Oxide-Samples-from-Recycled-Magnet-Material-at-Wheat-Ridge-Facility.html",
+          "as_of": "2026-07-15",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR 8-K Jul 16 2026: Amendment No. 1 to Serra Verde merger agreement — closing now conditioned on the US-govt/private SPV offtake agreement (SV Management Switzerland) being satisfied, non-waived and in full force; Amendment No. 2 to preliminary proxy with updated pro formas",
+          "url": "https://www.sec.gov/Archives/edgar/data/1970622/000121390026078760/ea0296752-8k_usarare.htm",
+          "as_of": "2026-07-19",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR Jul 20 2026 PR: leadership transition — Humpton retires Oct 1; Serra Verde CEO Thras Moraitis named CEO; Blitzer Executive Chairman; Serra Verde combination expected complete end-Aug 2026",
+          "url": "https://www.globenewswire.com/news-release/2026/07/20/3329595/0/en/usa-rare-earth-announces-leadership-transition.html",
+          "as_of": "2026-07-23",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR DEFM14A (definitive merger proxy): Aug 28, 2026 special meeting — approve issuance of 126,849,307 shares for SVRE (Serra Verde) merger + $300M cash; SVRE holders ~34.1% post-close; terminates if not closed by Dec 31, 2026",
+          "url": "https://www.stocktitan.net/sec-filings/USAR/defm14a-usa-rare-earth-inc-merger-proxy-statement-2a262a0d530d.html",
+          "as_of": "2026-07-27",
+          "confidence": "high"
+        },
+        {
+          "title": "TMRC shareholders approve USA Rare Earth merger (special meeting Jul 28, 2026)",
+          "url": "https://www.tipranks.com/news/company-announcements/texas-mineral-resources-shareholders-approve-usa-rare-earth-merger",
+          "as_of": "2026-07-30",
+          "confidence": "medium"
+        },
+        {
+          "title": "USA Rare Earth CEO transition as Serra Verde merger nears completion (Form 425 / press, Jul 20, 2026)",
+          "url": "https://www.stocktitan.net/sec-filings/USAR/425-texas-mineral-resources-corp-business-combination-communication-4510fe316478.html",
+          "as_of": "2026-08-05",
+          "confidence": "medium"
+        },
+        {
+          "title": "USA Rare Earth completes merger with Texas Mineral Resources (closed Aug 7, 2026)",
+          "url": "https://ca.investing.com/news/stock-market-news/usa-rare-earth-completes-merger-with-texas-mineral-resources-93CH-4787907",
+          "as_of": "2026-08-08",
+          "confidence": "medium"
+        },
+        {
+          "title": "USA Rare Earth Q2-2026 results: $10.3M net loss, $1.53B cash (Aug 10, 2026)",
+          "url": "https://www.stocktitan.net/news/USAR/usa-rare-earth-reports-second-quarter-2026-financial-dfolsz2mzdvm.html",
+          "as_of": "2026-08-11",
+          "confidence": "medium"
+        },
+        {
+          "title": "USAR Q2-2026 (Aug 10 2026): revenue $5.82M vs ~$8M est (adj EPS -$0.15 in line; selloff on miss); Blacksburg SC selected as second US metal-making/magnet plant site; intent to invest in Carester; Stillwater >140 employees (200 target by YE), Phase 1a 600 t/yr Q4 reaffirmed, Phase 1b 1,200 t Q1-27.",
+          "url": "https://www.globenewswire.com/news-release/2026/08/10/3342269/0/en/usa-rare-earth-reports-second-quarter-2026-financial-results.html",
+          "as_of": "2026-08-10",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR Q2-2026 release: signed definitive documentation for the U.S. Department of Commerce funding package ($277M award + $1.3B loan) — de-risks the federal capital stack",
+          "url": "https://www.globenewswire.com/news-release/2026/08/10/3342269/0/en/usa-rare-earth-reports-second-quarter-2026-financial-results.html",
+          "as_of": "2026-08-14",
+          "confidence": "high"
+        },
+        {
+          "date": "2026-08-24",
+          "title": "USA Rare Earth PR (Aug 24, 2026): completion of upsized $1.55B capitalization of the U.S. government-backed SPV for Serra Verde offtake — DoW $750M investment (up from $500M), Tier-1 bank commitment letter for up to $500M senior secured revolver, U.S. government forward purchase of >=$300M over 5 years; close expected promptly after the Aug 28 special meeting. Corrob: GlobeNewswire PR, SEC 8-K/DEFA14A ex99, Yahoo Finance, TipRanks, Manila Times.",
+          "url": "https://www.globenewswire.com/news-release/2026/08/24/3349611/0/en/usa-rare-earth-nasdaq-usar-announces-completion-of-upsized-1-55-billion-capitalization-of-the-u-s-government-backed-special-purpose-vehicle-spv-for-serra-verde-offtake.html",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR special meeting Aug 28, 2026 — stockholders approve Serra Verde merger share issuance (126,849,307 shares; 108.25M for / 1.40M against; adjournment also approved). Per company 8-K as summarized by TipRanks newsdesk; meeting date + proposal corroborated by USAR DEFM14A/DEFA14A proxy filings.",
+          "url": "https://www.tipranks.com/news/company-announcements/usa-rare-earth-shareholders-approve-merger-related-share-issuance",
+          "as_of": "2026-08-28",
+          "confidence": "high"
+        },
+        {
+          "title": "USA Rare Earth PR (Sept 4, 2026, 07:00 ET): completion of the combination with Serra Verde Group on Sept 3, 2026 — $300M cash + 126,849,307 shares; adds Pela Ema (Goias, Brazil), the only scaled non-Asian producer of all four magnetic heavy REEs; ~4,000 tpa TREO run-rate targeted by end-2026, stage-2 to ~6,400 tpa commissioning within 12 months; Moraitis President now / CEO Oct 1, Sir Mick Davis to board. Corrob: GlobeNewswire (primary), Investing.com, Manila Times.",
+          "url": "https://www.globenewswire.com/news-release/2026/09/04/3356489/0/en/usa-rare-earth-completes-combination-with-serra-verde-group.html",
+          "as_of": "2026-09-04",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR filed a Form S-3 shelf registration statement on Sept 4, 2026 (same day as the Serra Verde completion PR): a mixed securities shelf of up to $1,250,000,000 (common stock, preferred, debt, warrants, units). Capacity only — no securities offered or sold under it as of this date, and nothing can be sold until it is declared effective and taken down via a prospectus supplement. Corroborated three ways: the SEC filing itself, USAR's own IR static copy, and StockTitan's filing summary; the EDGAR cache independently lists two S-3 forms under recent_raises, which is what flipped the standing dilution_watch alert from 424B3 to 'S-3, S-3'.",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001970622/000121390026097754/ea0304147-s3_usarare.htm",
+          "as_of": "2026-09-04",
+          "confidence": "high"
+        },
+        {
+          "title": "USAR second Form S-3 filed Sept 4, 2026: a RESALE registration covering 126,848,307 shares held by existing holders — i.e. registering the Serra Verde consideration shares (126,849,307 issued, approved at the Aug 28 special meeting) for resale. A resale shelf raises no capital for the company and is not new issuance; it converts already-issued restricted stock into freely tradable stock, so the effect is float/overhang, not dilution of share count.",
+          "url": "https://www.stocktitan.net/sec-filings/USAR/s-3-usa-rare-earth-inc-shelf-registration-statement-4e4f6f91c80d.html",
+          "as_of": "2026-09-04",
+          "confidence": "high"
         }
       ],
       "review": {
@@ -2010,7 +2337,7 @@
         "next_due": "2026-09-12"
       },
       "updated_by": "scheduled-daily",
-      "updated_at": "2026-07-05",
+      "updated_at": "2026-09-08",
       "price_targets": {
         "low": 30,
         "base": 38,
@@ -2051,11 +2378,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.82",
+        "price": "$3.10",
         "market_cap": "~$2.0B",
         "revenue": "pre-revenue",
         "cash": "~$1.21B",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2122,11 +2449,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$21.20",
+        "price": "$25.09",
         "market_cap": "~$2.9B",
         "revenue": "pre-revenue",
         "cash": "~$714M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2139,7 +2466,7 @@
       "catalysts": [
         {
           "due": "2026-H2",
-          "description": "EXIM definitive financing close",
+          "description": "EXIM definitive financing close — reaffirmed in the Aug 17, 2026 Q2 release: Perpetua continues to work through definitive documentation on the $2.9B EXIM senior secured facility (board-approved May 21, 2026) and anticipates closing later in 2026. 13-yr facility, repayments from 2030, funding subject to customary conditions.",
           "status": "upcoming",
           "impact": "high"
         },
@@ -2150,7 +2477,12 @@
           "impact": "high"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "Ongoing Idaho NEPA litigation vs Stibnite federal approvals: preliminary injunction denied Jun 1 2026, but cross-motions for summary judgment pending (heard Jun 24 2026); adverse merits ruling could vacate the ROD/EIS ahead of EXIM $2.9B close and FID (both 2H26)",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "EXIM financing fails to close",
         "Construction cost overruns / multi-year delay",
@@ -2162,14 +2494,38 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Perpetua advances Stibnite after court denies preliminary injunction; summary-judgment cross-motions pending in NEPA case",
+          "url": "https://www.tradingview.com/news/reuters.com,2026:newsml_FWN4290P4:0-perpetua-resources-advances-stibnite-gold-project-after-court-denies-injunction/",
+          "as_of": "2026-07-26",
+          "confidence": "high"
+        },
+        {
+          "date": "2026-08-05",
+          "title": "Perpetua + U.S. Army + Idaho National Laboratory opened modular pilot mineral-processing plant to test antimony extraction from Stibnite ore (domestic antimony-trisulfide supply chain for defense); stock +18.4%. Separately EXIM board approved the $2.9B senior secured loan; definitive close + FID still pending (2026-H2 catalyst unchanged). Corrob: SimplyWallSt, PRNewswire.",
+          "url": "https://simplywall.st/stocks/ca/materials/tsx-ppta/perpetua-resources-shares/news/why-perpetua-resources-tsxppta-is-up-184-after-opening-a-us/amp",
+          "confidence": "high"
+        },
+        {
+          "title": "Perpetua Aug 6 2026 drill results: first exploration drilling in ~decade — 21.3m @ 3.2 g/t Au + 0.9% W (Clark Tunnel Fault Zone), 6.4m @ 16.2 g/t Au + 1.7% Sb near surface; new gold-tungsten zone establishes tungsten as potential second critical mineral; 10,000m 2026 program (~5,800m drilled); tungsten exploration funding proposal submitted to US agencies",
+          "url": "https://www.prnewswire.com/news-releases/perpetua-resources-reports-new-high-grade-gold-and-antimony-discoveries-and-a-new-gold-tungsten-zone-at-stibnite-302845507.html",
+          "as_of": "2026-08-06",
+          "confidence": "high"
+        },
+        {
+          "title": "Perpetua Q2 2026 results (PRNewswire, Aug 17, 2026): continues definitive documentation on the $2.9B EXIM facility, anticipates closing later this year; 13-yr term with repayments beginning 2030. Q2 net loss widened to $97.5M (construction-stage spend). No change to the 2026-H2 close guidance.",
+          "url": "https://www.prnewswire.com/news-releases/perpetua-resources-announces-second-quarter-2026-financial-results-302852455.html",
+          "as_of": "2026-08-17",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-18",
       "price_targets": {
         "low": 28,
         "base": 38,
@@ -2210,15 +2566,15 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.75",
+        "price": "$4.13",
         "market_cap": "~$0.66B",
         "revenue": "pre-revenue",
         "cash": "~$307M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
-      "govt_support": "EXIM up to $800M (LOI)",
+      "govt_support": "EXIM: March 2023 LOI up to $800M (indicative only) + April 2024 preliminary project letter; PPL term sheet leaves the total amount OPEN, scaled to US jobs supported. Aug 10 2026 FS satisfies a key due-diligence requirement and (per company) meets criteria for increased financing, but no committed amount or timeline. Also $10M DoW/DIBC award (milestone-based).",
       "risk_rating": "High",
       "thesis": {
         "summary": "Only US source of niobium + scandium; ~$800M EXIM close would de-risk sharply.",
@@ -2227,14 +2583,14 @@
       "catalysts": [
         {
           "due": "2026",
-          "description": "EXIM ~$800M financing close / FID",
+          "description": "EXIM financing close / FID — 2026 FS completion (Aug 10) satisfies a key EXIM due-diligence requirement from the April 2024 preliminary project letter (PPL); next: detailed engineering, procurement and construction contracting. NOTE the ~$800M is the March 2023 Letter-of-Interest figure, not a commitment: the PPL indicative term sheet left the total amount of EXIM support OPEN, to be scaled to the number of US jobs supported (construction + life of financing) subject to debt-to-equity expectations. NioCorp believes the 2026 FS (better economics, larger reserve, higher job projections) meets the criteria for INCREASED EXIM financing, but states it is currently unable to estimate the total amount, if any, or how long the application process may take, with no assurance a final commitment is negotiated on acceptable terms or at all.",
           "status": "upcoming",
           "impact": "high"
         },
         {
           "due": "2026",
-          "description": "Updated feasibility (potential REE addition)",
-          "status": "upcoming",
+          "description": "Updated feasibility (potential REE addition) — HIT Aug 10, 2026: 2026 FS outlines 8 critical-mineral products (REE added), 40-yr mine life, $4.1B pre-tax NPV8%; completion satisfies a key EXIM due-diligence requirement from the April 2024 preliminary project letter",
+          "status": "hit",
           "impact": "med"
         }
       ],
@@ -2250,14 +2606,26 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "NioCorp 2026 Feasibility Study: 8 made-in-USA critical minerals, 40-yr life, $4.1B pre-tax NPV8% (press release Aug 10, 2026)",
+          "url": "https://www.juniorminingnetwork.com/junior-miner-news/press-releases/391-nasdaq/nb/208834-niocorp-project-to-expand-production-to-8-made-in-usa-critical-minerals-over-a-40-year-mine-life-with-an-estimated-4-1-billion-pre-tax-npv8.html",
+          "as_of": "2026-08-11",
+          "confidence": "medium"
+        },
+        {
+          "title": "NioCorp 2026 FS press release, \"Potential for EXIM Financing Support\": April 2024 PPL indicative term sheet left the total amount of EXIM support open, scaled to US jobs supported; company believes FS meets criteria for increased financing but is \"currently unable to estimate the total amount of EXIM financing, if any\", or the timeline, with no assurance of a final commitment",
+          "url": "https://www.niocorp.com/niocorp-project-to-expand-production-to-8-made-in-usa-critical-minerals-over-a-40-year-mine-life-with-an-estimated-4-1-billion-pre-tax-npv8%C2%B9/",
+          "as_of": "2026-08-28",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-28",
       "price_targets": {
         "low": 8.5,
         "base": 12,
@@ -2298,11 +2666,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.20",
+        "price": "$1.84",
         "market_cap": "~$0.48B",
         "revenue": "pre-revenue",
         "cash": "partly funded",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2367,11 +2735,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.61",
+        "price": "$1.40",
         "market_cap": "~$0.3B",
         "revenue": "pre-commercial",
         "cash": "~CA$74M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2438,11 +2806,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.46",
+        "price": "$3.01",
         "market_cap": "~$0.2-0.3B",
         "revenue": "$5.6M FY25",
         "cash": "capital-intensive",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2509,11 +2877,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.57",
+        "price": "$0.59",
         "market_cap": "micro",
         "revenue": "pre-revenue",
         "cash": "needs capital",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2580,11 +2948,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.29",
+        "price": "$3.14",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "needs equity",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2650,11 +3018,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$2.72",
+        "price": "$2.42",
         "market_cap": "~$0.83B",
         "revenue": "pre-revenue",
         "cash": "$141M, no debt",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2721,11 +3089,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.56",
+        "price": "$9.99",
         "market_cap": "~$1.7B",
         "revenue": "pre-revenue",
         "cash": "$200M facility",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2792,11 +3160,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$4.89",
+        "price": "$6.13",
         "market_cap": "small",
         "revenue": "pre-revenue",
         "cash": "fully funded 2026",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2861,11 +3229,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.87",
+        "price": "$5.51",
         "market_cap": "~$1.0B",
         "revenue": "Eagle revenue",
         "cash": "n/a",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -2930,15 +3298,15 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.94",
+        "price": "$2.44",
         "market_cap": "~$0.24B",
         "revenue": "~nil operating",
         "cash": "~$72.5M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
-      "govt_support": "$1.4B DoW (indirect via ReElement)",
+      "govt_support": "$1.4B DoW (indirect via ReElement); +$25M DoW Industrial Base Fund investment in ReElement Marion, IN refining campus (Jul 14, 2026); DOE selected AREC for award negotiations — Mines & Metals byproduct-recovery pilot, coal-based feedstocks (Jul 9, 2026, pre-award)",
       "risk_rating": "High",
       "thesis": {
         "summary": "Low-capex modular REE refining (the China bottleneck) with POSCO + $200M facility.",
@@ -2953,14 +3321,44 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "medium"
+        },
+        {
+          "title": "AREC PR Jul 14 2026: DoW Economic Defense Unit awards ReElement (AREC minority holding) $25M Industrial Base Fund investment for Marion, IN refining campus — equipment, production lines, working capital",
+          "url": "https://www.accessnewswire.com/newsroom/en/metals-and-mining/reelement-technologies-announces-25-million-department-of-war-investment-to-expan-1190722",
+          "as_of": "2026-07-14",
+          "confidence": "high"
+        },
+        {
+          "title": "AREC PR Jul 9 2026: selected by DOE for award negotiations — Mines & Metals Capacity Expansion, byproduct critical-minerals recovery pilot (Topic 1: coal-based industry; 1 of 5 selected). Pre-award: negotiations only.",
+          "url": "https://investingnews.com/american-resources-corporation-selected-by-u-s-department-of-energy-for-award-negotiations-to-advance-critical-mineral-recovery-from-coal-based-feedstocks/",
+          "as_of": "2026-07-09",
+          "confidence": "medium"
+        },
+        {
+          "title": "AREC 8-K Jul 24 2026: board declares special cash dividend $0.0431/share, payable Aug 25 to holders of record Aug 15 (ex-div Aug 13) — capital-return signal following critical-minerals repositioning (ReElement alignment). Corrob: SEC 8-K ex-99.1, StockTitan, Investing.com.",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001590715/000165495426006850/arec_ex991.htm",
+          "as_of": "2026-07-24",
+          "confidence": "high"
+        },
+        {
+          "title": "AREC PR Aug 7 2026: ReElement launches first commercial-scale germanium production column at Marion, IN - largest chromatography column ReElement intends to deploy; validates commercial-scale chromatographic separation/purification.",
+          "url": "https://ca.finance.yahoo.com/news/american-resources-unit-reelement-hits-124500660.html",
+          "as_of": "2026-08-07",
+          "confidence": "medium"
+        },
+        {
+          "title": "ReElement/AREC PR Aug 19 2026: Minor Source air permit received for ALL FOUR planned production lines at the Marion, IN Supersite — authorizes installation, commissioning and operation (Ge, Ga, Nd/NdPr, Dy, Tb, Gd, Y, Sm from recycled material, industrial byproducts and mineral feedstocks). Company frames it as resolving one of the final non-commercial risks to commissioning. Corrob: Proactive Investors, Mining-Technology, StockTitan, INN.",
+          "url": "https://www.mining-technology.com/news/air-permits-reelements-marion-refinery-indiana/",
+          "as_of": "2026-08-19",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-21",
       "price_targets": {
         "low": 3.25,
         "base": 5,
@@ -3001,11 +3399,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.49",
+        "price": "$0.56",
         "market_cap": "~$0.1B",
         "revenue": "pre-revenue",
         "cash": "~$41.5M",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3072,11 +3470,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.68",
+        "price": "$0.67",
         "market_cap": "~$0.16B",
         "revenue": "pre-revenue",
         "cash": "financing-dep.",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3089,7 +3487,7 @@
       "catalysts": [
         {
           "due": "2026-09",
-          "description": "Federal (FAST-41) permit decision",
+          "description": "Federal (FAST-41) permit decision — Coordinated Project Plan schedule (posted Aug 5, 2025) sets a 13.5-month environmental review with a PROJECTED COMPLETION DATE OF SEPT 29, 2026 (USACE lead agency; Graphite Creek is the first Alaskan mining project on the FAST-41 Permitting Dashboard). As of Sept 8, 2026 no Record of Decision has been announced and dashboard reviews remain 'in progress' — 21 days to the target date. This is the highest-impact dated catalyst in the domain; a slip past Sept 29 should be recorded as 'slipped', not 'missed'.",
           "status": "upcoming",
           "impact": "high"
         },
@@ -3112,14 +3510,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "Graphite One FAST-41 permitting update (Apr 27, 2026): CPP 13.5-month schedule targets Sept 29, 2026 federal permitting decision for Graphite Creek; USACE lead; status 'in progress'.",
+          "url": "https://www.graphiteoneinc.com/graphite-one-provides-fast-41-permitting-update-for-graphite-creek-project/",
+          "as_of": "2026-04-27",
+          "confidence": "medium"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-09-08",
       "price_targets": {
         "low": null,
         "base": null,
@@ -3158,11 +3562,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$3.56",
+        "price": "$3.33",
         "market_cap": "~$0.11B",
         "revenue": "pre-production",
         "cash": "~$21M (gap)",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3228,11 +3632,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$0.13",
+        "price": "$0.19",
         "market_cap": "~$64M",
         "revenue": "some concentrate",
         "cash": "financing gap",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3297,11 +3701,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$51.84",
+        "price": "$41.27",
         "market_cap": "~$10B",
         "revenue": "pre-revenue",
         "cash": "~$2.5B",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3368,11 +3772,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.61",
+        "price": "$9.70",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -3507,11 +3911,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$31.39",
+        "price": "$33.96",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3566,11 +3970,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$78.54",
+        "price": "$90.66",
         "aum": "~$7.5B",
         "expense_ratio": "0.65%",
         "return_1y": "~+96%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3589,14 +3993,26 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "medium"
+        },
+        {
+          "title": "Copper set a fresh record Aug 12, 2026 — Comex $6.7140/lb (~$14,802/t), above the $6.7045 record of Aug 5; LME spot-to-Sep spread widened to ~$370/t, the steepest one-month backwardation since the 2021 squeeze, as exchange warehouse stocks drew down. Supportive tape for the COPX basket.",
+          "url": "https://www.mining.com/copper-price-holds-near-record-as-london-warehouse-bidding-war-looms/",
+          "as_of": "2026-08-16",
+          "confidence": "medium"
+        },
+        {
+          "title": "Copper squeeze partially unwound Aug 17-19, 2026 (Benchmark Mineral Intelligence via mining.com): LME on-warrant stocks +63,000 t in three days (>50%), total LME stocks +28,000 t as cancelled metal was re-warranted across Asia, US and Europe. Cash-to-3-month backwardation peaked near $550/t Monday Aug 17 - widest in over five years - then collapsed to ~$176/t Wednesday Aug 19 from $436/t at Monday's close; 3-month copper $13,885/t Wednesday, down ~$300/t since Monday. Benchmark's Albert Mackenzie attributes much of the apparent tightness to US tariff arbitrage pulling metal into the US, 'making the global market feel tighter than it really is'. Tempers, but does not reverse, the record/squeeze narrative carried in this file since Aug 12.",
+          "url": "https://www.mining.com/copper-inventories-surge-50-easing-lme-squeeze/",
+          "as_of": "2026-08-19",
+          "confidence": "high"
         }
       ],
       "review": {
         "last_reviewed": "2026-06-14",
         "next_due": "2026-09-12"
       },
-      "updated_by": "claude",
-      "updated_at": "2026-06-14"
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-20"
     },
     {
       "id": "URA",
@@ -3625,11 +4041,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$43.88",
+        "price": "$46.06",
         "aum": "~$6.3B",
         "expense_ratio": "0.69%",
         "return_1y": "~+117%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3684,11 +4100,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$116.41",
+        "price": "$119.95",
         "aum": "~$4.7B",
         "expense_ratio": "0.56%",
         "return_1y": "~+73%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3743,11 +4159,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$85.25",
+        "price": "$75.66",
         "aum": "~$3.0B",
         "expense_ratio": "0.53-0.58%",
         "return_1y": "~+117%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3802,11 +4218,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$53.54",
+        "price": "$57.07",
         "aum": "~$1.94B",
         "expense_ratio": "0.75%",
         "return_1y": "~+57%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3861,11 +4277,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$106.46",
+        "price": "$118.62",
         "aum": "~$5.3B",
         "expense_ratio": "0.35%",
         "return_1y": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3920,11 +4336,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$19.17",
+        "price": "$19.96",
         "aum": "~$6.1B",
         "expense_ratio": "~0.35%",
         "return_1y": "tracks U",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -3979,11 +4395,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$58.55",
+        "price": "$65.06",
         "aum": "~$1.8B",
         "expense_ratio": "0.39%",
         "return_1y": "strong",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4038,11 +4454,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$24.03",
+        "price": "$25.96",
         "aum": "~$358M",
         "expense_ratio": "0.80%",
         "return_1y": "~+68%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4097,11 +4513,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$19.16",
+        "price": "$17.59",
         "aum": "~$50M",
         "expense_ratio": "~0.65%",
         "return_1y": "new fund",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4156,11 +4572,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$76.17",
+        "price": "$74.18",
         "aum": "~$2.1B",
         "expense_ratio": "0.75%",
         "return_1y": "~+88%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4215,11 +4631,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$67.45",
+        "price": "$65.70",
         "aum": "~$0.9B",
         "expense_ratio": "0.85%",
         "return_1y": "~+42%",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4274,11 +4690,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$15.37",
+        "price": "$15.54",
         "aum": "~$126M",
         "expense_ratio": "0.59%",
         "return_1y": "positive",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4333,11 +4749,11 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$37.84",
+        "price": "$41.08",
         "aum": "~$833M",
         "expense_ratio": "0.97%",
         "return_1y": "tracks Cu",
-        "as_of": "2026-07",
+        "as_of": "2026-09",
         "source": "issuer fact sheets (June 2026)",
         "price_source": "stooq"
       },
@@ -4385,21 +4801,39 @@
       },
       "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +12",
       "review": {
-        "last_reviewed": "2026-06-22",
-        "next_due": "2026-07-06"
+        "last_reviewed": "2026-08-15",
+        "next_due": "2026-09-12"
       },
       "sources": [
         {
           "title": "Universe review (discovery)",
           "as_of": "2026-06-22",
           "confidence": "low"
+        },
+        {
+          "title": "RIO H1 2026 production (Jul 15): CuEq output +3% YoY; Oyu Tolgoi copper +31% H1; copper C1 cost guidance CUT to US$0.30-0.50/lb (from 0.65-0.75); 2026 copper guidance unchanged 800-870kt; lithium LCE +20% Q2 (Rincon/Sal de Vida/Fenix 1B)",
+          "url": "https://www.argusmedia.com/en/news-and-insights/latest-market-news/2816867-rio-tinto-raises-global-copper-output-cuts-lithium",
+          "as_of": "2026-07-15",
+          "confidence": "high"
+        },
+        {
+          "title": "Rio Tinto H1 2026 results (Jul 29, 2026): underlying EBITDA $14.8B (+28%), FCF $3.8B (+75%), interim dividend +43%; first Simandou high-grade shipments (SimFer >75% complete); lithium production +53%, Oyu Tolgoi copper +31%",
+          "url": "https://www.sec.gov/Archives/edgar/data/0000863064/000086306426000035/ex991results.htm",
+          "as_of": "2026-07-29",
+          "confidence": "high"
+        },
+        {
+          "title": "Rio Tinto Aug 12-13 2026: Tomago Aluminium (Australia's largest smelter, RT-led JV) secured A$2.5B (~$1.8B) federal+NSW support package with 10-yr PPA to 2038 (100% renewable from 2033); 2026 guidance maintained, iron ore sales + lithium output rising",
+          "url": "https://www.riotinto.com/en/news/releases/2026/rio-tinto-welcomes-agreement-to-secure-long-term-future-of-tomago-aluminium",
+          "as_of": "2026-08-13",
+          "confidence": "high"
         }
       ],
-      "updated_by": "universe-review",
-      "updated_at": "2026-06-22",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-15",
       "fundamentals": {
-        "price": "$93.56",
-        "as_of": "2026-07",
+        "price": "$103.27",
+        "as_of": "2026-09",
         "price_source": "stooq"
       }
     },
@@ -4423,21 +4857,33 @@
       },
       "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +6",
       "review": {
-        "last_reviewed": "2026-06-22",
-        "next_due": "2026-07-06"
+        "last_reviewed": "2026-08-15",
+        "next_due": "2026-09-12"
       },
       "sources": [
         {
           "title": "Universe review (discovery)",
           "as_of": "2026-06-22",
           "confidence": "low"
+        },
+        {
+          "title": "Tesla Q2 2026 deliveries 480,126 (+25% YoY, ~74k above consensus); 13.5 GWh storage deployed (+40%); earnings Jul 22",
+          "url": "https://www.cnbc.com/2026/07/02/tesla-tsla-q2-2026-vehicle-delivery-production.html",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "title": "Tesla Q2 2026 results (Jul 22, 2026): revenue $28.24B beat (+10.5% vs est), adj EPS $0.33 miss (vs $0.49 est); GAAP op income -57% y/y, op margin 1.4%; deliveries 480,126 (+25% y/y); storage 13.5 GWh (+40%)",
+          "url": "https://www.cnbc.com/2026/07/22/tesla-tsla-q2-2026-earnings-report.html",
+          "as_of": "2026-07-22",
+          "confidence": "high"
         }
       ],
-      "updated_by": "universe-review",
-      "updated_at": "2026-06-22",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-15",
       "fundamentals": {
-        "price": "$419.56",
-        "as_of": "2026-07",
+        "price": "$354.08",
+        "as_of": "2026-09",
         "price_source": "stooq"
       }
     },
@@ -4461,21 +4907,33 @@
       },
       "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +3",
       "review": {
-        "last_reviewed": "2026-06-22",
-        "next_due": "2026-07-06"
+        "last_reviewed": "2026-08-15",
+        "next_due": "2026-09-12"
       },
       "sources": [
         {
           "title": "Universe review (discovery)",
           "as_of": "2026-06-22",
           "confidence": "low"
+        },
+        {
+          "title": "EnerSys 8-K/PR Jul 23 2026: Greenville SC lithium-cell plant re-scoped — capacity cut to ~1 GWh (from 4-5 GWh), aerospace/defense + specialty industrial focus; revised DOE grant ~$150M + ~$200M state/local incentives; total net investment ~$500M board-approved; Verkor dropped as technology partner",
+          "url": "https://www.stocktitan.net/sec-filings/ENS/8-k-ener-sys-reports-material-event-fb3cf8bc0296.html",
+          "as_of": "2026-07-23",
+          "confidence": "high"
+        },
+        {
+          "title": "EnerSys Q1-FY27 results (Aug 12 2026): EPS $3.66 vs $2.82 est (+30% beat), revenue $935.6M beat; GM +510bps to 33.5% incl. $31M IEEPA tariff refunds + $9M 45X credits; FCF $218M; Q2 guide above consensus; dividend +10%",
+          "url": "https://investor.enersys.com/news/news-details/2026/EnerSys-Reports-First-Quarter-Fiscal-2027-Results/default.aspx",
+          "as_of": "2026-08-12",
+          "confidence": "high"
         }
       ],
-      "updated_by": "universe-review",
-      "updated_at": "2026-06-22",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-15",
       "fundamentals": {
-        "price": "$213.33",
-        "as_of": "2026-07",
+        "price": "$181.91",
+        "as_of": "2026-09",
         "price_source": "stooq"
       }
     },
@@ -4499,21 +4957,33 @@
       },
       "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +2",
       "review": {
-        "last_reviewed": "2026-06-22",
-        "next_due": "2026-07-06"
+        "last_reviewed": "2026-08-15",
+        "next_due": "2026-09-12"
       },
       "sources": [
         {
           "title": "Universe review (discovery)",
           "as_of": "2026-06-22",
           "confidence": "low"
+        },
+        {
+          "title": "NANO Nuclear PR Jul 27 2026 (GlobeNewswire): selected by AFWERX for SBIR Phase I award to advance KRONOS MMR for the U.S. Air Force — new federal (DAF) contract engagement; small dollar (Phase I) but expands defense pathway. Stock +10% Jul 30-31 on the news. Corrob: Yahoo Finance, TradingView/Newsfile.",
+          "url": "https://www.globenewswire.com/news-release/2026/07/27/3333443/0/en/NANO-Nuclear-Energy-Selected-by-AFWERX-for-SBIR-Phase-I-Award-to-Advance-KRONOS-MMR-for-the-U-S-Air-Force.html",
+          "as_of": "2026-07-27",
+          "confidence": "high"
+        },
+        {
+          "title": "NANO Nuclear Q3-FY26 (Aug 12 2026): NRC accepted KRONOS MMR construction-permit application for review (U. of Illinois); closed Secured Transportation Systems acquisition (~$7.1M audited LTM revenue); ~$580M cash/ST investments; revenue $210K (miss), EPS -$0.19 (beat)",
+          "url": "https://www.globenewswire.com/news-release/2026/08/12/3344071/0/en/NANO-Nuclear-Reports-Q3-FY-2026-Financial-Results-and-Provides-Business-Update.html",
+          "as_of": "2026-08-12",
+          "confidence": "high"
         }
       ],
-      "updated_by": "universe-review",
-      "updated_at": "2026-06-22",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-15",
       "fundamentals": {
-        "price": "$20.20",
-        "as_of": "2026-07",
+        "price": "$19.22",
+        "as_of": "2026-09",
         "price_source": "stooq"
       }
     },
@@ -4537,21 +5007,39 @@
       },
       "notes": "Provisional, evidence-based score assigned on universe-review approval; author a thesis to confirm. Basis: tier-1 base 50; ETF weight +0",
       "review": {
-        "last_reviewed": "2026-06-22",
-        "next_due": "2026-07-06"
+        "last_reviewed": "2026-08-15",
+        "next_due": "2026-09-12"
       },
       "sources": [
         {
           "title": "Universe review (discovery)",
           "as_of": "2026-06-22",
           "confidence": "low"
+        },
+        {
+          "title": "Lucid PR Jul 2 2026: Q2 produced 4,774 / delivered 3,953; new CFO/CTO/CCO; 18% US workforce reduction, single-shift manufacturing",
+          "url": "https://www.prnewswire.com/news-releases/lucid-announces-q2-production-and-deliveries-leadership-actions-to-improve-execution-302816643.html",
+          "as_of": "2026-07-09",
+          "confidence": "high"
+        },
+        {
+          "date": "2026-08-05",
+          "title": "Lucid Q2 2026: revenue $405M, loss $3.30/sh, net loss >$1.0B (vs -$539M yr ago); liquidity $3.0B; 'operational reset' targeting $1.4B cash-flow improvements; no updated FY26 guidance; H2 production expected below consensus. Corrob: CNBC, SEC 8-K ex-99.1, StockTitan.",
+          "url": "https://www.cnbc.com/2026/08/04/lucid-group-lcid-earnings-q2-2026.html",
+          "confidence": "high"
+        },
+        {
+          "title": "Lucid Q2-2026 (Aug 4 2026) + aftermath: revenue $405.4M (+56% y/y) but net loss widened to $1.03B; $1.4B operational reset, midsize EV delayed to 2027; CEO denied bankruptcy/going-private rumors; Prince Alwaleed disclosed stake (shares spiked 22%); securities class actions mounting",
+          "url": "https://simplywall.st/stocks/us/automobiles/nasdaq-lcid/lucid-group/news/why-lucid-group-lcid-is-down-139-after-revenue-rose-but-loss",
+          "as_of": "2026-08-04",
+          "confidence": "medium"
         }
       ],
-      "updated_by": "universe-review",
-      "updated_at": "2026-06-22",
+      "updated_by": "scheduled-daily",
+      "updated_at": "2026-08-15",
       "fundamentals": {
-        "price": "$6.65",
-        "as_of": "2026-07",
+        "price": "$4.68",
+        "as_of": "2026-09",
         "price_source": "stooq"
       }
     }

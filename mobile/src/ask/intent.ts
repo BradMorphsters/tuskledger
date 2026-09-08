@@ -22,7 +22,7 @@
  * Intents (all read-only):
  *   help, briefing, spend_total, spend_category, spend_merchant (incl.
  *   lastOnly / visits), spend_compare, top_categories, biggest_expenses,
- *   average_spend, recent_transactions, income_total, cash_flow, balance,
+ *   subscriptions, average_spend, recent_transactions, income_total, cash_flow, balance,
  *   debt_total, net_worth, upcoming_bills (incl. biggest / withinDays),
  *   payment_made, budget_status, affordability, next_paycheck, unusual.
  */
@@ -41,7 +41,8 @@ export type LocalIntent =
   | { kind: 'spend_merchant'; merchant: string; period: Period | null; lastOnly: boolean; visits: boolean }
   | { kind: 'spend_compare' }
   | { kind: 'top_categories'; period: Period }
-  | { kind: 'biggest_expenses'; period: Period; limit: number }
+  | { kind: 'biggest_expenses'; period: Period; limit: number; oneOff: boolean }
+  | { kind: 'subscriptions'; period: Period | null; largest: boolean }
   | { kind: 'average_spend'; target: string | null; unit: 'purchase' | 'week' | 'month' }
   | { kind: 'recent_transactions'; merchant: string | null; period: Period | null }
   | { kind: 'income_total'; period: Period }
@@ -160,6 +161,7 @@ function stripNoise(s: string): string {
     .trim();
 }
 
+const NON_RECURRING = /\b(non[- ]?recurring|one[- ]?off|one[- ]?time|not recurring|non[- ]?subscription)\b/;
 const SPEND_VERB = /\b(spent|spend|spending|paid|pay|paying|cost|blow|blew|dropped|drop|bought|buy|purchases?|expenses?|charges?)\b/;
 const HOW_MUCH = /\b(how much|what did|what have|what've|what'?s|total)\b/;
 const OBJECT_STOP = /^(all|everything|home|work|the store|it|that|things|stuff|money|cash)$/;
@@ -262,10 +264,14 @@ export function parseLocalIntent(question: string, now: Date = new Date()): Loca
   if (/\bwhere (does|is|did|do) (most of )?(my|the) money (go|going|went)\b|\bwhat (am i|do i|did i) spend(ing)? (the )?most on\b|\btop categor|\bbiggest categor|\bbreak ?down\b/.test(q)) {
     return { kind: 'top_categories', period };
   }
-  // ── 10. biggest / top N purchases ────────────────────────────
+  // ── 9a. subscriptions / recurring charges (the negation "non-recurring" is handled below) ──
+  if (/\b(subscriptions?|recurring|memberships?|streaming)\b/.test(q) && !NON_RECURRING.test(q)) {
+    return { kind: 'subscriptions', period: hasTimePhrase(q) ? period : null, largest: /\b(biggest|largest|most expensive|highest|priciest)\b/.test(q) };
+  }
+  // ── 10. biggest / top N purchases (incl. "largest non-recurring / one-off charge") ──
   if (/\b(biggest|largest|top|most expensive)\b/.test(q) && /\b(purchases?|expenses?|charges?|transactions?|spend|buys?)\b/.test(q)) {
     const n = /\btop\s+(\d{1,2})\b/.exec(q);
-    return { kind: 'biggest_expenses', period, limit: n ? Math.min(parseInt(n[1], 10), 10) : /\btop\b/.test(q) ? 3 : 5 };
+    return { kind: 'biggest_expenses', period, limit: n ? Math.min(parseInt(n[1], 10), 10) : /\btop\b/.test(q) ? 3 : 5, oneOff: NON_RECURRING.test(q) };
   }
   // ── 11. averages ─────────────────────────────────────────────
   if (/\b(average|avg|typical|usually|typically|on average)\b/.test(q) || /\b(per|a|each|every) (week|month)\b/.test(q)) {

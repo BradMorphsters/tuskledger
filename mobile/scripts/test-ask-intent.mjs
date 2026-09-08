@@ -60,6 +60,12 @@ eq('restaurants parsed as merchant word (local.ts falls to category)', kind('how
 kind('Where does most of my money go?', 'top_categories');
 kind('what did I spend the most on last month', 'top_categories');
 eq('biggest', kind('biggest purchases this month', 'biggest_expenses').limit, 5);
+eq('biggest is not one-off by default', kind('biggest purchases this month', 'biggest_expenses').oneOff, false);
+eq('non-recurring negation → one-off', kind('What was my largest non recurring charge last month', 'biggest_expenses'), { kind: 'biggest_expenses', period: { label: 'last month', start: '2026-08-01', end: '2026-09-01' }, limit: 5, oneOff: true });
+eq('one-off phrasing', kind('biggest one-off purchase last month', 'biggest_expenses').oneOff, true);
+eq('largest subscription in period', kind('what was my largest subscription charge last month', 'subscriptions'), { kind: 'subscriptions', period: { label: 'last month', start: '2026-08-01', end: '2026-09-01' }, largest: true });
+eq('most expensive subscription (no period)', kind("what's my most expensive subscription", 'subscriptions'), { kind: 'subscriptions', period: null, largest: true });
+eq('subscriptions list', kind('what subscriptions am I paying for', 'subscriptions').largest, false);
 eq('top n', kind('top 3 expenses last month', 'biggest_expenses').limit, 3);
 kind('am I spending more than last month', 'spend_compare');
 kind('how does this month compare to last month', 'spend_compare');

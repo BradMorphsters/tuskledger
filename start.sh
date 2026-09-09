@@ -28,6 +28,52 @@ if [ -n "$env_warning" ]; then
   echo ""
 fi
 
+# ── Port preflight ────────────────────────────────────────────────────
+# The backend port is shared knowledge across four places: uvicorn binds it,
+# the Vite proxy forwards /api to it, services/bonjour advertises it over
+# mDNS, and routers/mobile builds the phone-pairing QR from it. They all read
+# TUSKLEDGER_PORT, so exporting it here keeps the whole stack on one number.
+#
+# We refuse to start when a port is taken rather than starting anyway.
+# Previously uvicorn exited with "address already in use", this script kept
+# going, and `open http://localhost:3000` served a UI whose every /api call
+# landed on whatever OTHER app owned 8000 — which the frontend rendered as a
+# login prompt. Failing loudly here, naming the process, turns a baffling
+# half-hour into a one-line fix.
+TL_PORT="${TUSKLEDGER_PORT:-8000}"
+TL_WEB_PORT="${TUSKLEDGER_WEB_PORT:-3000}"
+export TUSKLEDGER_PORT="$TL_PORT"
+export TUSKLEDGER_WEB_PORT="$TL_WEB_PORT"
+
+port_conflict() {
+  # $1 = port, $2 = human label. Prints a report and returns 0 if occupied.
+  pid="$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1)" || true
+  [ -z "$pid" ] && return 1
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null | head -1 | cut -c1-88)"
+  alt=$(( $1 + 10 ))   # a concrete port to suggest that is NOT the busy one
+  echo ""
+  echo "============================================================"
+  echo "  Port $1 ($2) is already in use."
+  echo "  Tusk Ledger did NOT start."
+  echo ""
+  echo "     PID $pid  ${cmd:-(unknown process)}"
+  echo ""
+  echo "  Stop that process, then try again:"
+  echo "     kill $pid"
+  echo ""
+  echo "  Or run Tusk Ledger alongside it on a different port:"
+  echo "     TUSKLEDGER_PORT=$alt ./start.sh"
+  echo ""
+  echo "  Note: the iOS app follows TUSKLEDGER_PORT too, so after changing"
+  echo "  it, re-pair from http://localhost:$TL_WEB_PORT/pair-phone"
+  echo "============================================================"
+  echo ""
+  return 0
+}
+
+if port_conflict "$TL_PORT" "backend API"; then exit 1; fi
+if port_conflict "$TL_WEB_PORT" "web UI"; then exit 1; fi
+
 # Start backend
 # Bind to 0.0.0.0 instead of 127.0.0.1 when LAN_SYNC_ENABLED=true, so a
 # phone on the same Wi-Fi can reach /api/mobile/*. Default stays
@@ -38,7 +84,7 @@ if [ -f "$SCRIPT_DIR/backend/.env" ] && \
   BACKEND_HOST="0.0.0.0"
   echo "LAN_SYNC_ENABLED=true detected — binding backend to 0.0.0.0 for mobile sync."
 fi
-echo "Starting backend (FastAPI on ${BACKEND_HOST}:8000)..."
+echo "Starting backend (FastAPI on ${BACKEND_HOST}:${TL_PORT})..."
 cd "$SCRIPT_DIR/backend"
 if [ ! -d "venv" ]; then
   echo "Creating Python virtual environment..."
@@ -46,11 +92,11 @@ if [ ! -d "venv" ]; then
 fi
 source venv/bin/activate
 pip install -r requirements.txt --quiet
-uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 &
+uvicorn app.main:app --host "$BACKEND_HOST" --port "$TL_PORT" &
 BACKEND_PID=$!
 
 # Start frontend
-echo "Starting frontend (React on :3000)..."
+echo "Starting frontend (React on :${TL_WEB_PORT})..."
 cd "$SCRIPT_DIR/frontend"
 if [ ! -d "node_modules" ]; then
   echo "Installing frontend dependencies..."
@@ -61,8 +107,8 @@ FRONTEND_PID=$!
 
 echo ""
 echo "✓ Tusk Ledger is running!"
-echo "  → Dashboard: http://localhost:3000"
-echo "  → API:       http://localhost:8000/api/health"
+echo "  → Dashboard: http://localhost:${TL_WEB_PORT}"
+echo "  → API:       http://localhost:${TL_PORT}/api/health"
 echo ""
 echo "Press Ctrl+C to stop."
 

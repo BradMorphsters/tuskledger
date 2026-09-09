@@ -4,7 +4,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
+    port: Number(process.env.TUSKLEDGER_WEB_PORT) || 3000,
+    // Fail instead of silently hopping to 3001 when 3000 is taken. Vite's
+    // default auto-increment is convenient for throwaway projects and wrong
+    // here: the launcher, the iOS pairing URL and the browser it opens all
+    // assume one web port, so a silent hop just moves the confusion.
+    strictPort: true,
     // host: true binds Vite to 0.0.0.0 so devices on your LAN (your
     // phone, an iPad, another laptop) can reach the dev server at
     // your laptop's LAN IP — e.g. http://192.168.1.42:3000. Without
@@ -13,7 +18,13 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        // Backend port comes from TUSKLEDGER_PORT so the whole stack agrees
+        // on one number: the launcher passes it to uvicorn, services/bonjour
+        // advertises it to the iOS app, and routers/mobile builds the pairing
+        // QR from it. Hardcoding it here meant that running the backend
+        // anywhere else silently proxied /api to whatever ELSE owned 8000 —
+        // which surfaced as a login prompt, not as a proxy error.
+        target: `http://127.0.0.1:${process.env.TUSKLEDGER_PORT || 8000}`,
         changeOrigin: true,
       },
     },

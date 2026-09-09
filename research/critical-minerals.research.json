@@ -4,7 +4,7 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-09-08T15:10:44Z",
+    "last_updated": "2026-09-08T21:10:20Z",
     "updated_by": "price-refresh",
     "as_of": "2026-06",
     "base_currency": "USD",
@@ -625,7 +625,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$6.79",
+        "price": "$6.70",
         "market_cap": "~$1.4B",
         "revenue": "EBITDA ~$56M",
         "cash": "n/a",
@@ -1161,7 +1161,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$1.40",
+        "price": "$1.39",
         "market_cap": "~$0.8B",
         "revenue": "$27M FY25",
         "cash": "strong",
@@ -2449,7 +2449,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$25.09",
+        "price": "$24.78",
         "market_cap": "~$2.9B",
         "revenue": "pre-revenue",
         "cash": "~$714M",
@@ -3089,7 +3089,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.99",
+        "price": "$11.04",
         "market_cap": "~$1.7B",
         "revenue": "pre-revenue",
         "cash": "$200M facility",
@@ -3772,7 +3772,7 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$9.70",
+        "price": "$11.18",
         "market_cap": "~$3.3B",
         "revenue": "$0.6M Q1'26",
         "cash": "~$1.2B liq.",
@@ -3911,7 +3911,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$33.96",
+        "price": "$34.50",
         "aum": "~$630M",
         "expense_ratio": "0.65%",
         "return_1y": "~+150%",
@@ -4336,7 +4336,7 @@
         "method": "dimensions.composites.fund"
       },
       "fundamentals": {
-        "price": "$19.96",
+        "price": "$20.24",
         "aum": "~$6.1B",
         "expense_ratio": "~0.35%",
         "return_1y": "tracks U",

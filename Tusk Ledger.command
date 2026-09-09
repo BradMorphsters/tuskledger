@@ -117,6 +117,54 @@ fi
 # /api/mobile/* endpoints. The mobile API has its own X-Device-Token
 # auth, independent of DEV_BYPASS_AUTH, so this isn't loosening the
 # security model — it's only making the LAN bind possible.
+# ── Port preflight ────────────────────────────────────────────────────
+# The backend port is shared knowledge across four places: uvicorn binds it,
+# the Vite proxy forwards /api to it, services/bonjour advertises it over
+# mDNS, and routers/mobile builds the phone-pairing QR from it. They all read
+# TUSKLEDGER_PORT, so exporting it here keeps the whole stack on one number.
+#
+# We refuse to start when a port is taken rather than starting anyway.
+# Previously uvicorn exited with "address already in use", this script kept
+# going, slept 3s, and opened the browser regardless — serving a UI whose
+# every /api call landed on whatever OTHER app owned 8000. The frontend
+# rendered that as a login prompt, which looks like an auth bug and isn't.
+TL_PORT="${TUSKLEDGER_PORT:-8000}"
+TL_WEB_PORT="${TUSKLEDGER_WEB_PORT:-3000}"
+export TUSKLEDGER_PORT="$TL_PORT"
+export TUSKLEDGER_WEB_PORT="$TL_WEB_PORT"
+
+port_conflict() {
+  # $1 = port, $2 = human label. Prints a report and returns 0 if occupied.
+  pid="$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1)" || true
+  [ -z "$pid" ] && return 1
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null | head -1 | cut -c1-88)"
+  alt=$(( $1 + 10 ))   # a concrete port to suggest that is NOT the busy one
+  echo ""
+  echo "============================================================"
+  echo "  Port $1 ($2) is already in use."
+  echo "  Tusk Ledger did NOT start."
+  echo ""
+  echo "     PID $pid  ${cmd:-(unknown process)}"
+  echo ""
+  echo "  Stop that process, then try again:"
+  echo "     kill $pid"
+  echo ""
+  echo "  Or run Tusk Ledger alongside it on a different port — set this"
+  echo "  in Terminal, then launch from there:"
+  echo "     TUSKLEDGER_PORT=$alt \"$PROJECT_DIR/Tusk Ledger.command\""
+  echo ""
+  echo "  Note: the iOS app follows TUSKLEDGER_PORT too, so after changing"
+  echo "  it, re-pair from http://localhost:$TL_WEB_PORT/pair-phone"
+  echo "============================================================"
+  echo ""
+  echo "  (This window stays open so you can read the message.)"
+  read -r -p "  Press Return to close. " _ || true
+  return 0
+}
+
+if port_conflict "$TL_PORT" "backend API"; then exit 1; fi
+if port_conflict "$TL_WEB_PORT" "web UI"; then exit 1; fi
+
 BACKEND_HOST="127.0.0.1"
 if [ -f "$PROJECT_DIR/backend/.env" ] && \
    grep -q '^LAN_SYNC_ENABLED=true' "$PROJECT_DIR/backend/.env"; then
@@ -128,12 +176,12 @@ if [ -f "$PROJECT_DIR/backend/.env" ] && \
   LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
   if [ -n "$LAN_IP" ]; then
     echo "   📱 iOS app: this Mac is ${LAN_IP} on your Wi-Fi — the app should auto-find it (Bonjour)."
-    echo "      If it won't connect, re-scan the QR on the Pair phone page: http://localhost:3000/pair-phone"
+    echo "      If it won't connect, re-scan the QR on the Pair phone page: http://localhost:${TL_WEB_PORT}/pair-phone"
   else
     echo "   📱 iOS app: couldn't read a Wi-Fi IP — make sure this Mac is on Wi-Fi, not Ethernet-only."
   fi
 fi
-echo "Starting backend (FastAPI on http://${BACKEND_HOST}:8000)..."
+echo "Starting backend (FastAPI on http://${BACKEND_HOST}:${TL_PORT})..."
 cd "$PROJECT_DIR/backend"
 
 # Python venvs aren't relocatable — every script in venv/bin/ (pip,
@@ -163,11 +211,11 @@ source venv/bin/activate
 python -m pip install --upgrade pip --quiet 2>&1 || true
 pip install -r requirements.txt --quiet 2>&1
 
-uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 --reload &
+uvicorn app.main:app --host "$BACKEND_HOST" --port "$TL_PORT" --reload &
 BACKEND_PID=$!
 
 # --- Frontend ---
-echo "Starting frontend (Vite on http://localhost:3000)..."
+echo "Starting frontend (Vite on http://localhost:${TL_WEB_PORT})..."
 cd "$PROJECT_DIR/frontend"
 
 if [ ! -d "node_modules" ]; then
@@ -182,12 +230,12 @@ FRONTEND_PID=$!
 sleep 3
 
 # Open the dashboard in the default browser.
-open "http://localhost:3000"
+open "http://localhost:${TL_WEB_PORT}"
 
 echo ""
 echo "Tusk Ledger is running:"
-echo "  Dashboard: http://localhost:3000"
-echo "  API:       http://localhost:8000/api/health"
+echo "  Dashboard: http://localhost:${TL_WEB_PORT}"
+echo "  API:       http://localhost:${TL_PORT}/api/health"
 echo ""
 echo "Press Ctrl+C or close this window to stop both servers."
 

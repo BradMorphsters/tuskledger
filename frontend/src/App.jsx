@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import RouteErrorBoundary from './components/RouteErrorBoundary'
+import BackendUnreachable from './components/BackendUnreachable'
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -123,9 +124,22 @@ export default function App() {
   const refreshAuth = async () => {
     try {
       const status = await getAuthStatus()
-      setAuthState({ loading: false, ...status })
+      setAuthState({ loading: false, backendDown: false, ...status })
     } catch (err) {
-      setAuthState({ loading: false, setup_required: true, authenticated: false })
+      // A healthy backend answers /auth/status with 200 and reports
+      // setup_required / authenticated in the body — it never throws to say
+      // "you're logged out". So a throw here means we couldn't reach OUR
+      // backend: it isn't running, another app has its port, or the proxy
+      // points elsewhere. Rendering Login for that is a lie that hides a
+      // port conflict behind a password prompt the user may not even have
+      // (DEV_BYPASS_AUTH operators never set one).
+      setAuthState({
+        loading: false,
+        setup_required: false,
+        authenticated: false,
+        backendDown: true,
+        backendError: err?.status ? `HTTP ${err.status}` : (err?.message || 'no response'),
+      })
     }
   }
 
@@ -209,6 +223,13 @@ export default function App() {
         </div>
       </div>
     )
+  }
+
+  // Backend unreachable. Must come BEFORE the pre-auth branch: an API we
+  // can't reach is not the same thing as a session we don't have, and only
+  // one of those is fixed by logging in.
+  if (authState.backendDown) {
+    return <BackendUnreachable detail={authState.backendError} onRetry={refreshAuth} />
   }
 
   // Pre-auth screens (Setup or Login). Both get a "Try the demo →" button

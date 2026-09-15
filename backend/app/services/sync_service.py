@@ -24,6 +24,7 @@ from app.services.plaid_service import (
     get_investments_holdings,
     get_investments_transactions,
     get_liabilities,
+    get_item_status,
     parse_plaid_error,
 )
 from app.services.categories import map_plaid_category
@@ -42,6 +43,141 @@ log = logging.getLogger(__name__)
 INVESTMENT_ACCOUNT_TYPES = {"investment"}
 
 
+# How long Plaid may go without a successful pull from an institution before
+# the connection counts as stale. Plaid refreshes transactions at least daily
+# (usually several times a day), so two days without one is an outage on
+# Plaid's or the bank's side, not normal cadence.
+ITEM_STALE_AFTER_HOURS = 48
+
+
+def _parse_plaid_ts(value):
+    """Plaid timestamps are ISO-8601 UTC ("2026-09-08T14:03:11Z"). Returns an
+    aware datetime, or None when missing or unparseable. (fromisoformat only
+    accepts a trailing "Z" from Python 3.11, hence the replace.)"""
+    if not value:
+        return None
+    if isinstance(value, datetime.datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+
+
+def _product_status(item_status, investment: bool) -> dict:
+    """Refresh timestamps for the Plaid product that feeds this kind of
+    account: investments for brokerage/401(k)/IRA, transactions for everything
+    else. Falls back to the other product when Plaid reports nothing for the
+    preferred one."""
+    if not item_status:
+        return {}
+    order = ("investments", "transactions") if investment else ("transactions", "investments")
+    for name in order:
+        s = item_status.get(name) or {}
+        if s.get("last_successful_update") or s.get("last_failed_update"):
+            return s
+    return {}
+
+
+def plaid_data_as_of(item_status, account_type, today: datetime.date) -> datetime.date:
+    """The date Plaid's cached balance for an account actually reflects.
+
+    /accounts/get never forces a refresh — it returns whatever Plaid last
+    pulled. Stamping `today` on every sync therefore claimed freshness Plaid
+    didn't have: a bank connection could stop updating for a week while every
+    account still read "as of today" and the stale-account check stayed
+    silent. Use the item's last successful pull instead. Fall back to `today`
+    only when Plaid reports no timestamp (brand-new item, /item/get
+    unavailable), which is exactly the old behavior.
+    """
+    s = _product_status(item_status, investment=(account_type in INVESTMENT_ACCOUNT_TYPES))
+    ts = _parse_plaid_ts(s.get("last_successful_update"))
+    if ts is None:
+        return today
+    return min(ts.astimezone().date(), today)
+
+
+def assess_item_health(item_status, *, has_cash_accounts: bool, now=None, check_error=None) -> dict:
+    """Classify one Plaid item's connection from its summarized /item/get.
+
+    status:
+      "error"   — Plaid has the item in an error state (e.g. ITEM_LOGIN_REQUIRED);
+                  fix is usually Reconnect (update mode).
+      "stale"   — no error flag, but Plaid hasn't pulled from the bank in
+                  ITEM_STALE_AFTER_HOURS. Syncs keep "succeeding" on cached data.
+      "ok"      — pulled recently.
+      "unknown" — Plaid reported no timestamps, or /item/get itself failed.
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    base = {
+        "status": "unknown",
+        "error": None,
+        "last_successful_update": None,
+        "last_failed_update": None,
+        "hours_since_update": None,
+        "last_attempt_failed": False,
+        "message": "",
+    }
+    if check_error is not None:
+        return {**base, "message": f"Couldn't check this connection with Plaid: {check_error}"}
+    if not item_status:
+        return {**base, "message": "Plaid didn't report a connection status for this item."}
+
+    s = _product_status(item_status, investment=not has_cash_accounts)
+    last_ok = _parse_plaid_ts(s.get("last_successful_update"))
+    last_fail = _parse_plaid_ts(s.get("last_failed_update"))
+    failing = bool(last_fail and (last_ok is None or last_fail > last_ok))
+    out = {
+        **base,
+        "last_successful_update": s.get("last_successful_update"),
+        "last_failed_update": s.get("last_failed_update"),
+        "last_attempt_failed": failing,
+        "error": item_status.get("error"),
+    }
+    if last_ok is not None:
+        out["hours_since_update"] = round((now - last_ok).total_seconds() / 3600, 1)
+
+    err = item_status.get("error")
+    if err:
+        detail = err.get("display_message") or err.get("message") or ""
+        out["status"] = "error"
+        out["message"] = (
+            f"Plaid reports {err.get('code') or 'an error'} for this connection"
+            + (f": {detail}" if detail else ".")
+            + " Reconnect it to resume updates."
+        )
+        return out
+    if last_ok is None:
+        out["message"] = "Plaid hasn't completed an update for this connection yet."
+        return out
+    if out["hours_since_update"] > ITEM_STALE_AFTER_HOURS:
+        local = last_ok.astimezone()
+        days = int(out["hours_since_update"] // 24)
+        out["status"] = "stale"
+        out["message"] = (
+            f"Plaid hasn't pulled new data from this bank since {local:%b} {local.day} "
+            f"({days} day{'s' if days != 1 else ''} ago)"
+            + ("; its latest attempt failed." if failing else ".")
+            + " Transactions and balances after that date are missing until it recovers"
+            " — try Reconnect."
+        )
+        return out
+    out["status"] = "ok"
+    out["message"] = f"Updated from the bank {out['hours_since_update']:.0f}h ago."
+    return out
+
+
+def _fetch_item_status(client, access_token: str, item):
+    """/item/get wrapper that can never break a sync. Returns (summary, error)."""
+    try:
+        return get_item_status(client, access_token), None
+    except Exception as e:  # noqa: BLE001
+        log.warning("item status check failed for item %s: %s", getattr(item, "id", "?"), e)
+        return None, str(e)[:200]
+
+
 def sync_all_items(db: Session):
     """Sync transactions and balances for all linked Plaid items."""
     client = get_plaid_client()
@@ -49,16 +185,24 @@ def sync_all_items(db: Session):
     results = []
 
     for item in items:
+        # Captured up front: after a rollback the instance is expired, and the
+        # error entry shouldn't depend on reloading it.
+        ident = {"item_id": item.item_id, "id": item.id, "institution_name": item.institution_name}
         try:
             result = sync_single_item(db, client, item)
-            results.append({"item_id": item.item_id, "status": "ok", **result})
+            results.append({**ident, "status": "ok", **result})
         except Exception as e:
             # Roll back this item's partial writes. Without this, the
             # uncommitted rows added before the failure stay pending in the
             # session and get committed by the NEXT item's sync_single_item
             # commit — silently persisting a half-synced item.
             db.rollback()
-            results.append({"item_id": item.item_id, "status": "error", "error": str(e)})
+            results.append({
+                **ident, "status": "error", "error": str(e),
+                # str() of a Plaid ApiException is the whole HTTP transcript;
+                # this is the readable part for the UI.
+                "plaid_error": parse_plaid_error(e),
+            })
 
     # Re-detect transfers across the full transaction set. Cheap against a
     # local SQLite DB; runs after sync so newly-inserted rows are seen.
@@ -87,6 +231,10 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
 
     # --- Sync balances ---
     plaid_accounts = get_account_balances(client, access_token)
+    # /accounts/get serves Plaid's cache, so ask /item/get when Plaid last
+    # actually reached the bank — that date, not today, is what the cached
+    # balances reflect.
+    item_status, item_status_error = _fetch_item_status(client, access_token, item)
     today = datetime.date.today()
     for pa in plaid_accounts:
         account = db.query(Account).filter_by(plaid_account_id=str(pa["account_id"])).first()
@@ -110,12 +258,12 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
         account.available_balance = float(available) if available is not None else None
         currency = balance.get("iso_currency_code") or "USD"
         account.currency = str(currency)
-        # Stamp the sync timestamp on the account so freshness indicators
-        # (Trading Tax page, Account Freshness component, stale-balance
-        # alerts) reflect that we successfully pulled fresh data — even
-        # in years/days where there were no transactions to advance the
-        # txn_max derivation.
-        account.balance_as_of = today
+        # Stamp the date these balances are really from so freshness
+        # indicators (Trading Tax page, Account Freshness component,
+        # stale-balance alerts) tell the truth — including on days with no
+        # transactions to advance the txn_max derivation. See
+        # plaid_data_as_of for why this isn't simply `today`.
+        account.balance_as_of = plaid_data_as_of(item_status, str(pa["type"]), today)
 
     db.flush()
 
@@ -253,7 +401,51 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
         "investment_transactions_added": inv_added,
         "holdings": holdings_count,
         "liabilities_updated": liabilities_count,
+        # A sync can "succeed" on Plaid's cached data while the bank
+        # connection is broken; health says whether anything new can arrive.
+        "health": assess_item_health(
+            item_status,
+            has_cash_accounts=has_cash_accounts,
+            check_error=item_status_error,
+        ),
     }
+
+
+def item_health_report(db: Session, client=None, fetch=None, now=None) -> list:
+    """Connection health for every linked Plaid item, straight from /item/get.
+
+    Backs GET /api/plaid/items/health. `fetch` defaults to get_item_status and
+    is injectable so tests never touch the network.
+    """
+    from sqlalchemy import func
+
+    fetch = fetch or get_item_status
+    if client is None and fetch is get_item_status:
+        client = get_plaid_client()
+    latest_by_account = dict(
+        db.query(Transaction.account_id, func.max(Transaction.date))
+        .group_by(Transaction.account_id)
+        .all()
+    )
+    report = []
+    for item in db.query(PlaidItem).order_by(PlaidItem.id).all():
+        accounts = db.query(Account).filter_by(plaid_item_id=item.id).all()
+        has_cash = any(a.type not in INVESTMENT_ACCOUNT_TYPES for a in accounts)
+        latest = [latest_by_account.get(a.id) for a in accounts if latest_by_account.get(a.id)]
+        summary, check_error = None, None
+        try:
+            summary = fetch(client, decrypt_token(item.access_token))
+        except Exception as e:  # noqa: BLE001
+            check_error = str(e)[:200]
+        health = assess_item_health(summary, has_cash_accounts=has_cash, now=now, check_error=check_error)
+        report.append({
+            "id": item.id,
+            "institution_name": item.institution_name,
+            "account_ids": [a.id for a in accounts],
+            "latest_transaction_date": max(latest).isoformat() if latest else None,
+            **health,
+        })
+    return report
 
 
 # ---------------------------------------------------------------------------

@@ -394,3 +394,95 @@ def get_account_balances(client: plaid_api.PlaidApi, access_token: str) -> list:
     request = AccountsGetRequest(access_token=access_token)
     response = client.accounts_get(request)
     return response["accounts"]
+
+
+def _plaid_post(path: str, payload: dict, timeout: int = 30) -> dict:
+    """POST ``payload`` (plus our client credentials) to a Plaid endpoint and
+    return the parsed JSON body.
+
+    Same rationale as ``get_liabilities``: plaid-python's generated response
+    models validate strictly, and this SDK pin is old enough that newer enum
+    values Plaid now returns (product names, error codes) can make it raise on
+    an otherwise healthy response. Diagnostic calls must not fail for that
+    reason, so they parse the JSON themselves.
+
+    Raises RuntimeError carrying Plaid's ``error_code`` on an HTTP error.
+    """
+    import json as _json
+    import urllib.request
+    import urllib.error
+    env_map = {
+        "sandbox": "https://sandbox.plaid.com",
+        "development": "https://development.plaid.com",
+        "production": "https://production.plaid.com",
+    }
+    host = env_map.get(settings.PLAID_ENV, "https://sandbox.plaid.com")
+    body = _json.dumps({
+        "client_id": settings.PLAID_CLIENT_ID,
+        "secret": settings.PLAID_SECRET,
+        **payload,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{host}{path}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        try:
+            err = _json.loads(raw)
+        except ValueError:
+            raise RuntimeError(f"Plaid {path} {e.code}: {raw[:300]}")
+        raise RuntimeError(
+            f"Plaid {path} {e.code}: "
+            f"{err.get('error_code', '?')} — {err.get('error_message', '?')}"
+        )
+
+
+def summarize_item_status(data: dict) -> dict:
+    """Reduce a raw ``/item/get`` response to the fields that say whether
+    Plaid is still getting fresh data from the bank.
+
+    Why this matters: ``/accounts/get`` and ``/transactions/sync`` serve
+    Plaid's CACHE. When Plaid's scheduled refreshes against an institution
+    start failing, both keep answering 200 with week-old data, so a sync
+    "succeeds" while nothing new ever arrives. ``/item/get`` is the only call
+    that reports the item's error state and when Plaid last managed to pull
+    from the bank (``status.transactions.last_successful_update``).
+
+    Pure function (no I/O) so the shape handling is unit-testable.
+    """
+    item = (data or {}).get("item") or {}
+    status = (data or {}).get("status") or {}
+    err = item.get("error")
+
+    def _product(name: str) -> dict:
+        s = status.get(name) or {}
+        return {
+            "last_successful_update": s.get("last_successful_update"),
+            "last_failed_update": s.get("last_failed_update"),
+        }
+
+    return {
+        "error": {
+            "code": err.get("error_code"),
+            "type": err.get("error_type"),
+            "message": err.get("error_message"),
+            "display_message": err.get("display_message"),
+        } if err else None,
+        "transactions": _product("transactions"),
+        "investments": _product("investments"),
+        "consent_expiration_time": item.get("consent_expiration_time"),
+        "update_type": item.get("update_type"),
+    }
+
+
+def get_item_status(client: plaid_api.PlaidApi, access_token: str) -> dict:
+    """Fetch ``/item/get`` for one item and summarize it (see
+    ``summarize_item_status``). Free to call; does not trigger a refresh."""
+    _ = client  # unused — kept for signature parity with the other helpers
+    return summarize_item_status(_plaid_post("/item/get", {"access_token": access_token}))

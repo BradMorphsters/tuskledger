@@ -41,6 +41,7 @@ vi.mock('../api/client', () => ({
   exchangeToken:             vi.fn(() => Promise.resolve({ ok: true })),
   triggerSync:               vi.fn(() => Promise.resolve({ ok: true })),
   getPlaidItems:             vi.fn(() => Promise.resolve([])),
+  getPlaidItemsHealth:       vi.fn(() => Promise.resolve({ items: [] })),
   backfillTransactions:      vi.fn(() => Promise.resolve({ ok: true })),
 
   // Accounts

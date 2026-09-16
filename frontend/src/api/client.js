@@ -37,6 +37,11 @@ export const exchangeToken = (data) =>
   request('/plaid/exchange-token', { method: 'POST', body: JSON.stringify(data) });
 export const triggerSync = () => request('/plaid/sync', { method: 'POST' });
 export const getPlaidItems = () => request('/plaid/items');
+// Connection health per Plaid item (error / stale / ok / unknown). Pass
+// maxAgeMinutes to reuse the status cached by the last sync instead of
+// asking Plaid about every connection on this request.
+export const getPlaidItemsHealth = (maxAgeMinutes) =>
+  request(`/plaid/items/health${maxAgeMinutes != null ? `?max_age_minutes=${encodeURIComponent(maxAgeMinutes)}` : ''}`);
 // One-off historical backfill via /transactions/get. itemId is optional —
 // omit to backfill across every connected institution.
 export const backfillTransactions = ({ start, end, itemId } = {}) => {

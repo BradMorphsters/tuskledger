@@ -25,6 +25,14 @@ UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 3, 20, 16, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def _clear_status_cache():
+    """The status cache is module-level; item ids repeat across tests."""
+    sync_service._ITEM_STATUS_CACHE.clear()
+    yield
+    sync_service._ITEM_STATUS_CACHE.clear()
+
+
 def _iso(d: dt.datetime) -> str:
     return d.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -147,16 +155,38 @@ def test_health_stale_when_plaid_stopped_pulling_without_an_error_flag():
     assert h["status"] == "stale"
     assert h["last_attempt_failed"] is True
     assert "7 days ago" in h["message"]
-    assert "latest attempt failed" in h["message"]
+    assert "latest attempts are failing" in h["message"]
+    assert "Reconnect" not in h["message"]  # re-linking can't fix a Plaid-to-bank fault
 
 
-def test_health_stale_threshold_boundary():
+def test_health_stale_threshold_boundary_with_failing_attempts():
+    recent_fail = _iso(NOW - dt.timedelta(hours=1))
     just_inside = summarize_item_status(_raw(
-        txn_ok=_iso(NOW - dt.timedelta(hours=sync_service.ITEM_STALE_AFTER_HOURS))))
+        txn_ok=_iso(NOW - dt.timedelta(hours=sync_service.ITEM_STALE_AFTER_HOURS)), txn_fail=recent_fail))
     assert sync_service.assess_item_health(just_inside, has_cash_accounts=True, now=NOW)["status"] == "ok"
     past = summarize_item_status(_raw(
-        txn_ok=_iso(NOW - dt.timedelta(hours=sync_service.ITEM_STALE_AFTER_HOURS + 1))))
+        txn_ok=_iso(NOW - dt.timedelta(hours=sync_service.ITEM_STALE_AFTER_HOURS + 1)), txn_fail=recent_fail))
     assert sync_service.assess_item_health(past, has_cash_accounts=True, now=NOW)["status"] == "stale"
+
+
+def test_slow_cadence_item_without_failures_is_not_stale():
+    """A mortgage-only connection can go several days between refreshes with no
+    failures at all. That's cadence, not an outage — no banner."""
+    slow = summarize_item_status(_raw(
+        txn_ok=_iso(NOW - dt.timedelta(days=4)),
+        txn_fail=_iso(NOW - dt.timedelta(days=60)),
+    ))
+    assert sync_service.assess_item_health(slow, has_cash_accounts=True, now=NOW)["status"] == "ok"
+
+
+def test_silent_gap_eventually_counts_as_stale():
+    days = sync_service.ITEM_SILENT_STALE_AFTER_DAYS
+    inside = summarize_item_status(_raw(txn_ok=_iso(NOW - dt.timedelta(days=days))))
+    assert sync_service.assess_item_health(inside, has_cash_accounts=True, now=NOW)["status"] == "ok"
+    past = summarize_item_status(_raw(txn_ok=_iso(NOW - dt.timedelta(days=days, hours=1))))
+    h = sync_service.assess_item_health(past, has_cash_accounts=True, now=NOW)
+    assert h["status"] == "stale"
+    assert "failing" not in h["message"]
 
 
 def test_health_error_wins_over_recent_timestamp():
@@ -170,6 +200,7 @@ def test_health_error_wins_over_recent_timestamp():
 def test_health_investment_only_item_reads_investments_status():
     status = summarize_item_status(_raw(
         txn_ok=_iso(NOW - dt.timedelta(days=30)),
+        txn_fail=_iso(NOW - dt.timedelta(hours=2)),
         inv_ok=_iso(NOW - dt.timedelta(hours=3)),
     ))
     assert sync_service.assess_item_health(status, has_cash_accounts=False, now=NOW)["status"] == "ok"
@@ -258,7 +289,8 @@ def test_item_health_report_per_item(db, factory, monkeypatch):
     factory.commit()
 
     responses = {
-        "tok-bank": summarize_item_status(_raw(txn_ok=_iso(NOW - dt.timedelta(days=8)))),
+        "tok-bank": summarize_item_status(_raw(
+            txn_ok=_iso(NOW - dt.timedelta(days=8)), txn_fail=_iso(NOW - dt.timedelta(hours=3)))),
         "tok-broker": summarize_item_status(_raw(inv_ok=_iso(NOW - dt.timedelta(hours=6)))),
     }
     report = sync_service.item_health_report(db, client=object(), fetch=lambda c, tok: responses[tok], now=NOW)
@@ -269,6 +301,52 @@ def test_item_health_report_per_item(db, factory, monkeypatch):
     assert by_name["Test Bank"]["account_ids"] == [checking.id]
     assert by_name["Test Broker"]["status"] == "ok"
     assert by_name["Test Broker"]["latest_transaction_date"] is None
+    assert by_name["Test Bank"]["checked_at"] == NOW.isoformat()
+
+
+def test_report_reuses_recent_status_when_max_age_given(db, monkeypatch):
+    monkeypatch.setattr(sync_service, "decrypt_token", lambda t: t)
+    db.add(PlaidItem(item_id="i1", access_token="t", institution_name="Test Bank", institution_id="ins_1"))
+    db.commit()
+    stale = summarize_item_status(_raw(
+        txn_ok=_iso(NOW - dt.timedelta(days=5)), txn_fail=_iso(NOW - dt.timedelta(hours=1))))
+    calls = []
+
+    def fetch(client, token):
+        calls.append(token)
+        return stale
+
+    def boom(client, token):
+        raise AssertionError("should have used the cached status")
+
+    first = sync_service.item_health_report(db, client=object(), fetch=fetch, now=NOW)
+    assert first[0]["status"] == "stale" and first[0]["institution_id"] == "ins_1"
+
+    later = NOW + dt.timedelta(hours=5)
+    cached = sync_service.item_health_report(
+        db, client=object(), fetch=boom, now=later, max_age=dt.timedelta(hours=6))
+    assert cached[0]["status"] == "stale"
+    assert cached[0]["checked_at"] == NOW.isoformat()
+    assert len(calls) == 1
+
+    expired = NOW + dt.timedelta(hours=7)
+    fresh = sync_service.item_health_report(
+        db, client=object(), fetch=fetch, now=expired, max_age=dt.timedelta(hours=6))
+    assert len(calls) == 2
+    assert fresh[0]["checked_at"] == expired.isoformat()
+
+
+def test_sync_fills_status_cache_for_the_dashboard(db, plaid_item, monkeypatch):
+    raw = _raw(txn_ok=_iso(dt.datetime.now(UTC) - dt.timedelta(days=6)),
+               txn_fail=_iso(dt.datetime.now(UTC) - dt.timedelta(hours=1)))
+    _patch_sync(monkeypatch, lambda client, token: summarize_item_status(raw))
+    sync_service.sync_single_item(db, client=None, item=plaid_item)
+
+    def boom(client, token):
+        raise AssertionError("dashboard read should not call Plaid right after a sync")
+
+    report = sync_service.item_health_report(db, client=object(), fetch=boom, max_age=dt.timedelta(hours=6))
+    assert report[0]["status"] == "stale"
 
 
 def test_item_health_report_marks_failed_check_unknown(db, monkeypatch):
@@ -301,5 +379,32 @@ def test_items_health_route(db, monkeypatch):
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["stale_after_hours"] == sync_service.ITEM_STALE_AFTER_HOURS
+    assert body["silent_stale_after_days"] == sync_service.ITEM_SILENT_STALE_AFTER_DAYS
     assert body["items"][0]["status"] == "error"
     assert body["items"][0]["error"]["code"] == "ITEM_LOGIN_REQUIRED"
+
+
+def test_items_health_route_max_age_param(db, monkeypatch):
+    monkeypatch.setattr(sync_service, "decrypt_token", lambda t: t)
+    db.add(PlaidItem(item_id="i1", access_token="t", institution_name="Test Bank"))
+    db.commit()
+    item_id = db.query(PlaidItem).one().id
+    sync_service._remember_item_status(item_id, summarize_item_status(_raw(error=LOGIN_REQUIRED)), None)
+
+    def boom(client, token):
+        raise AssertionError("max_age_minutes should have served the cached status")
+    monkeypatch.setattr(sync_service, "get_item_status", boom)
+    monkeypatch.setattr(sync_service, "get_plaid_client", lambda: object())
+
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_real_db] = lambda: db
+    try:
+        client = TestClient(app)
+        ok = client.get("/api/plaid/items/health?max_age_minutes=360")
+        bad = client.get("/api/plaid/items/health?max_age_minutes=-5")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["items"][0]["status"] == "error"
+    assert bad.status_code == 422

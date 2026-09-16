@@ -13,6 +13,7 @@ import Skeleton from '../components/Skeleton'
 import EmptyState from '../components/EmptyState'
 import UpcomingBills from '../components/UpcomingBills'
 import StaleBalanceAlert from '../components/StaleBalanceAlert'
+import ConnectionHealthAlert from '../components/ConnectionHealthAlert'
 import AINarrative from '../components/AINarrative'
 import InsightsBar from '../components/InsightsBar'
 import TrendStat from '../components/TrendStat'
@@ -313,6 +314,7 @@ export default function Dashboard() {
     // flash from "loading" to "data" with an awkward height jump.
     return (
       <div>
+        <ConnectionHealthAlert />
         <StaleBalanceAlert />
         <div className="page-header">
           <h1 className="page-title">Dashboard</h1>
@@ -336,6 +338,7 @@ export default function Dashboard() {
   if (accounts.length === 0) {
     return (
       <div>
+        <ConnectionHealthAlert />
         <StaleBalanceAlert />
         <div className="page-header">
           <h1 className="page-title">Dashboard</h1>
@@ -377,6 +380,7 @@ export default function Dashboard() {
 
   return (
       <div>
+        <ConnectionHealthAlert />
         <StaleBalanceAlert />
         <div className="page-header">
         <h1 className="page-title">Dashboard</h1>

@@ -186,7 +186,15 @@ def debug_liabilities(item_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/items/health")
-def items_health(request: Request, db: Session = Depends(get_db)):
+def items_health(
+    request: Request,
+    max_age_minutes: Optional[int] = Query(
+        None, ge=0, le=7 * 24 * 60,
+        description="Reuse an item's status from a sync/check at most this old instead of "
+                    "calling Plaid again. Omit to check every item live.",
+    ),
+    db: Session = Depends(get_db),
+):
     """Is Plaid still getting fresh data from each connected bank?
 
     A sync can report success while nothing new ever arrives: /accounts/get
@@ -201,8 +209,17 @@ def items_health(request: Request, db: Session = Depends(get_db)):
     """
     if _is_demo_request(request):
         return {"items": [], "note": "demo mode — no real Plaid connections to check"}
-    from app.services.sync_service import ITEM_STALE_AFTER_HOURS, item_health_report
-    return {"items": item_health_report(db), "stale_after_hours": ITEM_STALE_AFTER_HOURS}
+    from app.services.sync_service import (
+        ITEM_SILENT_STALE_AFTER_DAYS,
+        ITEM_STALE_AFTER_HOURS,
+        item_health_report,
+    )
+    max_age = datetime.timedelta(minutes=max_age_minutes) if max_age_minutes is not None else None
+    return {
+        "items": item_health_report(db, max_age=max_age),
+        "stale_after_hours": ITEM_STALE_AFTER_HOURS,
+        "silent_stale_after_days": ITEM_SILENT_STALE_AFTER_DAYS,
+    }
 
 
 @router.get("/items")

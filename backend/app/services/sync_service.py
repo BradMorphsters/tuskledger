@@ -43,11 +43,26 @@ log = logging.getLogger(__name__)
 INVESTMENT_ACCOUNT_TYPES = {"investment"}
 
 
-# How long Plaid may go without a successful pull from an institution before
-# the connection counts as stale. Plaid refreshes transactions at least daily
-# (usually several times a day), so two days without one is an outage on
-# Plaid's or the bank's side, not normal cadence.
+# A connection counts as stale when Plaid's most recent attempt to reach the
+# bank failed AND it hasn't had a successful pull in this long. Plaid refreshes
+# at least daily, so 48h is a couple of missed refreshes in a row, not a blip.
 ITEM_STALE_AFTER_HOURS = 48
+# ...or when there's been no successful pull for this long even with no
+# recorded failures. Deliberately long: some item types (a mortgage-only
+# connection, for one) legitimately go several days between refreshes.
+ITEM_SILENT_STALE_AFTER_DAYS = 14
+
+# item.id -> (fetched_at, summary, error) from the most recent /item/get for
+# that item. Every sync and every live health check refreshes it, so the
+# Dashboard can read connection health without calling Plaid on each page
+# load. Process-local: empty again after a restart until the next check.
+_ITEM_STATUS_CACHE: dict = {}
+
+
+def _remember_item_status(item_id, summary, error, at=None):
+    _ITEM_STATUS_CACHE[item_id] = (
+        at or datetime.datetime.now(datetime.timezone.utc), summary, error,
+    )
 
 
 def _parse_plaid_ts(value):
@@ -105,8 +120,10 @@ def assess_item_health(item_status, *, has_cash_accounts: bool, now=None, check_
     status:
       "error"   — Plaid has the item in an error state (e.g. ITEM_LOGIN_REQUIRED);
                   fix is usually Reconnect (update mode).
-      "stale"   — no error flag, but Plaid hasn't pulled from the bank in
-                  ITEM_STALE_AFTER_HOURS. Syncs keep "succeeding" on cached data.
+      "stale"   — no error flag, but Plaid's latest attempt failed and there's
+                  been no successful pull for ITEM_STALE_AFTER_HOURS (or none
+                  at all for ITEM_SILENT_STALE_AFTER_DAYS). Syncs keep
+                  "succeeding" on cached data meanwhile.
       "ok"      — pulled recently.
       "unknown" — Plaid reported no timestamps, or /item/get itself failed.
     """
@@ -152,16 +169,20 @@ def assess_item_health(item_status, *, has_cash_accounts: bool, now=None, check_
     if last_ok is None:
         out["message"] = "Plaid hasn't completed an update for this connection yet."
         return out
-    if out["hours_since_update"] > ITEM_STALE_AFTER_HOURS:
+    hours = out["hours_since_update"]
+    if (failing and hours > ITEM_STALE_AFTER_HOURS) or hours > ITEM_SILENT_STALE_AFTER_DAYS * 24:
         local = last_ok.astimezone()
-        days = int(out["hours_since_update"] // 24)
+        days = int(hours // 24)
         out["status"] = "stale"
+        # No Reconnect advice here: without an item error the fault is
+        # usually between Plaid and the bank, where re-linking can't help.
         out["message"] = (
             f"Plaid hasn't pulled new data from this bank since {local:%b} {local.day} "
             f"({days} day{'s' if days != 1 else ''} ago)"
-            + ("; its latest attempt failed." if failing else ".")
-            + " Transactions and balances after that date are missing until it recovers"
-            " — try Reconnect."
+            + ("; its latest attempts are failing." if failing else ".")
+            + " Transactions and balances after that date are missing until the"
+            " connection recovers. Plaid's institution status page shows whether"
+            " it's a known issue."
         )
         return out
     out["status"] = "ok"
@@ -235,6 +256,7 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
     # actually reached the bank — that date, not today, is what the cached
     # balances reflect.
     item_status, item_status_error = _fetch_item_status(client, access_token, item)
+    _remember_item_status(item.id, item_status, item_status_error)
     today = datetime.date.today()
     for pa in plaid_accounts:
         account = db.query(Account).filter_by(plaid_account_id=str(pa["account_id"])).first()
@@ -411,17 +433,19 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
     }
 
 
-def item_health_report(db: Session, client=None, fetch=None, now=None) -> list:
-    """Connection health for every linked Plaid item, straight from /item/get.
+def item_health_report(db: Session, client=None, fetch=None, now=None, max_age=None) -> list:
+    """Connection health for every linked Plaid item, from /item/get.
 
-    Backs GET /api/plaid/items/health. `fetch` defaults to get_item_status and
-    is injectable so tests never touch the network.
+    Backs GET /api/plaid/items/health. With `max_age` (a timedelta), an item's
+    status from a sync or check newer than that is reused instead of calling
+    Plaid again — the Dashboard banner uses this so page loads stay local.
+    Without it every item is checked live. `fetch` defaults to
+    get_item_status and is injectable so tests never touch the network.
     """
     from sqlalchemy import func
 
     fetch = fetch or get_item_status
-    if client is None and fetch is get_item_status:
-        client = get_plaid_client()
+    now_utc = now or datetime.datetime.now(datetime.timezone.utc)
     latest_by_account = dict(
         db.query(Transaction.account_id, func.max(Transaction.date))
         .group_by(Transaction.account_id)
@@ -432,17 +456,27 @@ def item_health_report(db: Session, client=None, fetch=None, now=None) -> list:
         accounts = db.query(Account).filter_by(plaid_item_id=item.id).all()
         has_cash = any(a.type not in INVESTMENT_ACCOUNT_TYPES for a in accounts)
         latest = [latest_by_account.get(a.id) for a in accounts if latest_by_account.get(a.id)]
-        summary, check_error = None, None
-        try:
-            summary = fetch(client, decrypt_token(item.access_token))
-        except Exception as e:  # noqa: BLE001
-            check_error = str(e)[:200]
-        health = assess_item_health(summary, has_cash_accounts=has_cash, now=now, check_error=check_error)
+        cached = _ITEM_STATUS_CACHE.get(item.id) if max_age is not None else None
+        if cached is not None and now_utc - cached[0] <= max_age:
+            checked_at, summary, check_error = cached
+        else:
+            summary, check_error = None, None
+            try:
+                if client is None and fetch is get_item_status:
+                    client = get_plaid_client()
+                summary = fetch(client, decrypt_token(item.access_token))
+            except Exception as e:  # noqa: BLE001
+                check_error = str(e)[:200]
+            checked_at = now_utc
+            _remember_item_status(item.id, summary, check_error, at=checked_at)
+        health = assess_item_health(summary, has_cash_accounts=has_cash, now=now_utc, check_error=check_error)
         report.append({
             "id": item.id,
             "institution_name": item.institution_name,
+            "institution_id": item.institution_id,
             "account_ids": [a.id for a in accounts],
             "latest_transaction_date": max(latest).isoformat() if latest else None,
+            "checked_at": checked_at.isoformat(),
             **health,
         })
     return report

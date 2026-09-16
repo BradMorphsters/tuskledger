@@ -203,6 +203,13 @@ a:hover { text-decoration: underline; }
   top: 0;
   left: 0;
   height: 100vh;
+  /* Keep the sidebar above page content. Without a z-index, any positioned
+     element in <main> (cards, chart wrappers, gauges) that ends up under the
+     sidebar — e.g. after the page scrolls sideways — paints OVER it and takes
+     its clicks, which reads as a distorted, unclickable menu. 20 sits above
+     in-page layers (≤10) and below every overlay (FAB 50, modals/drawers
+     100+). The ≤768px drawer sets its own z-index further down. */
+  z-index: 20;
   /* The nav has ~19 links + Sync button + Real/Demo toggle + theme
      row + user row. On short desktop windows the lower items (Rules,
      Categories, Accounts, Pair phone) plus the bottom user controls
@@ -364,6 +371,11 @@ a:hover { text-decoration: underline; }
 
 /* Tables */
 .table-wrapper { overflow-x: auto; }
+/* Research and Signals wrap their tables in .table-wrap, which previously had
+   a rule only inside the phone breakpoint. On desktop a wide table spilled
+   past the viewport, the whole page could scroll sideways, and page content
+   slid under the fixed sidebar. Scroll inside the card instead. */
+.table-wrap { overflow-x: auto; }
 
 /* Transactions table — pinned column geometry.
    ─────────────────────────────────────────────

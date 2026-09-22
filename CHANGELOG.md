@@ -6,6 +6,12 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Fixed — Same-named accounts get distinct filter pills on Transactions
+- Two accounts with the same display name (say, a "Checking" at two banks)
+  rendered identical account-filter pills; the mask only lived in the hover
+  tooltip. The pill now appends the last-4 mask, but only when the label
+  collides, so the common case stays as compact as before.
+
 ### Security — Read-only gate no longer trusts the Host header
 - `read_only_gate` decided whether to 403 a mutation by testing
   `request.url.path` against the mutation allowlist. `request.url` is

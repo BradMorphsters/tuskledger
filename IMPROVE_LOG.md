@@ -642,7 +642,8 @@ verified under node (10/10) — run `npx vitest` on the Mac for the committed te
 - Accounts that share a display name are indistinguishable in every list. Show the mask
   (accounts table has `mask`) beside the name wherever accounts are listed, and an "inactive"
   pill when an account has had no transactions for 60+ days (accounts 2 vs 5 are the live
-  example).
+  example). *2026-09-21: Transactions account-filter pills now append the mask when a label
+  collides (other lists already showed it); "inactive" pill still open.*
 
 **D2 — Insight density**
 - Audit the other level-over-time charts for zero-anchored axes (Dashboard, Insights,

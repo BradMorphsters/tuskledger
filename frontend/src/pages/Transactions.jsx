@@ -422,6 +422,15 @@ export default function Transactions() {
                   if (oa !== ob) return oa - ob
                   return (a.custom_name || a.name || '').localeCompare(b.custom_name || b.name || '')
                 })
+              // Two accounts with the same display name (e.g. two "Checking"
+              // at different banks) would render identical pills. Append the
+              // last-4 mask only when the label collides, so the common case
+              // stays compact.
+              const labelCounts = {}
+              for (const a of visible) {
+                const l = a.custom_name || a.name || `Account ${a.id}`
+                labelCounts[l] = (labelCounts[l] || 0) + 1
+              }
               const allActive = !filters.account_id
               const pillStyle = (active) => ({
                 whiteSpace: 'nowrap',
@@ -449,7 +458,8 @@ export default function Transactions() {
                     const label = a.custom_name || a.name || `Account ${a.id}`
                     // Truncate long account names so the pill stays compact.
                     // Full name shows in the title (browser tooltip).
-                    const short = label.length > 22 ? label.slice(0, 20) + '…' : label
+                    const base = label.length > 22 ? label.slice(0, 20) + '…' : label
+                    const short = labelCounts[label] > 1 && a.mask ? `${base} ··${a.mask}` : base
                     return (
                       <button
                         key={a.id}

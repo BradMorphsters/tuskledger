@@ -886,16 +886,25 @@ def _seed_month(db, y: int, m: int, accounts: dict, businesses: dict) -> int:
     apple = accounts["apple_card"]
 
     # ── Income ─────────────────────────────────────────────
-    # Two paychecks per month for Alex, two for partner
-    for pay_day, payer, amt in [
-        (1,  "Acme Corp Payroll",      -3825.00),
-        (15, "Acme Corp Payroll",      -3825.00),
-        (5,  "Brightline Health Inc",  -2148.50),
-        (20, "Brightline Health Inc",  -2148.50),
-    ]:
-        if pay_day <= last_day:
-            add(chk, payer, jitter(amt, 0.02), pay_day, "Income",
-                merchant_name=payer.split(" Payroll")[0])
+    # The two common US pay rhythms, so the Paychecks page has both to show:
+    #   Alex — every other Friday (26/yr, so two months a year get a third
+    #          check), split deposit: most to checking, a slice to savings.
+    #   Partner — semi-monthly on the 15th & last day of the month (24/yr).
+    # Paydays on a weekend/bank holiday move to the previous business day,
+    # exactly like real payroll. Annual take-home matches the old 1st/15th
+    # seed (2 × 3,825 × 12 ≈ 26 × 3,530).
+    from app.services.pay_calendar import BIWEEKLY, LAST_DAY, SEMIMONTHLY, PaySchedule
+    month_end = date(y, m, last_day)
+    alex = PaySchedule(BIWEEKLY, anchor=date(2025, 1, 10))
+    partner = PaySchedule(SEMIMONTHLY, days=(15, LAST_DAY))
+    for d in alex.paydays(month_start, month_end):
+        add(chk, "Acme Corp Payroll", jitter(-3230.00, 0.01), d.day, "Income",
+            merchant_name="Acme Corp")
+        add(sav, "Acme Corp Payroll", -300.00, d.day, "Income",
+            merchant_name="Acme Corp")
+    for d in partner.paydays(month_start, month_end):
+        add(chk, "Brightline Health Inc", jitter(-2148.50, 0.02), d.day, "Income",
+            merchant_name="Brightline Health Inc")
 
     # Occasional consulting income (every other month)
     if m % 2 == 0:

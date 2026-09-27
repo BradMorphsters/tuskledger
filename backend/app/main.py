@@ -39,6 +39,7 @@ from app.routers import (
     bills,
     demo,
     goals,
+    income,
     loans,
     chat,
     view,
@@ -537,6 +538,7 @@ app.include_router(subscription_rules.router, dependencies=protected)
 app.include_router(investments.router, dependencies=protected)
 app.include_router(manual_assets.router, dependencies=protected)
 app.include_router(bills.router, dependencies=protected)
+app.include_router(income.router, dependencies=protected)
 app.include_router(goals.router, dependencies=protected)
 app.include_router(csv_import.router, dependencies=protected)
 app.include_router(loans.router, dependencies=protected)

@@ -66,6 +66,9 @@ vi.mock('../api/client', () => ({
   replaceTransactionSplits:  vi.fn(() => Promise.resolve({ ok: true })),
   clearTransactionSplits:    vi.fn(() => Promise.resolve({ ok: true })),
   getSpendingSummary:        vi.fn(() => Promise.resolve({ categories: [], total_spending: 0, total_income: 0 })),
+  getIncomeSchedule:         vi.fn(() => Promise.resolve({ household: { baseline_monthly: 0, normalized_monthly: 0, extra_per_year: 0, next_payday: null }, earners: [], upcoming: [], months: [], extra_paycheck_months: [], other_income: [], guidance: [] })),
+  updateEarner:              vi.fn(() => Promise.resolve({ earners: [] })),
+  resetEarner:               vi.fn(() => Promise.resolve({ earners: [] })),
   getMerchantDetails:        vi.fn(() => Promise.resolve({ transactions: [] })),
   createManualTransaction:   vi.fn(() => Promise.resolve({ id: 1 })),
   globalSearch:              vi.fn(() => Promise.resolve([])),
@@ -315,6 +318,13 @@ describe('Page smoke tests — every page mounts without crashing', () => {
   it('Transactions', async () => {
     const { default: Transactions } = await import('./Transactions')
     const { container } = renderInRouter(<Transactions />)
+    await settle()
+    expect(container.firstChild).not.toBeNull()
+  })
+
+  it('Paychecks', async () => {
+    const { default: Paychecks } = await import('./Paychecks')
+    const { container } = renderInRouter(<Paychecks />)
     await settle()
     expect(container.firstChild).not.toBeNull()
   })

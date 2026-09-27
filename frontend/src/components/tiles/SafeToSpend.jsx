@@ -67,8 +67,10 @@ export function SafeToSpend() {
         <span className="card-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <PiggyBank size={14} style={{ color: 'var(--accent-blue)' }} /> Safe to spend
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}
+              title={(data.upcoming_paydays || []).map(p => `${fmtShortDate(p.date)}: ${p.name}`).join('\n') || undefined}>
           until {fmtShortDate(data.next_paycheck_date)}
+          {data.upcoming_paydays?.[0]?.name && ` · ${data.upcoming_paydays[0].name}`}
         </span>
       </div>
 
@@ -88,7 +90,7 @@ export function SafeToSpend() {
           so a confident number doesn't get cluttered with caveats. */}
       {(data.next_paycheck_source === 'month_end_fallback' || data.budget_source === 'trailing_average' || data.budget_source === 'mixed') && (
         <div style={{ fontSize: 11, color: 'var(--accent-orange)', marginTop: 6 }}>
-          {data.next_paycheck_source === 'month_end_fallback' && 'No income stream detected — assuming next paycheck on the 1st. '}
+          {data.next_paycheck_source === 'month_end_fallback' && <>No paycheck pattern detected, so this assumes the 1st. <a href="/paychecks">Check paychecks</a>. </>}
           {data.budget_source === 'trailing_average' && 'No budget set — using your 90-day average.'}
           {data.budget_source === 'mixed' && 'Uses available budgets and spending history across months. See breakdown for assumptions.'}
         </div>

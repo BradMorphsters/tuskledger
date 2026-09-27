@@ -176,8 +176,12 @@ def _intent_for(q: str) -> Optional[str]:
     # 0b) affordability → safe-to-spend
     if re.search(r"\b(afford|can i (buy|spend|swing)|safe to spend|okay to spend|ok to spend|room to spend|after (my |the )?bills|left after bills|until payday)\b", q):
         return "affordability"
+    # 0c) pay schedule / extra-paycheck months (before next_paycheck: "how
+    # often do we get paid" is about the rhythm, not the next date)
+    if re.search(r"\b((three|3|third|extra|bonus|3rd)[- ]paychecks?|(three|3)[- ]pay ?(day|check)|paycheck months?|pay (schedule|frequency|cycle|calendar)|how often (do|does) (i|we|my \w+|\w+) (get )?paid|(bi-?weekly|semi-?monthly|twice a month|every other (week|friday)) (pay|paycheck)s?)\b", q):
+        return "pay_schedule"
     # 0c) next paycheck / payday
-    if re.search(r"\b(next (paycheck|pay ?day|deposit from work)|when('?s| is| do i) .*\b(paid|payday|paycheck)|pay ?day)\b", q):
+    if re.search(r"\b(next (paycheck|pay ?day|deposit from work)|when('?s| is| do (i|we)| will (i|we)| does (my \w+|\w+)) .*\b(paid|payday|paycheck)|pay ?day)\b", q):
         return "next_paycheck"
     # 0d) unusual / suspicious / anomalies / price changes
     if re.search(r"\b(unusual|weird|strange|odd|suspicious|anomal\w*|out of the ordinary|anything (i should|to) (worry|know) about|red flags?|price (hike|increase)s?|went up|charging me more|(get|got|gotten|become) more expensive|gone up)\b", q) \
@@ -2242,17 +2246,57 @@ def affordability(db, start, end, label, question: str = "") -> dict:
 
 
 def next_paycheck(db, start, end, label, question: str = "") -> dict:
-    """'When is my next paycheck / payday' — projected from the recurring-income cadence."""
+    """'When is my next paycheck / payday' — from the household pay calendars
+    (services/pay_schedule): says WHOSE check is next when two earners are on
+    different schedules."""
+    from app.services.pay_schedule import build_income_profile
     from app.services.safe_to_spend import next_paycheck as _np
     d, source = _np(db, end)
     days = (d - end).days
     when = "today" if days == 0 else "tomorrow" if days == 1 else f"in {days} days"
+    rows = [{"date": d.isoformat(), "source": source, "days": days}]
     if source == "recurring_income":
         ans = f"Your next paycheck should land around {_fmt_day(d.isoformat())} — {when}, going by your usual deposit rhythm."
+        upcoming = build_income_profile(db, end).get("upcoming") or []
+        if len({u["key"] for u in upcoming}) > 1:
+            first = upcoming[0]
+            ans += f" That one is {first['name']} (about {_money(first['amount'])})."
+            other = next((u for u in upcoming if u["key"] != first["key"]), None)
+            if other:
+                ans += f" Then {other['name']} on {_fmt_day(other['date'])} (about {_money(other['amount'])})."
+            rows = [{"date": u["date"], "name": u["name"], "amount": u["amount"]} for u in upcoming[:4]]
     else:
         ans = (f"I can't see a regular paycheck pattern in your deposits, so I'm assuming the 1st of next month "
                f"({_fmt_day(d.isoformat())}, {when}).")
-    return _result("next_paycheck", "upcoming", ans, rows=[{"date": d.isoformat(), "source": source, "days": days}], facts=[days])
+    return _result("next_paycheck", "upcoming", ans, rows=rows, facts=[days])
+
+
+def pay_schedule(db, start, end, label, question: str = "") -> dict:
+    """'How often do we get paid' / 'when is my next 3-paycheck month'."""
+    from app.services.pay_schedule import build_income_profile
+    p = build_income_profile(db, end)
+    active = [e for e in p["earners"] if not e["hidden"] and e["status"] != "ended"]
+    if not active:
+        return _result("pay_schedule", "income", "I can't see a regular paycheck pattern in your deposits yet.",
+                       found=False)
+    parts = [f"{e['display_name']}: {e['schedule']['label'].lower()}, about {_money(e['per_check'])} a check"
+             for e in active]
+    ans = "; ".join(parts) + "."
+    hh = p["household"]
+    ans += f" Every month brings at least {_money(hh['baseline_monthly'])}."
+    extra = p["extra_paycheck_months"]
+    if extra:
+        nxt = extra[0]
+        ans += (f" Your next extra-paycheck month is {nxt['label']} (+{_money(nxt['extra_amount'])})")
+        if len(extra) > 1:
+            ans += f", then {', '.join(m['label'] for m in extra[1:3])}"
+        ans += "."
+    elif any(e["schedule"]["frequency"] in ("bi-weekly", "weekly") for e in active):
+        ans += " No extra-paycheck months in the next year."
+    rows = [{"name": e["display_name"], "schedule": e["schedule"]["label"], "per_check": e["per_check"],
+             "next": (e["next_paydays"] or [None])[0]} for e in active]
+    return _result("pay_schedule", "income", ans, rows=rows,
+                   facts=[hh["baseline_monthly"]] + [m["extra_amount"] for m in extra[:3]])
 
 
 def briefing_read(db, start, end, label, question: str = "") -> dict:
@@ -2334,6 +2378,7 @@ RETRIEVERS = {
     "advice": advice_refusal,
     "affordability": affordability,
     "next_paycheck": next_paycheck,
+    "pay_schedule": pay_schedule,
     "unusual_charges": unusual_charges,
     "largest_transactions": largest_transactions,
     "transaction_search": transaction_search,

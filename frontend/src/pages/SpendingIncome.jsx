@@ -68,7 +68,7 @@ import {
   getCategoryTrends, getSpendingPatterns, getSpendingPatternsRange,
   getMerchantInsights, getRecurring, getExportUrl,
   getSubscriptionRules, createSubscriptionRule, deleteSubscriptionRule,
-  getYearOverYear,
+  getYearOverYear, getIncomeSchedule,
 } from '../api/client'
 import TransactionDrawer from '../components/TransactionDrawer'
 import MerchantDrawer from '../components/MerchantDrawer'
@@ -769,6 +769,20 @@ export default function SpendingIncome() {
     : new Date(today.getFullYear(), today.getMonth(), 1)
   const anchorMonth = isMonthMode ? selectedMonth : anchorDate.getMonth() + 1
   const anchorYear = isMonthMode ? selectedYear : anchorDate.getFullYear()
+
+  // Paycheck count for the month in view: a bi-weekly earner's third check
+  // makes two months a year look like a raise. Loaded once; the month grid
+  // (12 back + 12 ahead) covers every single-month view the picker offers
+  // for the past year.
+  const [paySchedule, setPaySchedule] = useState(null)
+  useEffect(() => {
+    let live = true
+    getIncomeSchedule().then(d => { if (live) setPaySchedule(d) }).catch(() => {})
+    return () => { live = false }
+  }, [])
+  const payMonth = isSingleMonth && paySchedule?.earners?.length
+    ? (paySchedule.months || []).find(m => m.month === `${anchorYear}-${String(anchorMonth).padStart(2, '0')}`) || null
+    : null
   // Inclusive ISO bounds of the active window — kept as two primitive
   // strings (not an object) so they can sit in effect dep arrays without
   // re-triggering on every render.
@@ -968,9 +982,18 @@ export default function SpendingIncome() {
           icon={<TrendingUp size={14} color="var(--accent-green)" />}
           value={fmt(windowAgg.income)}
           tone="positive"
-          sub={incomeDelta !== null ? (
+          sub={(incomeDelta !== null || payMonth?.paycheck_count) ? (
             <span>
-              <DeltaBadge pct={incomeDelta} /> {compareLabel}
+              {incomeDelta !== null && <><DeltaBadge pct={incomeDelta} /> {compareLabel}</>}
+              {payMonth?.paycheck_count > 0 && (
+                <span style={{ display: 'block', marginTop: 2 }} title="From the Paychecks page">
+                  {payMonth.paycheck_count} paycheck{payMonth.paycheck_count === 1 ? '' : 's'}
+                  {payMonth.period === 'current' && payMonth.remaining_total > 0 ? ' expected' : ''}
+                  {payMonth.is_extra_month && (
+                    <span style={{ color: 'var(--accent-yellow)' }}> · incl. {payMonth.extra_checks} extra ({fmt(payMonth.extra_amount)})</span>
+                  )}
+                </span>
+              )}
             </span>
           ) : null}
         />

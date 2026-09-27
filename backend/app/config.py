@@ -97,6 +97,19 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama3.1:8b"
     LLM_URL: str = "http://127.0.0.1:11434"
 
+    # ── Paychecks / pay schedules ─────────────────────────────────
+    # Pay schedules (weekly, bi-weekly, semi-monthly, monthly) are learned
+    # from deposit history; nothing about any one household is configured.
+    # These only set the bank-holiday calendar used to move a payday that
+    # lands on a weekend/holiday: "us" (US federal / Federal Reserve
+    # holidays) or "none" (weekends only), plus optional extra local
+    # holidays as comma-separated ISO dates.
+    PAY_HOLIDAY_CALENDAR: str = "us"
+    PAY_EXTRA_HOLIDAYS: str = ""
+    # Where per-earner corrections (nickname, schedule, amount) are stored:
+    # one small JSON file per database. Default: backend/var/pay_schedules/.
+    PAY_SCHEDULE_DIR: str = ""
+
     # ── Long-term-hold research layer ─────────────────────────────
     # Directory holding the PII-free research files (<domain>.research.json)
     # and the contract (research.schema.json). The research layer joins

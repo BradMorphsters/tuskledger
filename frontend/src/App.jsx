@@ -35,6 +35,7 @@ import {
   Gauge,
   Bot,
   CalendarClock,
+  Wallet,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -58,6 +59,7 @@ import Rotation from './pages/Rotation'
 import AgentTrading from './pages/AgentTrading'
 import Rules from './pages/Rules'
 import SpendingIncome from './pages/SpendingIncome'
+import Paychecks from './pages/Paychecks'
 import Insights from './pages/Insights'
 import BusinessPage from './pages/Business'
 import Login from './pages/Login'
@@ -281,6 +283,7 @@ export default function App() {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/digest', icon: CalendarClock, label: 'Weekly Digest' },
     { to: '/spending', icon: BarChart3, label: 'Spending & Income' },
+    { to: '/paychecks', icon: Wallet, label: 'Paychecks' },
     { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
     { to: '/budgets', icon: PiggyBank, label: 'Budgets' },
     { to: '/goals', icon: Trophy, label: 'Goals' },
@@ -604,6 +607,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/digest" element={<WeeklyDigest />} />
           <Route path="/spending" element={<SpendingIncome />} />
+          <Route path="/paychecks" element={<Paychecks />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/budgets" element={<Budgets />} />
           <Route path="/goals" element={<Goals />} />

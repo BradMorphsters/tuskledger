@@ -242,6 +242,7 @@ function QuickAddModal({ onClose, onSaved }) {
 const ROUTES = [
   { label: 'Dashboard', path: '/', kind: 'page' },
   { label: 'Spending & Income', path: '/spending', kind: 'page' },
+  { label: 'Paychecks', path: '/paychecks', kind: 'page' },
   { label: 'Transactions', path: '/transactions', kind: 'page' },
   { label: 'Budgets', path: '/budgets', kind: 'page' },
   { label: 'Goals', path: '/goals', kind: 'page' },

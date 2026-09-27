@@ -10,8 +10,9 @@ a black box.
     safe_to_spend = spendable_cash − bills_due − budget_remaining_pro_rata
 
 Every input is a REUSE of an existing, already-tested computation:
-  - next paycheck date: app.services.recurring.detect_streams (the same
-    detector cash_flow_forecast and the Recurring page use)
+  - next paycheck date: app.services.pay_schedule (household pay calendars
+    built on the same recurring detector cash_flow_forecast and the
+    Recurring page use)
   - bills before payday: app.routers.bills.collect_upcoming_bills
   - usual spending before payday: app.services.budget_health.budget_adherence
     when a budget exists (so "spent this month" follows the exact same
@@ -44,11 +45,6 @@ from app.services.transaction_view import expand
 # headline number.
 _CHECKING_SUBTYPES = {"checking"}
 _SAVINGS_SUBTYPES = {"savings"}
-
-# How far back to look for a recurring paycheck cadence. 180 days covers
-# even a monthly-paid stream with room to spare (6 occurrences) while
-# staying short enough that an old job's deposits age out on their own.
-_INCOME_LOOKBACK_DAYS = 180
 
 # Same lookback used for the "bills the recurring detector knows about but
 # collect_upcoming_bills doesn't" pass (subscriptions/utilities have no
@@ -87,46 +83,29 @@ def _spendable_and_savings_cash(db: Session) -> tuple[float, float]:
 
 
 def next_paycheck(db: Session, today: datetime.date) -> tuple[datetime.date, str]:
-    """Soonest projected recurring-income date, or the 1st-of-next-month fallback.
+    """Soonest projected household payday, or the 1st-of-next-month fallback."""
+    d, source, _ = _next_paycheck_details(db, today)
+    return d, source
 
-    Pre-filters to non-transfer, non-refund inflows (amount < 0) BEFORE
-    handing rows to detect_streams — a run of store-return refunds at the
-    same merchant is an inflow cadence too, and without this filter it
-    could get mistaken for a paycheck.
+
+def _next_paycheck_details(db: Session, today: datetime.date) -> tuple[datetime.date, str, list[dict]]:
+    """(next payday, source, upcoming paydays) from the household pay model.
+
+    services/pay_schedule owns paycheck detection: split direct deposits are
+    one paycheck, semi-monthly pay stays on its days of the month, paydays
+    on weekends/holidays move to the previous business day, a stream that
+    has missed two cadences (+3 days grace) is treated as an ended job, and
+    earners the user hid on the Paychecks page don't count. Refunds and
+    transfers are excluded before detection, so a run of store returns
+    can't masquerade as a paycheck.
     """
-    cutoff = today - datetime.timedelta(days=_INCOME_LOOKBACK_DAYS)
-    txns = (
-        db.query(Transaction)
-        .filter(
-            Transaction.date >= cutoff,
-            Transaction.date <= today,
-            Transaction.is_transfer.is_(False),
-            Transaction.amount < 0,
-            Transaction.is_refund.is_(False),
-        )
-        .order_by(Transaction.date)
-        .all()
-    )
-    streams = detect_streams(txns, merchant_key=_forecast_merchant_key)
-    income_streams = [s for s in streams if s.is_income]
+    from app.services.pay_schedule import build_income_profile  # avoid import cycle
 
-    candidates: list[datetime.date] = []
-    for s in income_streams:
-        interval = max(int(s.median_interval), 1)
-        # A stream that has missed two full cadences plus a short posting
-        # grace period is stale. Continuing to roll it forward would turn an
-        # old employer into a phantom paycheck indefinitely.
-        if (today - s.last_date).days > (2 * interval + 3):
-            continue
-        nxt = s.last_date + datetime.timedelta(days=interval)
-        # Roll forward past any gap (a stream detected weeks ago is still a
-        # valid cadence — we just want the NEXT occurrence from today).
-        while nxt < today:
-            nxt += datetime.timedelta(days=interval)
-        candidates.append(nxt)
-
-    if candidates:
-        return min(candidates), "recurring_income"
+    profile = build_income_profile(db, today)
+    upcoming = profile.get("upcoming") or []
+    nxt = profile["household"].get("next_payday")
+    if nxt:
+        return datetime.date.fromisoformat(nxt["date"]), "recurring_income", upcoming[:4]
 
     # No detectable income stream: fall back to the 1st of next month —
     # a conservative "assume the worst, budget for a full month" default.
@@ -134,7 +113,7 @@ def next_paycheck(db: Session, today: datetime.date) -> tuple[datetime.date, str
         fallback = datetime.date(today.year + 1, 1, 1)
     else:
         fallback = datetime.date(today.year, today.month + 1, 1)
-    return fallback, "month_end_fallback"
+    return fallback, "month_end_fallback", []
 
 
 def _bills_before_payday(
@@ -487,7 +466,7 @@ def compute_safe_to_spend(db: Session, today: Optional[datetime.date] = None) ->
     today = today or datetime.date.today()
 
     spendable_cash, savings_cash = _spendable_and_savings_cash(db)
-    next_paycheck_date, next_paycheck_source = next_paycheck(db, today)
+    next_paycheck_date, next_paycheck_source, upcoming_paydays = _next_paycheck_details(db, today)
     days_until_paycheck = max((next_paycheck_date - today).days, 1)
     bills_due, bills = _bills_before_payday(db, today, next_paycheck_date, days_until_paycheck)
     budget_remaining_pro_rata, budget_source, spending_overlap_adjustment = (
@@ -537,6 +516,9 @@ def compute_safe_to_spend(db: Session, today: Optional[datetime.date] = None) ->
         "next_paycheck_date": next_paycheck_date.isoformat(),
         "days_until_paycheck": days_until_paycheck,
         "next_paycheck_source": next_paycheck_source,
+        # Next few household paydays ({date, key, name, amount}) so the UI can
+        # say whose check is next when two earners are on different schedules.
+        "upcoming_paydays": upcoming_paydays,
         "budget_source": budget_source,
         "bills": bills,
         "notes": notes,

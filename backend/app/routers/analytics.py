@@ -407,6 +407,12 @@ def detect_recurring(db: Session = Depends(get_db)):
         # For seasonal, if the projected next date falls in an inactive
         # month, push to the 1st of the earliest active month that follows.
         candidate = last_date + timedelta(days=int(median_interval))
+        if stream.schedule is not None:
+            # Fitted pay calendar (income): the real next payday — semi-monthly
+            # stays on its days, weekend/holiday paydays move earlier.
+            projected = stream.next_dates(today, today + timedelta(days=400))
+            if projected:
+                candidate = projected[0]
         if is_seasonal and candidate.month not in active_months:
             # Find the next active month after `today`.
             cur = max(today, candidate)
@@ -438,7 +444,7 @@ def detect_recurring(db: Session = Depends(get_db)):
 
         category = sorted_txns[-1].custom_category or sorted_txns[-1].category or "Uncategorized"
         if is_income:
-            kind = "salary" if frequency in ("weekly", "bi-weekly", "monthly") else "income"
+            kind = "salary" if frequency in ("weekly", "bi-weekly", "semi-monthly", "monthly") else "income"
         else:
             kind = _classify_kind(merchant, median_amount, frequency, category)
 
@@ -1147,6 +1153,8 @@ def cash_flow_forecast(
         return normalize_merchant(raw) or raw
 
     forecast_streams = detect_streams(txns, merchant_key=_forecast_key)
+    from app.services.pay_schedule import payer_label_fn
+    _payer_label = payer_label_fn(db)
 
     for stream in forecast_streams:
         merchant = stream.merchant
@@ -1159,21 +1167,21 @@ def cash_flow_forecast(
         if stream.is_income:
             recurring_income_streams.append(stream)
 
-        # Walk forward from last_date
-        next_date = sorted_txns[-1].date + timedelta(days=int(median_int))
-        while next_date <= horizon:
-            if next_date >= today and (not is_seasonal or next_date.month in active_months):
-                latest = sorted_txns[-1]
-                kind = "outflow" if latest.amount > 0 else "inflow"
+        # Walk forward: last_date + median interval for bills; income with a
+        # fitted pay calendar uses its real paydays (semi-monthly days,
+        # holiday/weekend shifts, the third bi-weekly check in a month).
+        latest = sorted_txns[-1]
+        kind = "outflow" if latest.amount > 0 else "inflow"
+        for next_date in stream.next_dates(today, horizon):
+            if not is_seasonal or next_date.month in active_months:
                 events[next_date].append({
                     "kind": kind,
-                    "source": merchant,
+                    "source": _payer_label(stream) if stream.is_income else merchant,
                     "amount": round(abs(median), 2),
                     "category": (latest.custom_category or latest.category or None),
                     "recurring": True,
                     "seasonal": is_seasonal,
                 })
-            next_date += timedelta(days=int(median_int))
 
     # ─── Variable-spend baseline ─────────────────────────────────
     # Build per-month variable-spend totals for the last 6 *complete*
@@ -3084,6 +3092,8 @@ def cashflow_calendar(
 
     # Extract recurring events
     events = []
+    from app.services.pay_schedule import payer_label_fn
+    _payer_label = payer_label_fn(db)
     for stream in detect_streams(txns, merchant_key=_cal_key):
         merchant = stream.merchant
         txn_list = stream.txns
@@ -3091,28 +3101,33 @@ def cashflow_calendar(
         median_amount = stream.median_amount
         median_interval = stream.median_interval
 
-        # Compute next expected date
+        # Compute next expected date(s). Income on a fitted pay calendar
+        # emits EVERY payday in the window (two earners → four paydays a
+        # month); other streams keep the single last + interval projection.
         last_date = stream.last_date
-        candidate = last_date + timedelta(days=int(median_interval))
-        next_date = candidate
+        if stream.schedule is not None:
+            next_dates = stream.next_dates(today, today + timedelta(days=days))
+        else:
+            next_dates = [last_date + timedelta(days=int(median_interval))]
 
-        # Only include if within the lookahead window
-        if next_date >= today and (next_date - today).days <= days:
-            # Compute confidence based on historical occurrences
-            if len(txn_list) >= 6:
-                confidence = 0.95
-            elif len(txn_list) >= 3:
-                confidence = 0.70
-            else:
-                confidence = 0.50
+        for next_date in next_dates:
+            # Only include if within the lookahead window
+            if next_date >= today and (next_date - today).days <= days:
+                # Compute confidence based on historical occurrences
+                if len(txn_list) >= 6:
+                    confidence = 0.95
+                elif len(txn_list) >= 3:
+                    confidence = 0.70
+                else:
+                    confidence = 0.50
             
-            events.append({
-                "date": next_date.isoformat(),
-                "type": "income" if is_income else "expense",
-                "merchant": merchant,
-                "amount": round(abs(median_amount), 2),
-                "confidence": confidence,
-            })
+                events.append({
+                    "date": next_date.isoformat(),
+                    "type": "income" if is_income else "expense",
+                    "merchant": _payer_label(stream) if is_income else merchant,
+                    "amount": round(abs(median_amount), 2),
+                    "confidence": confidence,
+                })
     
     # Sort by date
     events.sort(key=lambda e: e["date"])

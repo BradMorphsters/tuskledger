@@ -4,6 +4,7 @@ import { getSpendingSummary, getBudget, saveBudget } from '../api/client'
 import TransactionDrawer from '../components/TransactionDrawer'
 import { formatCurrencyZero as formatCurrency, yearOptions } from '../lib/format'
 import { SkeletonRows } from '../components/Skeleton'
+import IncomePlan from '../components/IncomePlan'
 
 // View modes for separating business vs personal spend on the Budgets
 // page. Persisted to localStorage so the user's choice survives reloads.
@@ -460,6 +461,9 @@ export default function Budgets() {
           </div>
         </div>
       </div>
+
+      {/* Baseline income vs budget, and extra-paycheck months. */}
+      <IncomePlan year={year} month={month} totalBudget={totalEffectiveLimit} />
 
       {/* Category budgets */}
       <div className="card" style={{ marginBottom: 20 }}>

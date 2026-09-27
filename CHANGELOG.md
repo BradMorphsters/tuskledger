@@ -6,6 +6,48 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Paychecks: real pay schedules across the whole app
+- **Split direct deposits count as one paycheck.** The recurring detector
+  now adds up same-day inflows from one payer before checking amount
+  consistency. A paycheck split between checking and savings, or with a
+  small same-day side deposit, used to fail the tolerance check, so the
+  paycheck vanished from Safe-to-spend, the forecast and the calendar.
+- **Semi-monthly is its own schedule.** `services/pay_calendar.py` fits
+  weekly, bi-weekly, semi-monthly (two days of the month, "last day"
+  supported) and monthly calendars to deposit dates. Paydays on weekends and
+  US bank holidays move to the previous business day. Semi-monthly pay was
+  being filed as bi-weekly (26/yr instead of 24, about 8% too much income)
+  and projected as "last + 15 days", which drifted off the real paydays.
+- **Household income model** (`services/pay_schedule.py`,
+  `GET /api/income/schedule`). One earner per payer. Each shows per-check
+  take-home, a monthly average (checks per year ÷ 12) and a **baseline**,
+  the income every month is guaranteed to bring (budget on this). Also:
+  late / ended status, raise or cut detection, and a 25-month paycheck grid
+  that flags extra-paycheck months (the third bi-weekly check twice a year,
+  including a Jan 1 payday that posts Dec 31). Nickname, schedule, amount
+  and hide corrections go through `PUT/DELETE /api/income/earners/{key}`,
+  stored as JSON beside the database (per DB file, so demo edits never touch
+  real data; no migration).
+- **New Paychecks page**, plus an Income plan card on Budgets (baseline vs
+  budget, extra-paycheck month callouts), a paycheck count on the Spending &
+  Income card, whose check is next on the Safe-to-spend tile, and a
+  `pay_schedule` Ask Tusk intent ("when is our next 3-paycheck month?").
+  Safe-to-spend, the cash-flow forecast, the bills calendar and the
+  Recurring page all project income from the fitted calendars.
+- **Fixed: young ledgers made everything "seasonal".** Seasonality required
+  only 3-10 distinct active months, so every stream in a ledger under 11
+  months old qualified. Those streams got dropped from later forecast months
+  and had their monthly rate cut by months/12. It now also requires a real
+  off-season gap in the cadence.
+- **Nothing household-specific is built in.** Schedules, paydays, amounts
+  and the weekend/holiday rule (paid the business day before, after, or the
+  same day) are all learned from deposit history and editable per earner.
+  The bank-holiday calendar is a setting: `PAY_HOLIDAY_CALENDAR=us|none`,
+  plus `PAY_EXTRA_HOLIDAYS` for local holidays (see `.env.example`). Test
+  fixtures are generated from generic schedules.
+- Demo data: Alex is now paid every other Friday (split deposit) and the
+  partner on the 15th & last day, so both rhythms show up in demo mode.
+
 ### Fixed — Same-named accounts get distinct filter pills on Transactions
 - Two accounts with the same display name (say, a "Checking" at two banks)
   rendered identical account-filter pills; the mask only lived in the hover

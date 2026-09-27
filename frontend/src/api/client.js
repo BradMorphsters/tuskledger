@@ -375,6 +375,12 @@ export const getHsaStatus = (year) =>
 // "Safe to spend until <next paycheck>" — checking cash minus bills due
 // and usual budget spend before payday. See services/safe_to_spend.py.
 export const getSafeToSpend = () => request('/analytics/safe-to-spend');
+// Paychecks: household pay schedules, upcoming paydays, extra-paycheck months.
+export const getIncomeSchedule = () => request('/income/schedule');
+export const updateEarner = (key, data) =>
+  request(`/income/earners/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(data) });
+export const resetEarner = (key) =>
+  request(`/income/earners/${encodeURIComponent(key)}`, { method: 'DELETE' });
 // Weekly digest — what happened / what's coming / what changed this
 // week. weekEnding is an optional ISO date (YYYY-MM-DD); omit for today.
 export const getWeeklyDigest = (weekEnding) =>

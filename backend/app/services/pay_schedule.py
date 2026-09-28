@@ -38,6 +38,8 @@ from app.models import Account, Transaction
 from app.services.merchant_normalizer import normalize as normalize_merchant
 from app.services.pay_calendar import (
     BIWEEKLY,
+    FOURWEEKLY,
+    STEP_DAYS,
     EARLY_POST_TOLERANCE,
     LAST_DAY,
     MIN_PER_MONTH,
@@ -47,7 +49,6 @@ from app.services.pay_calendar import (
     SHIFT_RULES,
     WEEKLY,
     PaySchedule,
-    month_paydays,
 )
 from app.services.recurring import detect_streams
 
@@ -58,7 +59,7 @@ MONTHS_FORWARD = 12
 RECENT_CHECKS = 3            # "current" per-check amount = median of the last N
 CHANGE_THRESHOLD_PCT = 3.0   # smaller moves are noise (hours, withholding)
 LATE_GRACE_DAYS = 3
-VALID_FREQUENCIES = (WEEKLY, BIWEEKLY, SEMIMONTHLY, MONTHLY)
+VALID_FREQUENCIES = (WEEKLY, BIWEEKLY, FOURWEEKLY, SEMIMONTHLY, MONTHLY)
 
 
 # ─── Override store ──────────────────────────────────────────────────────
@@ -236,7 +237,7 @@ def _schedule_from_override(ov: dict, detected: Optional[PaySchedule],
                                days=detected.days, shift=ov["shift"])
         return detected
     shift = ov.get("shift") or (detected.shift if detected else None) or SHIFT_RULES[0]
-    if freq in (WEEKLY, BIWEEKLY):
+    if freq in STEP_DAYS:
         anchor = date.fromisoformat(ov["anchor"]) if ov.get("anchor") else None
         if anchor is None:
             anchor = detected.anchor if (detected and detected.frequency == freq) else last_paid
@@ -259,9 +260,62 @@ def _account_label(acct: Optional[Account]) -> str:
     return f"{name} ··{acct.mask}" if acct.mask else name
 
 
+def _amount_clusters(txns: list) -> dict:
+    """txn id -> cluster index, splitting a payer's deposits at big jumps in
+    amount (>25%). Used only when one payer memo hides two paychecks, e.g.
+    two people paid through the same payroll processor."""
+    amounts = sorted({round(abs(t.amount), 2) for t in txns})
+    bounds, cur = [], [amounts[0]] if amounts else []
+    for a in amounts[1:]:
+        if a > cur[-1] * 1.25:
+            bounds.append(cur[-1])
+            cur = [a]
+        else:
+            cur.append(a)
+    out = {}
+    for t in txns:
+        a = round(abs(t.amount), 2)
+        out[id(t)] = sum(1 for b in bounds if a > b)
+    return out
+
+
+def _detect_income_streams(txns: list) -> list:
+    """Income streams, one per payer — or per paycheck when one payer memo
+    carries two (shared payroll processor, or one employer paying two
+    people). Pass 1 groups by payer; a payer whose deposits don't fit any
+    pay calendar is retried split by amount level, keeping the sub-streams
+    only if that yields fitted schedules."""
+    streams = [s for s in detect_streams(txns, merchant_key=_merchant_key) if s.is_income]
+    # A clean fit (>= 95% of paydays) is left alone; anything weaker may be
+    # two schedules interleaved under one memo (bi-weekly + semi-monthly
+    # merged looks like a sloppy weekly).
+    solid = {s.merchant for s in streams if s.schedule is not None and s.schedule_fit >= 0.95}
+    by_payer: dict = {}
+    for t in txns:
+        by_payer.setdefault(_merchant_key(t), []).append(t)
+    for payer, ts in by_payer.items():
+        if payer in solid or len(ts) < 6:
+            continue
+        clusters = _amount_clusters(ts)
+        if len(set(clusters.values())) < 2:
+            continue
+        subs = [s for s in detect_streams(ts, merchant_key=lambda t: f"{payer} #{clusters[id(t)] + 1}")
+                if s.is_income]
+        covered_days = {d for s in subs for d, _ in s.occurrences}
+        all_days = {t.date for t in ts}
+        if (len(subs) >= 2 and all(s.schedule is not None and s.schedule_fit >= 0.9 for s in subs)
+                and len(covered_days) >= 0.9 * len(all_days)):
+            streams = [s for s in streams if s.merchant != payer] + subs
+    return streams
+
+
 # ─── Main entry point ────────────────────────────────────────────────────
 def build_income_profile(db: Session, today: date) -> dict:
     """Everything the Paychecks page, Budgets and Safe-to-spend need."""
+    return _build(db, today)[0]
+
+
+def _build(db: Session, today: date) -> tuple[dict, list[dict]]:
     cutoff = today - timedelta(days=LOOKBACK_DAYS)
     dep_ids = {a_id for (a_id,) in db.query(Account.id).filter(Account.type == "depository").all()}
     accounts = {a.id: a for a in db.query(Account).all()}
@@ -286,9 +340,7 @@ def build_income_profile(db: Session, today: date) -> dict:
     earners: list[dict] = []
     other_income: list[dict] = []
 
-    for s in detect_streams(txns, merchant_key=_merchant_key):
-        if not s.is_income:
-            continue
+    for s in _detect_income_streams(txns):
         key = earner_key(s.merchant)
         payer = _display_name(s.txns[-1])
         ov = overrides.get(key, {})
@@ -299,10 +351,10 @@ def build_income_profile(db: Session, today: date) -> dict:
 
         recent = amounts[-RECENT_CHECKS:]
         per_check_detected = round(median(recent), 2)
-        paycheck_like = (
-            (s.schedule is not None or s.frequency in VALID_FREQUENCIES)
-            and per_check_detected >= PAYCHECK_FLOOR
-        )
+        # A paycheck has a real pay calendar. Deposits that merely recur at
+        # a rough interval (gig payouts, transfers from a side account) are
+        # "other income": too irregular to plan a month around.
+        paycheck_like = s.schedule is not None and per_check_detected >= PAYCHECK_FLOOR
         if not paycheck_like and not ov.get("frequency"):
             other_income.append({
                 "key": key,
@@ -396,12 +448,30 @@ def build_income_profile(db: Session, today: date) -> dict:
             "split_deposit": split if len(split) > 1 else [],
             "change": change,
             "history": [{"date": d_.isoformat(), "amount": round(a_, 2)} for d_, a_ in occ[-26:]],
+            # Same-payer deposits that aren't regular paychecks (bonus,
+            # commission, back pay) — set aside so they don't skew the
+            # per-check amount or the schedule.
+            "extras": [{"date": d_.isoformat(), "amount": round(a_, 2)}
+                       for d_, a_ in (s.extras or []) if (today - d_).days <= 366],
             "_schedule": schedule,
+            "_payer_key": s.merchant.split(" #")[0],
+            "_rep": s.txns[-1],
             "_occ": occ,
             "_interval": interval,
         })
 
     earners.sort(key=lambda e: (e["hidden"], e["status"] == "ended", -e["normalized_monthly"]))
+    # Two earners with the same bank label (a shared payroll processor):
+    # tell them apart by typical check size until the user names them.
+    names: dict = {}
+    for e in earners:
+        names.setdefault(e["display_name"], []).append(e)
+    for dupes in names.values():
+        if len(dupes) > 1:
+            for e in dupes:
+                if not e["nickname"]:
+                    e["display_name"] = f"{e['display_name']} (~{e['per_check']:,.0f}/check)"
+
     active = [e for e in earners if not e["hidden"] and e["status"] != "ended"]
 
     months = _month_grid(active, today)
@@ -422,12 +492,15 @@ def build_income_profile(db: Session, today: date) -> dict:
         "next_payday": upcoming[0] if upcoming else None,
     }
 
+    internals: list[dict] = []
     for e in earners:
         e.pop("_schedule", None)
         e.pop("_occ", None)
         e.pop("_interval", None)
+        internals.append({"key": e["key"], "payer_key": e.pop("_payer_key", None), "rep": e.pop("_rep", None),
+                          "active": not e["hidden"] and e["status"] != "ended"})
 
-    return {
+    profile = {
         "as_of": today.isoformat(),
         "household": household,
         "earners": earners,
@@ -443,6 +516,58 @@ def build_income_profile(db: Session, today: date) -> dict:
         "other_income": other_income,
         "guidance": _guidance(household, extra_months, active),
     }
+    return profile, internals
+
+
+def _earner_rows(e: dict, today: date, grid_start: date, grid_end: date) -> list[tuple[str, dict]]:
+    """(month bucket, paycheck row) for one earner across the grid.
+
+    Received deposits come from history; future paydays from the schedule
+    (only those not already covered by a deposit). Day-of-month schedules
+    (semi-monthly, monthly) bucket each check by its NOMINAL payday: a
+    "1st of the month" check that posts early on Dec 31 is January's pay,
+    so January still shows its two checks and December doesn't look like it
+    got a bonus. Fixed-interval schedules bucket by the actual date — their
+    third check in a month is real extra cash, which is the point.
+    """
+    sched = e["_schedule"]
+    by_nominal = sched is not None and sched.frequency not in STEP_DAYS
+    rows: list[tuple[str, dict]] = []
+
+    nominal_of: dict = {}
+    if by_nominal:
+        for actual, nominal in sched.paydays_with_nominal(grid_start - timedelta(days=7), grid_end + timedelta(days=7)):
+            for lag in range(0, EARLY_POST_TOLERANCE + 1):
+                nominal_of.setdefault(actual - timedelta(days=lag), nominal)
+
+    def bucket(actual: date) -> tuple[str, bool]:
+        nom = nominal_of.get(actual) if by_nominal else None
+        ref = nom or actual
+        return _month_key(ref.year, ref.month), bool(nom and (nom.year, nom.month) != (actual.year, actual.month))
+
+    for d, a in e["_occ"]:
+        if grid_start <= d <= grid_end + timedelta(days=7):
+            mk, early = bucket(d)
+            rows.append((mk, {"date": d.isoformat(), "key": e["key"], "name": e["display_name"],
+                              "amount": round(a, 2), "received": True, "counts_for_next_month": early}))
+
+    if e["next_paydays"]:
+        floor = max(today, date.fromisoformat(e["last_paid"]) + timedelta(days=EARLY_POST_TOLERANCE + 1))
+        if sched is not None:
+            proj = [a for a, _ in sched.paydays_with_nominal(floor, grid_end + timedelta(days=7))]
+        else:
+            step = timedelta(days=max(e["_interval"], 1))
+            d = date.fromisoformat(e["next_paydays"][0])
+            proj = []
+            while d <= grid_end:
+                if d >= floor:
+                    proj.append(d)
+                d += step
+        for d in proj:
+            mk, early = bucket(d)
+            rows.append((mk, {"date": d.isoformat(), "key": e["key"], "name": e["display_name"],
+                              "amount": e["per_check"], "received": False, "counts_for_next_month": early}))
+    return rows
 
 
 def _month_grid(active: list[dict], today: date) -> list[dict]:
@@ -450,47 +575,32 @@ def _month_grid(active: list[dict], today: date) -> list[dict]:
     projected for the current month, projected for future months."""
     out = []
     cur_key = _month_key(today.year, today.month)
+    gy, gm = _add_months(today.year, today.month, -MONTHS_BACK)
+    ey, em = _add_months(today.year, today.month, MONTHS_FORWARD)
+    grid_start = date(gy, gm, 1)
+    grid_end = date(ey, em, calendar.monthrange(ey, em)[1])
+    per_earner = {e["key"]: _earner_rows(e, today, grid_start, grid_end) for e in active}
+
     for delta in range(-MONTHS_BACK, MONTHS_FORWARD + 1):
         y, m = _add_months(today.year, today.month, delta)
         mk = _month_key(y, m)
-        m_start = date(y, m, 1)
         m_end = date(y, m, calendar.monthrange(y, m)[1])
         paychecks = []
         extra_checks = 0
         extra_amount = 0.0
         by_earner = {}
         for e in active:
-            occ = [(d, a) for d, a in e["_occ"] if m_start <= d <= m_end]
-            rows = [{"date": d.isoformat(), "key": e["key"], "name": e["display_name"],
-                     "amount": round(a, 2), "received": True} for d, a in occ]
-            if mk >= cur_key and e["next_paydays"]:
-                # Project only paydays not yet covered by a deposit: on/after
-                # today and after the last deposit's early-post window.
-                floor = max(today, date.fromisoformat(e["last_paid"])
-                            + timedelta(days=EARLY_POST_TOLERANCE + 1))
-                sched = e["_schedule"]
-                if sched is not None:
-                    proj = [d for d in month_paydays(sched, y, m) if d >= floor]
-                else:
-                    step = timedelta(days=max(e["_interval"], 1))
-                    d = date.fromisoformat(e["next_paydays"][0])
-                    proj = []
-                    while d <= m_end:
-                        if d >= m_start and d >= floor:
-                            proj.append(d)
-                        d += step
-                for d in proj:
-                    rows.append({"date": d.isoformat(), "key": e["key"], "name": e["display_name"],
-                                 "amount": e["per_check"], "received": False})
             first_seen = e["_occ"][0][0] if e["_occ"] else None
             # Months before this earner's history starts aren't "0 checks".
             if first_seen and m_end < first_seen:
                 continue
+            rows = [dict(r) for k, r in per_earner[e["key"]] if k == mk]
             rows.sort(key=lambda r: r["date"])
+            fixed_interval = e["schedule"]["frequency"] in STEP_DAYS
             base = e["schedule"]["min_per_month"]
             for i, r in enumerate(rows):
-                r["is_extra"] = i >= base and e["schedule"]["frequency"] in (BIWEEKLY, WEEKLY)
-            n_extra = max(len(rows) - base, 0) if e["schedule"]["frequency"] in (BIWEEKLY, WEEKLY) else 0
+                r["is_extra"] = fixed_interval and i >= base
+            n_extra = max(len(rows) - base, 0) if fixed_interval else 0
             if n_extra:
                 extra_checks += n_extra
                 extra_amount += sum(r["amount"] for r in rows if r["is_extra"])
@@ -540,22 +650,70 @@ def _guidance(household: dict, extra_months: list[dict], active: list[dict]) -> 
     return tips
 
 
-def payer_label_fn(db: Session):
-    """stream -> the user's nickname for that payer, so forecast/calendar
-    events say "Alex paycheck" instead of a bank memo. Falls back to the
-    stream's own merchant label."""
-    overrides = load_overrides(db)
-
-    def label(stream) -> str:
-        if not overrides or not stream.txns:
-            return stream.merchant
-        nick = (overrides.get(earner_key(_merchant_key(stream.txns[-1]))) or {}).get("nickname")
-        return f"{nick} paycheck" if nick else stream.merchant
-
-    return label
-
-
 def next_household_payday(db: Session, today: date) -> Optional[dict]:
     """Earliest upcoming payday across active earners, or None."""
     profile = build_income_profile(db, today)
     return profile["household"]["next_payday"]
+
+
+# ─── Shared projection for forecast / calendar / recurring page ─────────
+class IncomeProjection:
+    """Paychecks as the rest of the app should project them.
+
+    The cash-flow forecast, the bills calendar and the Recurring page each
+    run the generic recurring detector, which knows nothing about the user's
+    corrections (nickname, schedule, hidden) or about payer grouping. This
+    object lets them hand paycheck streams over to the household model:
+
+      covers(stream) — True when a detector income stream belongs to a payer
+                       the household model owns (active, hidden or ended),
+                       so the caller must NOT project it itself;
+      events         — every active, non-hidden payday in the window;
+      earners        — per active earner: key, label, per-check, monthly
+                       average and a representative transaction (for callers
+                       that key income by raw description).
+    """
+
+    def __init__(self, profile: dict, internals: list[dict], start: date, end: date):
+        self.profile = profile
+        self._payer_keys = {i["payer_key"] for i in internals if i["payer_key"]}
+        by_key = {e["key"]: e for e in profile["earners"]}
+        self.earners = []
+        self.events = []
+        for i in internals:
+            e = by_key.get(i["key"])
+            if not e or not i["active"]:
+                continue
+            self.earners.append({"key": e["key"], "label": e["display_name"], "per_check": e["per_check"],
+                                 "normalized_monthly": e["normalized_monthly"], "rep": i["rep"],
+                                 "frequency": e["schedule"]["frequency"],
+                                 "next_payday": e["next_paydays"][0] if e["next_paydays"] else None})
+        for m in profile["months"]:
+            for p in m["paychecks"]:
+                d = date.fromisoformat(p["date"])
+                if not p["received"] and start <= d <= end:
+                    nick = (by_key.get(p["key"]) or {}).get("nickname")
+                    label = f"Paycheck · {nick}" if nick else p["name"]
+                    self.events.append({"date": d, "key": p["key"], "label": label, "amount": p["amount"]})
+        # Beyond the 12-month grid (long forecast horizons are capped well
+        # inside it today, but keep this honest if that changes).
+        self.events.sort(key=lambda ev: (ev["date"], ev["label"]))
+
+    def covers(self, stream) -> bool:
+        if not getattr(stream, "is_income", False) or not stream.txns:
+            return False
+        return _merchant_key(stream.txns[-1]) in self._payer_keys
+
+    def earner_for(self, stream) -> Optional[dict]:
+        if not self.covers(stream):
+            return None
+        pk = _merchant_key(stream.txns[-1])
+        for e in self.earners:
+            if _merchant_key(e["rep"]) == pk:
+                return e
+        return None
+
+
+def income_projection(db: Session, today: date, end: date) -> IncomeProjection:
+    profile, internals = _build(db, today)
+    return IncomeProjection(profile, internals, today, end)

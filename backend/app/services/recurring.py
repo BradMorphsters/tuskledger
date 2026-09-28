@@ -82,6 +82,9 @@ class RecurringStream:
     # ...) when one explains the history; None → plain interval stepping.
     schedule: Optional[PaySchedule] = None
     schedule_fit: float = 0.0
+    # Income only: same-payer deposits set aside as bonuses/one-offs
+    # ((date, amount) pairs) — excluded from the amount and the cadence.
+    extras: list = field(default_factory=list, repr=False)
 
     @property
     def annual_multiplier(self) -> int:
@@ -106,8 +109,16 @@ class RecurringStream:
         Streams with a fitted pay calendar use it (business-day and holiday
         adjusted, so semi-monthly pay stays on its days and bi-weekly pay
         picks up its third-paycheck months). Everything else keeps the
-        historical "last date + median interval" stepping.
+        historical "last date + median interval" stepping. `start` doubles
+        as "today" for the staleness check.
         """
+        # A stream that has missed two full cycles (plus a week of grace)
+        # has stopped: a cancelled subscription, an old job, or a fragment of
+        # a payer whose bank memo changed. Projecting it forward would invent
+        # money. Seasonal streams are exempt: their silence is the off-season.
+        cycle = max(int(self.median_interval), 1)
+        if not self.is_seasonal and (start - self.last_date).days > 2 * cycle + 7:
+            return []
         if self.schedule is not None:
             # A deposit can post a day or two before its payday; don't
             # re-project the payday it already covered.
@@ -188,6 +199,20 @@ def detect_streams(
             continue
 
         tolerance = income_tolerance if is_income else outflow_tolerance
+        extras: list = []
+        if is_income:
+            # A bonus, commission or back-pay deposit from the same payer is
+            # an outlier, not a reason to throw the whole paycheck away. Set
+            # aside up to 20% of paydays as "extras" (kept on the stream so
+            # the UI can show them) when the rest is a clean cadence.
+            regular = [o for o in occurrences if abs(o[1] - median_amount) / median_amount < tolerance]
+            outliers = [o for o in occurrences if abs(o[1] - median_amount) / median_amount >= tolerance]
+            if outliers and len(outliers) <= 0.2 * len(occurrences) and len(regular) >= 3:
+                extras = outliers
+                occurrences = regular
+                abs_amounts = [a for _, a in occurrences]
+                dates_ = [d for d, _ in occurrences]
+                median_amount = sorted(abs_amounts)[len(abs_amounts) // 2]
         if not all(abs(a - median_amount) / median_amount < tolerance for a in abs_amounts):
             continue
 
@@ -234,5 +259,6 @@ def detect_streams(
             occurrences=occurrences,
             schedule=schedule,
             schedule_fit=schedule_fit,
+            extras=extras,
         ))
     return streams

@@ -408,4 +408,138 @@ def test_nickname_flows_into_calendar_events(client):
     client.put(f"/api/income/earners/{key}", json={"nickname": "Alex"})
     cal = client.get("/api/analytics/cashflow-calendar?days=90").json()
     names = {e["merchant"] for e in cal["events"] if e["type"] == "income"}
-    assert "Alex paycheck" in names
+    assert "Paycheck · Alex" in names
+
+
+# ─── Robustness (round 2) ────────────────────────────────────────────────
+def _deposits(factory, acct, dates, amount, name):
+    for d in dates:
+        factory.transaction(account_id=acct.id, amount=-amount, date=d, name=name,
+                            merchant_name=None, category="Income")
+
+
+def test_every_four_weeks_is_13_a_year(db, factory):
+    acct = factory.account()
+    _deposits(factory, acct, [D(2025, 10, 3) + dt.timedelta(days=28 * i) for i in range(13)],
+              4000.0, "DEPOSIT ACME CORP PAYROLL")
+    factory.commit()
+    e = build_income_profile(db, TODAY)["earners"][0]
+    assert e["schedule"]["frequency"] == "four-weekly" and e["schedule"]["per_year"] == 13
+    assert e["baseline_monthly"] == pytest.approx(4000.0)
+    assert e["annual"] == pytest.approx(52000.0)
+
+
+def test_bonus_deposits_are_set_aside_not_fatal(db, factory):
+    acct = factory.account()
+    _deposits(factory, acct, BIWEEKLY_DATES, 2000.0, "DEPOSIT ACME CORP PAYROLL")
+    _deposits(factory, acct, [D(2026, 5, 6)], 9000.0, "DEPOSIT ACME CORP PAYROLL")   # off-cycle bonus
+    factory.commit()
+    e = build_income_profile(db, TODAY)["earners"][0]
+    assert e["schedule"]["frequency"] == "bi-weekly" and e["per_check"] == pytest.approx(2000.0)
+    assert e["extras"] == [{"date": "2026-05-06", "amount": 9000.0}]
+
+
+def test_two_people_paid_through_one_processor_are_split(db, factory):
+    chk = factory.account(name="Checking")
+    _deposits(factory, chk, BIWEEKLY_DATES, 2100.0, "GUSTO PAYROLL PAYMENT")
+    _deposits(factory, chk, SEMIMONTHLY_DATES, 1400.0, "GUSTO PAYROLL PAYMENT")
+    factory.commit()
+    p = build_income_profile(db, TODAY)
+    freqs = sorted(e["schedule"]["frequency"] for e in p["earners"])
+    assert freqs == ["bi-weekly", "semi-monthly"]
+    names = {e["display_name"] for e in p["earners"]}
+    assert len(names) == 2  # disambiguated by check size until nicknamed
+
+
+def test_irregular_payouts_are_other_income_not_paychecks(db, factory):
+    acct = factory.account()
+    rng = __import__("random").Random(3)
+    d = D(2025, 10, 1)
+    while d < TODAY:
+        d += dt.timedelta(days=rng.randint(3, 20))
+        factory.transaction(account_id=acct.id, amount=-rng.uniform(150, 900), date=d,
+                            name="RIDESHARE PAYOUT", merchant_name=None)
+    factory.commit()
+    p = build_income_profile(db, TODAY)
+    assert p["earners"] == []
+
+
+def test_first_of_month_check_counts_for_its_own_month(db, factory):
+    # Semi-monthly on the 1st & 15th: the Jan 1 payday (a holiday) posts on
+    # Dec 31 but is January's pay, so neither month looks odd.
+    acct = factory.account()
+    sched = pc.PaySchedule(pc.SEMIMONTHLY, days=(1, 15))
+    _deposits(factory, acct, _paydays(sched), 1800.0, "DEPOSIT ACME CORP PAYROLL")
+    factory.commit()
+    p = build_income_profile(db, TODAY)
+    months = {m["month"]: m for m in p["months"]}
+    assert months["2026-12"]["paycheck_count"] == 2
+    assert months["2027-01"]["paycheck_count"] == 2
+    jan = [r for r in months["2027-01"]["paychecks"]]
+    assert jan[0]["date"] == "2026-12-31" and jan[0]["counts_for_next_month"] is True
+    assert not p["extra_paycheck_months"]
+
+
+def test_fit_cache_respects_holiday_calendar():
+    dates = _paydays(pc.PaySchedule(pc.BIWEEKLY, anchor=D(2026, 1, 5)), D(2026, 1, 1), D(2026, 6, 30))
+    first = pc.fit_schedule(dates)
+    pc.configure_holidays("none")
+    second = pc.fit_schedule(dates)       # holiday-shifted Fridays now look early/odd
+    assert first[1] == 1.0 and second is not None and second[1] < 1.0
+
+
+def test_forecast_uses_corrected_schedule(client):
+    body = client.get("/api/income/schedule").json()
+    key = next(e["key"] for e in body["earners"] if e["schedule"]["frequency"] == "semi-monthly")
+    client.put(f"/api/income/earners/{key}", json={"frequency": "semi-monthly", "days_of_month": [10, 25]})
+    fc = client.get("/api/analytics/cash-flow-forecast?days=40").json()
+    inflow_dates = {e["date"] for e in fc["upcoming_events"] if e["kind"] == "inflow"}
+    assert "2026-10-09" in inflow_dates   # Oct 10 is a Saturday → Friday
+    assert "2026-09-30" not in inflow_dates and "2026-10-15" not in inflow_dates
+
+
+def test_hidden_earner_is_not_projected(client):
+    body = client.get("/api/income/schedule").json()
+    key = next(e["key"] for e in body["earners"] if e["schedule"]["frequency"] == "bi-weekly")
+    client.put(f"/api/income/earners/{key}", json={"hidden": True})
+    cal = client.get("/api/analytics/cashflow-calendar?days=40").json()
+    assert "2026-10-02" not in {e["date"] for e in cal["events"] if e["type"] == "income"}
+
+
+def test_stale_fragment_is_not_projected_forever(db, factory):
+    from app.models import Transaction
+    acct = factory.account()
+    for d in (D(2026, 1, 2), D(2026, 1, 16)):
+        factory.transaction(account_id=acct.id, amount=-2000.0, date=d, merchant_name="Old Label Payroll")
+    factory.commit()
+    s = [x for x in detect_streams(db.query(Transaction).all()) if x.is_income][0]
+    assert s.next_dates(TODAY, TODAY + dt.timedelta(days=90)) == []
+
+
+def test_recurring_page_survives_force_subscription_rule(db, factory):
+    """Regression: a 'force subscription' rule made /analytics/recurring 500
+    (merchant_txns undefined after the detector consolidation)."""
+    from app.models import SubscriptionRule
+    from app.models.subscription_rule import KIND_FORCE_SUB
+    from app.routers.analytics import detect_recurring
+    acct = factory.account()
+    factory.transaction(account_id=acct.id, amount=12.0, date=TODAY - dt.timedelta(days=5),
+                        merchant_name="Newstream Video")
+    db.add(SubscriptionRule(pattern="newstream", kind=KIND_FORCE_SUB, priority=1))
+    factory.commit()
+    res = detect_recurring(db)
+    rows = res if isinstance(res, list) else res.get("recurring", [])
+    assert any(r.get("forced_subscription") for r in rows)
+
+
+def test_recurring_page_shows_one_row_per_paycheck(db, factory):
+    from app.routers.analytics import detect_recurring
+    acct = factory.account()
+    for i, d in enumerate(BIWEEKLY_DATES):
+        factory.transaction(account_id=acct.id, amount=-2000.0, date=d,
+                            name="DEPOSIT ACME HOSPITAL TYPE: PAYROLL",
+                            merchant_name="Acme Hospital Inc" if i < 2 else None)
+    factory.commit()
+    res = detect_recurring(db)
+    rows = res if isinstance(res, list) else res.get("recurring", [])
+    assert len([r for r in rows if r["is_income"]]) == 1

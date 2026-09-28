@@ -39,13 +39,17 @@ LAST_DAY = 31
 # flow straight through the existing API responses and UI badges.
 WEEKLY = "weekly"
 BIWEEKLY = "bi-weekly"
+FOURWEEKLY = "four-weekly"   # every 4 weeks: 13 checks a year, not 12
 SEMIMONTHLY = "semi-monthly"
 MONTHLY = "monthly"
 
-PER_YEAR = {WEEKLY: 52, BIWEEKLY: 26, SEMIMONTHLY: 24, MONTHLY: 12}
+PER_YEAR = {WEEKLY: 52, BIWEEKLY: 26, FOURWEEKLY: 13, SEMIMONTHLY: 24, MONTHLY: 12}
 # Fewest paychecks any calendar month can contain for each schedule. Income
 # you can count on EVERY month = per-check amount × this.
-MIN_PER_MONTH = {WEEKLY: 4, BIWEEKLY: 2, SEMIMONTHLY: 2, MONTHLY: 1}
+MIN_PER_MONTH = {WEEKLY: 4, BIWEEKLY: 2, FOURWEEKLY: 1, SEMIMONTHLY: 2, MONTHLY: 1}
+# Fixed-interval schedules (days between paydays). Only these produce
+# "extra-paycheck" months; day-of-month schedules never do.
+STEP_DAYS = {WEEKLY: 7, BIWEEKLY: 14, FOURWEEKLY: 28}
 
 # A deposit may post up to this many days before its scheduled date (banks
 # that release ACH credits early) and still count as that payday.
@@ -75,6 +79,7 @@ def configure_holidays(calendar_name: str = "us", extra: Iterable[date] = ()) ->
     _extra_holidays = frozenset(extra)
     _configured = True
     _bank_holidays.cache_clear()
+    _fit_cached.cache_clear()
 
 
 def _ensure_configured() -> None:
@@ -95,6 +100,11 @@ def _ensure_configured() -> None:
         configure_holidays(getattr(settings, "PAY_HOLIDAY_CALENDAR", "us"), extra)
     except Exception:  # pragma: no cover - app config unavailable
         configure_holidays("us")
+
+
+def _config_token() -> tuple:
+    _ensure_configured()
+    return (_holiday_calendar, _extra_holidays)
 
 
 # ─── Holidays / business days ────────────────────────────────────────────
@@ -225,9 +235,16 @@ class PaySchedule:
 
     def paydays(self, start: date, end: date) -> list[date]:
         """Actual (business-day-adjusted) paydays with start <= d <= end."""
-        out: list[date] = []
-        if self.frequency in (WEEKLY, BIWEEKLY):
-            step = 7 if self.frequency == WEEKLY else 14
+        return sorted({actual for actual, _ in self.paydays_with_nominal(start, end)})
+
+    def paydays_with_nominal(self, start: date, end: date) -> list[tuple[date, date]]:
+        """(actual, nominal) pairs for paydays whose ACTUAL date is in
+        [start, end]. The nominal date is the scheduled one before any
+        weekend/holiday move — e.g. a "1st of the month" check that posts on
+        Dec 31 has nominal Jan 1, and budgets as January's pay."""
+        out: list[tuple[date, date]] = []
+        if self.frequency in STEP_DAYS:
+            step = STEP_DAYS[self.frequency]
             # First nominal date that could adjust into the window (a nominal
             # date near either edge can shift across it, so begin one step
             # early, end one week late, and filter).
@@ -236,15 +253,16 @@ class PaySchedule:
             while nominal <= end + timedelta(days=7):
                 actual = self._adjust(nominal)
                 if start <= actual <= end:
-                    out.append(actual)
+                    out.append((actual, nominal))
                 nominal += timedelta(days=step)
         else:
             y, m = _add_months(start.year, start.month, -1)
             while date(y, m, 1) <= end + timedelta(days=31):
                 for dom in self.days:
-                    actual = self._adjust(clamp_day(y, m, dom))
+                    nominal = clamp_day(y, m, dom)
+                    actual = self._adjust(nominal)
                     if start <= actual <= end:
-                        out.append(actual)
+                        out.append((actual, nominal))
                 y, m = _add_months(y, m, 1)
         return sorted(set(out))
 
@@ -259,7 +277,11 @@ class PaySchedule:
         if self.frequency == MONTHLY:
             return f"Monthly ({_dom_label(self.days[0])})"
         wd = calendar.day_name[self.anchor.weekday()]
-        return f"Every other {wd}" if self.frequency == BIWEEKLY else f"Every {wd}"
+        if self.frequency == BIWEEKLY:
+            return f"Every other {wd}"
+        if self.frequency == FOURWEEKLY:
+            return f"Every 4 weeks ({wd})"
+        return f"Every {wd}"
 
     def to_dict(self) -> dict:
         return {
@@ -287,32 +309,55 @@ def _matches(observed: date, expected: date) -> bool:
     return 0 <= (expected - observed).days <= EARLY_POST_TOLERANCE
 
 
-def _dom_fit(dates: Sequence[date], doms: Sequence[int], shift: str = SHIFT_BEFORE) -> float:
-    """Fraction of `dates` explained by shift-adjusted day-of-month targets,
-    plus a small bonus (< 1/len) for dates hit EXACTLY rather than via the
-    early-posting tolerance. Each date is compared against targets in the
-    previous, same and next month (a 1st-of-month payday can shift back into
-    the prior month; a month-end one forward into the next). The bonus
-    breaks ties such as "15th & last day" vs "1st & 15th", which both explain
-    month-end deposits within a day.
+_DOMS = tuple(range(1, 29)) + (LAST_DAY,)
+
+
+def _dom_masks(dates: Sequence[date], shift: str) -> tuple[list[int], list[int]]:
+    """Per observed date, bitmasks of the day-of-month targets that explain it
+    (within the early-posting tolerance) and that hit it exactly. Bit `dom`
+    is set for dom in _DOMS. Targets in the previous, same and next month
+    are considered (a 1st-of-month payday can shift back into the prior
+    month; a month-end one forward into the next).
+
+    Computing this once per date turns the day-pair search from
+    O(pairs × dates × targets) into O(pairs × dates) bit tests.
     """
-    if not dates:
-        return 0.0
-    hits = exact = 0
+    matches, exacts = [], []
     for d in dates:
-        best = None
+        m = e = 0
         for delta in (-1, 0, 1):
             dy, dm = _add_months(d.year, d.month, delta)
-            for dom in doms:
+            for dom in _DOMS:
                 target = adjust_payday(clamp_day(dy, dm, dom), shift)
-                if _matches(d, target):
-                    lag = (target - d).days
-                    best = lag if best is None else min(best, lag)
-        if best is not None:
-            hits += 1
-            exact += best == 0
-    n = len(dates)
+                lag = (target - d).days
+                if 0 <= lag <= EARLY_POST_TOLERANCE:
+                    m |= 1 << dom
+                    if lag == 0:
+                        e |= 1 << dom
+        matches.append(m)
+        exacts.append(e)
+    return matches, exacts
+
+
+def _score(hits: int, exact: int, n: int) -> float:
+    """Fraction explained, plus an exact-hit bonus (< 1/n) that breaks ties
+    such as "15th & last day" vs "1st & 15th", which both explain month-end
+    deposits within a day. Same formula for every schedule type, so fits
+    are comparable across them."""
     return hits / n + (exact / n) / (n + 1)
+
+
+def _dom_fit(dates: Sequence[date], doms: Sequence[int], shift: str = SHIFT_BEFORE) -> float:
+    """Fit score of a day-of-month schedule (see _score)."""
+    if not dates:
+        return 0.0
+    want = 0
+    for dom in doms:
+        want |= 1 << dom
+    matches, exacts = _dom_masks(dates, shift)
+    hits = sum(1 for m in matches if m & want)
+    exact = sum(1 for m, e in zip(matches, exacts) if m & want and e & want)
+    return _score(hits, exact, len(dates))
 
 
 def _nominal_weekday_anchor(dates: Sequence[date], step: int) -> tuple[Optional[PaySchedule], float]:
@@ -323,7 +368,7 @@ def _nominal_weekday_anchor(dates: Sequence[date], step: int) -> tuple[Optional[
     moved -3..+3 days. Every shift rule is tried; the winner explains the
     most dates (exact hits break ties, then rule order before/after/none).
     """
-    freq = BIWEEKLY if step == 14 else WEEKLY
+    freq = {7: WEEKLY, 14: BIWEEKLY, 28: FOURWEEKLY}[step]
     best: tuple[Optional[PaySchedule], float] = (None, 0.0)
     n = len(dates)
     for d in dates[-4:]:  # recent dates are the most trustworthy anchors
@@ -342,8 +387,7 @@ def _nominal_weekday_anchor(dates: Sequence[date], step: int) -> tuple[Optional[
                     if _matches(obs, expected):
                         hits += 1
                         exact += obs == expected
-                # Same exact-hit tie-break bonus as _dom_fit, so the two are comparable.
-                score = hits / n + (exact / n) / (n + 1)
+                score = _score(hits, exact, n)
                 if score > best[1] + 1e-9:
                     best = (sched, score)
     return best
@@ -354,10 +398,18 @@ def fit_schedule(dates: Iterable[date], min_fit: float = 0.75) -> Optional[tuple
 
     Returns (schedule, fit) or None when no schedule explains at least
     `min_fit` of the dates. Needs 3+ dates to call a schedule at all.
+    Results are cached per (dates, holiday calendar): the same income
+    streams are re-fit by several endpoints on every dashboard load.
     """
-    ds = sorted(set(dates))
+    ds = tuple(sorted(set(dates)))
     if len(ds) < 3:
         return None
+    return _fit_cached(ds, min_fit, _config_token())
+
+
+@lru_cache(maxsize=1024)
+def _fit_cached(ds: tuple, min_fit: float, _config: tuple) -> Optional[tuple[PaySchedule, float]]:
+    n = len(ds)
     gaps = sorted((b - a).days for a, b in zip(ds, ds[1:]))
     median_gap = gaps[len(gaps) // 2]
 
@@ -372,37 +424,54 @@ def fit_schedule(dates: Iterable[date], min_fit: float = 0.75) -> Optional[tuple
             candidates.append((sched, fit))
         # Semi-monthly: search day pairs at least 10 days apart. The last
         # day of the month is expressed as LAST_DAY so it survives Feb.
-        best_pair, best_fit, best_shift = None, 0.0, SHIFT_BEFORE
+        best: tuple = (None, 0.0, SHIFT_BEFORE)
         for shift in SHIFT_RULES:
-            for d1 in range(1, 29):
-                for d2 in list(range(d1 + 10, 29)) + [LAST_DAY]:
+            matches, exacts = _dom_masks(ds, shift)
+            for i, d1 in enumerate(_DOMS):
+                for d2 in _DOMS[i + 1:]:
                     if d2 - d1 < 10:
                         continue
-                    f = _dom_fit(ds, (d1, d2), shift)
-                    if f > best_fit + 1e-9:
-                        best_pair, best_fit, best_shift = (d1, d2), f, shift
-        if best_pair:
-            candidates.append((PaySchedule(SEMIMONTHLY, days=best_pair, shift=best_shift), best_fit))
+                    want = (1 << d1) | (1 << d2)
+                    hits = exact = 0
+                    for m, e in zip(matches, exacts):
+                        if m & want:
+                            hits += 1
+                            if e & want:
+                                exact += 1
+                    f = _score(hits, exact, n)
+                    if f > best[1] + 1e-9:
+                        best = ((d1, d2), f, shift)
+        if best[0]:
+            candidates.append((PaySchedule(SEMIMONTHLY, days=best[0], shift=best[2]), best[1]))
     if 26 <= median_gap <= 35:
-        best_dom, best_fit, best_shift = None, 0.0, SHIFT_BEFORE
+        best = (None, 0.0, SHIFT_BEFORE)
         for shift in SHIFT_RULES:
-            for dom in list(range(1, 29)) + [LAST_DAY]:
-                f = _dom_fit(ds, (dom,), shift)
-                if f > best_fit + 1e-9:
-                    best_dom, best_fit, best_shift = dom, f, shift
-        if best_dom:
-            candidates.append((PaySchedule(MONTHLY, days=(best_dom,), shift=best_shift), best_fit))
+            matches, exacts = _dom_masks(ds, shift)
+            for dom in _DOMS:
+                want = 1 << dom
+                hits = sum(1 for m in matches if m & want)
+                exact = sum(1 for m, e in zip(matches, exacts) if m & want and e & want)
+                f = _score(hits, exact, n)
+                if f > best[1] + 1e-9:
+                    best = ((dom,), f, shift)
+        if best[0]:
+            candidates.append((PaySchedule(MONTHLY, days=best[0], shift=best[2]), best[1]))
+        if median_gap <= 30:
+            sched, fit = _nominal_weekday_anchor(ds, 28)
+            if sched:
+                candidates.append((sched, fit))
 
     if not candidates:
         return None
     # Highest fit wins; on a tie prefer the fixed-interval schedule (bi-weekly
-    # over semi-monthly) — a pure 14-day rhythm that ALSO happens to fit a day
-    # pair over a short window is far more likely to be bi-weekly, and the
-    # extra-paycheck months will reveal it either way.
-    order = {WEEKLY: 0, BIWEEKLY: 1, SEMIMONTHLY: 2, MONTHLY: 3}
+    # over semi-monthly, every-4-weeks over monthly): a pure 14/28-day rhythm
+    # that ALSO happens to fit days of the month over a short window is far
+    # more likely to be fixed-interval, and its extra-paycheck months will
+    # reveal it either way.
+    order = {WEEKLY: 0, BIWEEKLY: 1, FOURWEEKLY: 2, SEMIMONTHLY: 3, MONTHLY: 4}
     candidates.sort(key=lambda c: (-round(c[1], 6), order[c[0].frequency]))
     sched, score = candidates[0]
-    fit = min(score, 1.0) if score >= 1.0 else float(int(score * len(ds) + 1e-6)) / len(ds)
+    fit = 1.0 if score >= 1.0 else float(int(score * n + 1e-6)) / n
     if fit < min_fit:
         return None
     return sched, fit

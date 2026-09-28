@@ -26,6 +26,7 @@ const EARNER_COLORS = ['var(--accent-blue)', 'var(--accent-purple)', 'var(--acce
 const FREQUENCIES = [
   { value: 'bi-weekly', label: 'Every other week (26/yr)' },
   { value: 'semi-monthly', label: 'Twice a month (24/yr)' },
+  { value: 'four-weekly', label: 'Every 4 weeks (13/yr)' },
   { value: 'weekly', label: 'Weekly (52/yr)' },
   { value: 'monthly', label: 'Monthly (12/yr)' },
 ]
@@ -140,7 +141,7 @@ function EarnerEditor({ earner, onSave, onCancel, onReset, saving }) {
             </select>
           </label>
         )}
-        {(frequency === 'bi-weekly' || frequency === 'weekly') && (
+        {(frequency === 'bi-weekly' || frequency === 'weekly' || frequency === 'four-weekly') && (
           <label style={labelStyle}>
             A recent payday
             <input type="date" style={fieldStyle} value={anchor || ''} onChange={e => setAnchor(e.target.value)} aria-label="A recent payday" />
@@ -236,6 +237,15 @@ function EarnerCard({ earner, color, readOnly, onChanged }) {
         </div>
       )}
 
+      {earner.extras?.length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
+          Other deposits from this payer (bonus, back pay…), not counted as regular pay:{' '}
+          {earner.extras.map((x, i) => (
+            <span key={x.date}>{i > 0 && ', '}{fmt(x.amount)} on {formatDate(x.date)}</span>
+          ))}
+        </div>
+      )}
+
       {earner.split_deposit?.length > 1 && (
         <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
           Split deposit, counted as one paycheck:{' '}
@@ -286,7 +296,8 @@ function MonthTile({ month, colorFor }) {
       </div>
       <div style={{ display: 'flex', gap: 4, margin: '8px 0', flexWrap: 'wrap' }} aria-hidden="true">
         {month.paychecks.map(p => (
-          <span key={`${p.key}-${p.date}`} title={`${p.name} · ${formatDate(p.date)} · ${fmt(p.amount)}${p.received ? '' : ' (expected)'}`}
+          <span key={`${p.key}-${p.date}`}
+                title={`${p.name} · ${formatDate(p.date)} · ${fmt(p.amount)}${p.received ? '' : ' (expected)'}${p.counts_for_next_month ? ` · posts early, counts as ${month.label} pay` : ''}`}
                 style={{
                   width: 10, height: 10, borderRadius: '50%',
                   background: p.received ? colorFor(p.key) : 'transparent',

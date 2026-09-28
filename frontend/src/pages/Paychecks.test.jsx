@@ -25,6 +25,7 @@ function earner(over) {
     next_paydays: ['2026-10-02', '2026-10-16'],
     split_deposit: [{ account_id: 1, account: 'Checking', amount: 2000 }, { account_id: 2, account: 'Savings', amount: 600 }],
     change: { direction: 'up', pct: 4, previous_per_check: 2500, since: '2026-07-24' },
+    extras: [{ date: '2026-05-06', amount: 9000 }],
     history: [],
     ...over,
   }
@@ -76,6 +77,7 @@ it('shows both earners, the baseline, and the extra-paycheck month', async () =>
   expect(screen.getByTestId('month-2026-10')).toHaveTextContent('+1 extra check')
   expect(screen.getByText(/Split deposit, counted as one paycheck/)).toBeInTheDocument()
   expect(screen.getByText(/went up 4%/)).toBeInTheDocument()
+  expect(screen.getAllByText(/Other deposits from this payer/).length).toBeGreaterThan(0)
 })
 
 it('saves a nickname and schedule correction', async () => {

@@ -16,6 +16,7 @@ the path the model must stay grounded to.
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import pytest
 
@@ -336,7 +337,13 @@ def test_mortgage_due_is_the_next_payment(household):
 
 
 def test_due_this_week_filters_horizon(household):
-    assert ask(household, "what's due this week")["answer"] == "Nothing is due in the next 7 days."
+    # Pinned to Tue Sep 15: the card (due Sep 20) is inside the 7-day
+    # horizon, the mortgage (due Oct 1) is not. This used to assert
+    # "nothing due" because the bills lookup read the real clock instead of
+    # the pinned one, so the answer drifted as the calendar moved.
+    r = ask(household, "what's due this week")["answer"]
+    assert "Travel Rewards Card" in r and "Sep 20" in r
+    assert "Home Loan" not in r
 
 
 def test_payment_made_finds_the_payment(household):
@@ -380,7 +387,9 @@ def test_greeting_and_briefing(household):
 
 def test_dates_are_read_aloud(household):
     assert "as of Sep 15" in ask(household, "What's my net worth?")["answer"]
-    assert "January 2045" in ask(household, "When will my mortgage be paid off?")["answer"]
+    # Month + year, never ISO. (The payoff month itself comes from the
+    # debt-payoff endpoint, which amortizes from the real clock.)
+    assert re.search(r"paid off around [A-Z][a-z]+ 20\d\d\b", ask(household, "When will my mortgage be paid off?")["answer"])
 
 
 def test_accounts_overview_names_accounts(household):

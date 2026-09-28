@@ -416,12 +416,12 @@ def test_holdings_bare_ticker_fallback(factory):
     assert r["intent"] == "holdings" and "AAPL" in r["answer"]
 
 
-def test_budget_category(factory, db):
-    import datetime as _dt
+def test_budget_category(factory, db, monkeypatch):
     from app.models.budget import Budget, BudgetCategory
+    monkeypatch.setattr(ret, "_TODAY", TODAY)   # retrievers read the pinned clock
     acct = factory.account()
     factory.transaction(account_id=acct.id, amount=120.0, category="Dining", date=TODAY)
-    today = _dt.date.today()
+    today = TODAY
     b = Budget(month=today.month, year=today.year)
     db.add(b); db.flush()
     db.add(BudgetCategory(budget_id=b.id, category="Dining", limit_amount=300.0))

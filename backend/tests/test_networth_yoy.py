@@ -67,9 +67,12 @@ def test_yoy_falls_back_to_closest_prior_when_exact_date_missing(db: Session):
     to the closest snapshot at-or-before that target date."""
     today = datetime.date.today()
     # Sparse snapshots — only the 1st of every month for 14 months.
+    # Step whole calendar months: "today − 30·k days, snapped to the 1st"
+    # lands two k's on the same month late in a month (e.g. the 27th),
+    # which tripped the snapshots' unique-date constraint.
     for months_back in range(14):
-        d = today - datetime.timedelta(days=30 * months_back)
-        d = d.replace(day=1)
+        idx = today.year * 12 + today.month - 1 - months_back
+        d = datetime.date(idx // 12, idx % 12 + 1, 1)
         _add_snapshot(db, d, 50_000 + (14 - months_back) * 1_000)
     db.commit()
 

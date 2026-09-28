@@ -6,6 +6,38 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Improved — Paychecks, round 2 (stress-tested against synthetic households)
+- **Every-4-weeks pay** (13 checks a year) is its own schedule instead of
+  being mistaken for monthly (12).
+- **Bonuses no longer hide a paycheck.** A same-payer deposit far from the
+  usual amount (bonus, commission, back pay) used to fail the consistency
+  check and drop the whole stream. Up to 20% of deposits are now set aside
+  as "other deposits from this payer" and shown on the earner card.
+- **Two people paid through one payroll processor** (same bank memo) are
+  split into two earners by check size when one combined schedule doesn't
+  fit, and labelled apart until nicknamed.
+- **Irregular payouts aren't paychecks.** Only deposits that fit a real pay
+  calendar count as paychecks; the rest is listed as other income.
+- **Pay-period months.** A "1st of the month" check that posts early on the
+  last business day of the prior month now counts toward its own month, so
+  neither month looks off.
+- **Corrections apply everywhere.** The cash-flow forecast, bills calendar
+  and Recurring page take paydays from the household pay model, so a
+  corrected schedule, a hidden earner or a nickname shows up in all of them.
+- **Stopped streams stop projecting.** A recurring item silent for two full
+  cycles (a cancelled subscription, an old job, a re-worded bank memo) is no
+  longer projected forward in the forecast.
+- **Faster:** day-of-month fitting uses precomputed bitmasks and results are
+  cached per holiday calendar (~8× faster; income endpoints under 100 ms on
+  the demo data).
+- **Fixed:** the Recurring page returned HTTP 500 for anyone with a "force
+  subscription" rule (a grouping map lost in the detector consolidation).
+- **Fixed:** Ask Tusk retrievers read the pinned clock everywhere (bills,
+  budgets, goals, HSA, trading tax, day-of-week), so answers and tests no
+  longer drift with the real date. The backend suite is fully green again
+  (four date-dependent failures resolved, including a snapshot fixture that
+  collided late in the month).
+
 ### Added — Paychecks: real pay schedules across the whole app
 - **Split direct deposits count as one paycheck.** The recurring detector
   now adds up same-day inflows from one payer before checking amount

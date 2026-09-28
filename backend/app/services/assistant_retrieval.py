@@ -1029,7 +1029,7 @@ def upcoming_bills(db, start, end, label, question: str = "") -> dict:
     from app.routers.bills import collect_upcoming_bills
     q = (question or "").lower()
     try:
-        bills = collect_upcoming_bills(db, days_ahead=45, include_overdue=True)
+        bills = collect_upcoming_bills(db, days_ahead=45, include_overdue=True, today=_now())
     except Exception:  # noqa: BLE001
         bills = []
     if not bills:
@@ -1092,7 +1092,7 @@ def budget_status(db, start, end, label, question: str = "") -> dict:
     if re.search(r"\b(left|remaining)\b", (question or "").lower()):
         from datetime import date as _date
         from app.models.budget import Budget
-        today = _date.today()
+        today = _now()
         bud = db.query(Budget).filter_by(month=today.month, year=today.year).first()
         if bud and bud.categories:
             cats = {c.category.lower() for c in bud.categories}
@@ -1376,7 +1376,7 @@ def stale_accounts(db, start, end, label, question: str = "") -> dict:
 def budget_category(db, start, end, label, question: str = "") -> dict:
     from datetime import date as _date
     from app.models.budget import Budget
-    today = _date.today()
+    today = _now()
     budget = db.query(Budget).filter_by(month=today.month, year=today.year).first()
     if not budget or not budget.categories:
         return _result("budget_category", "this month", "No category budgets are set for this month.", found=False)
@@ -1432,7 +1432,7 @@ def goals(db, start, end, label, question: str = "") -> dict:
            f"{_money(abs(rem))} {'to go' if rem > 0 else 'over target'}.")
     facts = [c, tgt, abs(rem), pct]
     if target.target_date and rem > 0:
-        months = max(1.0, (target.target_date - _date.today()).days / 30.0)
+        months = max(1.0, (target.target_date - _now()).days / 30.0)
         need = round(rem / months, 2)
         ans += f" To reach it by {target.target_date.isoformat()}, save about {_money(need)}/month."
         facts.append(need)
@@ -1463,7 +1463,7 @@ def cash_flow_forecast(db, start, end, label, question: str = "") -> dict:
     cash = round(sum(float(a.current_balance or 0) for a in db.query(Account).all()
                      if (a.subtype or "").lower() in ("checking", "savings", "money market", "cash management")
                      or (a.type or "").lower() == "depository"), 2)
-    today = _date.today()
+    today = _now()
     since = today - _td(days=90)
     out = sum(float(a) for (a,) in _spend_q(db).filter(Transaction.date >= since).with_entities(Transaction.amount).all())
     inc = sum(-float(a) for (a,) in db.query(Transaction)
@@ -1590,7 +1590,7 @@ def trading_tax(db, start, end, label, question: str = "") -> dict:
         try:
             res = compute_realized_pnl(db)
         except TypeError:
-            res = compute_realized_pnl(db, _date.today().year)
+            res = compute_realized_pnl(db, _now().year)
     except Exception:  # noqa: BLE001
         res = None
     if not isinstance(res, dict):
@@ -1671,7 +1671,7 @@ def hsa(db, start, end, label, question: str = "") -> dict:
     from datetime import date as _date
     try:
         from app.routers.analytics import hsa_status
-        res = hsa_status(year=_date.today().year, db=db)
+        res = hsa_status(year=_now().year, db=db)
     except Exception:  # noqa: BLE001
         res = None
     if not isinstance(res, dict):
@@ -2094,7 +2094,7 @@ def day_of_week(db, start, end, label, question: str = "") -> dict:
     from collections import defaultdict
     q = (question or "").lower()
     target = next(((n, i) for n, i in _DOW.items() if n in q), None)
-    since = _date.today() - _td(days=84)
+    since = _now() - _td(days=84)
     txns = _spend_q(db).filter(Transaction.date >= since).all()
     if not txns:
         return _result("day_of_week", "~12 weeks", "I don't see enough spending history to average by day yet.", found=False)

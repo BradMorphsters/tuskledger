@@ -389,6 +389,8 @@ def detect_recurring(db: Session = Depends(get_db)):
         return normalize_merchant(raw) or raw
 
     recurring = []
+    from app.services.pay_schedule import income_projection
+    paychecks = income_projection(db, today, today + timedelta(days=120))
     for stream in detect_streams(txns, merchant_key=_norm_key):
         merchant = stream.merchant
         txn_list = stream.txns
@@ -407,7 +409,15 @@ def detect_recurring(db: Session = Depends(get_db)):
         # For seasonal, if the projected next date falls in an inactive
         # month, push to the 1st of the earliest active month that follows.
         candidate = last_date + timedelta(days=int(median_interval))
-        if stream.schedule is not None:
+        earner = paychecks.earner_for(stream)
+        if earner is not None:
+            # A paycheck: the household pay model owns its schedule (the
+            # user's corrections included), so the Recurring page and the
+            # Paychecks page never disagree about the next payday.
+            frequency = earner["frequency"]
+            if earner["next_payday"]:
+                candidate = date.fromisoformat(earner["next_payday"])
+        elif stream.schedule is not None:
             # Fitted pay calendar (income): the real next payday — semi-monthly
             # stays on its days, weekend/holiday paydays move earlier.
             projected = stream.next_dates(today, today + timedelta(days=400))
@@ -444,7 +454,7 @@ def detect_recurring(db: Session = Depends(get_db)):
 
         category = sorted_txns[-1].custom_category or sorted_txns[-1].category or "Uncategorized"
         if is_income:
-            kind = "salary" if frequency in ("weekly", "bi-weekly", "semi-monthly", "monthly") else "income"
+            kind = "salary" if frequency in ("weekly", "bi-weekly", "four-weekly", "semi-monthly", "monthly") else "income"
         else:
             kind = _classify_kind(merchant, median_amount, frequency, category)
 
@@ -466,7 +476,20 @@ def detect_recurring(db: Session = Depends(get_db)):
             "category": category,
             "icon": CATEGORY_ICONS.get(category, "📦"),
             "annual_cost": round(median_amount * annual_multiplier, 2),
+            "_earner": earner["key"] if earner else None,
         })
+
+    # One row per paycheck: a bank re-wording an employer's memo leaves an
+    # old fragment under a different merchant label. The household pay
+    # model already merged them, so keep only the fullest row per earner.
+    best_by_earner: dict = {}
+    for r in recurring:
+        k = r["_earner"]
+        if k and (k not in best_by_earner or r["occurrences"] > best_by_earner[k]["occurrences"]):
+            best_by_earner[k] = r
+    recurring = [r for r in recurring if not r["_earner"] or best_by_earner[r["_earner"]] is r]
+    for r in recurring:
+        r.pop("_earner", None)
 
     # ── Apply user-defined subscription rule overrides ──
     # Two kinds of override:
@@ -510,6 +533,14 @@ def detect_recurring(db: Session = Depends(get_db)):
     existing_merchants = {r["merchant"] for r in recurring}
     sub_only_rules = [r for r in sub_rules if r.kind == KIND_FORCE_SUB]
     if sub_only_rules:
+        # Grouped here (not reused from the detector) because the detector
+        # drops merchants with a single charge — exactly the ones this pass
+        # exists for. The grouping map was lost in the Pass 5 consolidation,
+        # which made this branch raise NameError (HTTP 500 on the Recurring
+        # page) for anyone with a "force subscription" rule.
+        merchant_txns: dict[str, list] = defaultdict(list)
+        for t in txns:
+            merchant_txns[_norm_key(t)].append(t)
         for merchant_key, txn_list in merchant_txns.items():
             if merchant_key in existing_merchants:
                 continue
@@ -1153,10 +1184,25 @@ def cash_flow_forecast(
         return normalize_merchant(raw) or raw
 
     forecast_streams = detect_streams(txns, merchant_key=_forecast_key)
-    from app.services.pay_schedule import payer_label_fn
-    _payer_label = payer_label_fn(db)
+    # Paychecks come from the household pay model (services/pay_schedule):
+    # the user's schedule corrections, hidden earners, payer grouping and
+    # business-day rules all apply. Detector income streams it owns are
+    # skipped below so nothing is projected twice.
+    from app.services.pay_schedule import income_projection
+    paychecks = income_projection(db, today, horizon)
+    for ev in paychecks.events:
+        events[ev["date"]].append({
+            "kind": "inflow",
+            "source": ev["label"],
+            "amount": round(ev["amount"], 2),
+            "category": "Income",
+            "recurring": True,
+            "seasonal": False,
+        })
 
     for stream in forecast_streams:
+        if paychecks.covers(stream):
+            continue
         merchant = stream.merchant
         sorted_txns = stream.txns
         median = stream.median_amount
@@ -1176,7 +1222,7 @@ def cash_flow_forecast(
             if not is_seasonal or next_date.month in active_months:
                 events[next_date].append({
                     "kind": kind,
-                    "source": _payer_label(stream) if stream.is_income else merchant,
+                    "source": merchant,
                     "amount": round(abs(median), 2),
                     "category": (latest.custom_category or latest.category or None),
                     "recurring": True,
@@ -1198,8 +1244,8 @@ def cash_flow_forecast(
         s.monthly_rate for s in forecast_streams if not s.is_income
     )
     monthly_recurring_inflow = sum(
-        s.monthly_rate for s in forecast_streams if s.is_income
-    )
+        s.monthly_rate for s in forecast_streams if s.is_income and not paychecks.covers(s)
+    ) + sum(e["normalized_monthly"] for e in paychecks.earners)
 
     # Per-month variable spend over the last 6 complete calendar months.
     # Median of these is naturally outlier-resistant: a single bonus or
@@ -1382,6 +1428,9 @@ def cash_flow_forecast(
     # stream's normalized label instead would silently miss (normalized and
     # cleaned-raw spellings differ), leaving paychecks double-counted.
     recurring_income_monthly_by_source: dict[str, float] = defaultdict(float)
+    for e in paychecks.earners:
+        rep = e["rep"]
+        recurring_income_monthly_by_source[_clean_source(rep.merchant_name, rep.name)] += e["normalized_monthly"]
     for s in recurring_income_streams:
         rep = s.txns[-1]
         recurring_income_monthly_by_source[_clean_source(rep.merchant_name, rep.name)] += s.monthly_rate
@@ -3092,9 +3141,20 @@ def cashflow_calendar(
 
     # Extract recurring events
     events = []
-    from app.services.pay_schedule import payer_label_fn
-    _payer_label = payer_label_fn(db)
+    # Paydays come from the household pay model (see cash_flow_forecast).
+    from app.services.pay_schedule import income_projection
+    paychecks = income_projection(db, today, today + timedelta(days=days))
+    for ev in paychecks.events:
+        events.append({
+            "date": ev["date"].isoformat(),
+            "type": "income",
+            "merchant": ev["label"],
+            "amount": round(ev["amount"], 2),
+            "confidence": 0.95,
+        })
     for stream in detect_streams(txns, merchant_key=_cal_key):
+        if paychecks.covers(stream):
+            continue
         merchant = stream.merchant
         txn_list = stream.txns
         is_income = stream.is_income
@@ -3124,7 +3184,7 @@ def cashflow_calendar(
                 events.append({
                     "date": next_date.isoformat(),
                     "type": "income" if is_income else "expense",
-                    "merchant": _payer_label(stream) if is_income else merchant,
+                    "merchant": merchant,
                     "amount": round(abs(median_amount), 2),
                     "confidence": confidence,
                 })

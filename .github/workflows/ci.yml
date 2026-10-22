@@ -93,9 +93,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22 is the project's pinned LTS (see .nvmrc); 20 stays in the
-        # matrix until April 2026 when its LTS ends.
-        node: ['20', '22']
+        # 22 is the project's pinned LTS (see .nvmrc); 24 is the next LTS,
+        # kept as a forward check. Node 20 reached end-of-life 2026-04-30
+        # and no longer gets security fixes, so it was dropped.
+        node: ['22', '24']
     defaults:
       run:
         working-directory: frontend

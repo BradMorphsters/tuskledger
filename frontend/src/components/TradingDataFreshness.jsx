@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { Clock, RefreshCw, CheckCircle, AlertTriangle, Loader2, Info } from 'lucide-react'
 import { getAccounts, triggerSync, getInvestmentTransactions, getAuthStatus } from '../api/client'
 import { formatDate } from '../lib/format'
+import { openAccounts } from '../lib/accountStatus'
 
 // Pure helpers — exported for unit tests.
 
@@ -76,7 +77,7 @@ export default function TradingDataFreshness() {
         getAuthStatus().catch(() => ({})),
       ])
       setIsDemo(!!auth.demo_mode)
-      setInvestmentAccounts(accounts.filter(a => a.type === 'investment'))
+      setInvestmentAccounts(openAccounts(accounts).filter(a => a.type === 'investment'))
       // Derive most-recent transaction date per account so we can
       // surface "data through Apr 12" rather than just "synced today"
       // (Plaid sync timestamp can be fresh while transaction data lags).

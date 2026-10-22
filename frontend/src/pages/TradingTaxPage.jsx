@@ -13,13 +13,14 @@ import { Receipt } from 'lucide-react'
 import TradingTax from '../components/TradingTax'
 import TradingDataFreshness from '../components/TradingDataFreshness'
 import { useAccounts } from '../hooks/useAccounts'
+import { openAccounts } from '../lib/accountStatus'
 
 export default function TradingTaxPage() {
   const { accounts } = useAccounts()
   const [accountFilter, setAccountFilter] = useState('')
 
   const investmentAccounts = useMemo(
-    () => accounts.filter(a => a.type === 'investment'),
+    () => openAccounts(accounts).filter(a => a.type === 'investment'),
     [accounts]
   )
 

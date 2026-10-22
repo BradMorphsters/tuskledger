@@ -3,6 +3,7 @@ import { Plus, Trash2, Trophy, Target, Plane, Home as HomeIcon, ShieldCheck, Bri
 import { getGoals, createGoal, updateGoal, deleteGoal } from '../api/client'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
 import { useAccounts } from '../hooks/useAccounts'
+import { isClosed } from '../lib/accountStatus'
 import { SkeletonPage } from '../components/Skeleton'
 
 const INPUT_STYLE = {
@@ -275,7 +276,7 @@ function GoalEditModal({ mode, goal, accounts, onSave, onCancel }) {
           }}>
             {accounts.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No accounts found.</div>
-            ) : accounts.map(a => (
+            ) : accounts.filter(a => !isClosed(a) || form.source_account_ids.includes(a.id)).map(a => (
               <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox"
                   checked={form.source_account_ids.includes(a.id)}

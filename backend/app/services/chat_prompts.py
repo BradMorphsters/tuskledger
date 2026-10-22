@@ -984,6 +984,8 @@ def _build_stale_accounts_bundle(db: Session, horizon: str, *, today: Optional[d
     stale: list[dict] = []
     total_accounts = 0
     for acct in db.query(Account).all():
+        if acct.status == "closed":
+            continue  # closed on purpose — nothing more is coming
         total_accounts += 1
         as_of = acct.balance_as_of if acct.balance_as_of is not None else txn_max.get(acct.id)
         if as_of is None:

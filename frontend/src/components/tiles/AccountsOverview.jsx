@@ -3,6 +3,7 @@ import { Landmark } from 'lucide-react'
 import { getAccounts, getManualAssets } from '../../api/client'
 import { SkeletonCard } from '../Skeleton'
 import { fmtMoney, tileCardStyle } from './shared'
+import { isClosed } from '../../lib/accountStatus'
 
 // ─────────────────────── Accounts Overview ───────────────────────
 //
@@ -93,7 +94,7 @@ export function AccountsOverview() {
     const items = accounts
       // Closed accounts keep their history but hold no money — leave them
       // off the "what's in each account" tile.
-      .filter((a) => a.status !== 'closed')
+      .filter((a) => !isClosed(a))
       .filter((a) => (a.type || '').toLowerCase() === g.key)
       .sort((a, b) => Math.abs(b.current_balance || 0) - Math.abs(a.current_balance || 0))
     const subtotal = items.reduce((s, a) => s + (a.current_balance || 0), 0)

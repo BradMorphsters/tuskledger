@@ -773,7 +773,7 @@ def _sync_investments(db: Session, client, access_token: str, item: PlaidItem) -
     for ph in holdings_data["holdings"]:
         plaid_acct_id = str(ph["account_id"])
         account = item_accounts.get(plaid_acct_id)
-        if not account:
+        if not account or account.status == "closed":
             continue
         sec_id = str(ph["security_id"])
         key = (account.id, sec_id)

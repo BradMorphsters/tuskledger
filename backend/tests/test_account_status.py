@@ -252,3 +252,67 @@ def test_health_report_keeps_item_with_an_open_account(db, factory, monkeypatch)
 
     report = sync_service.item_health_report(db, client=object(), fetch=lambda c, tok: None)
     assert [r["institution_name"] for r in report] == ["Mixed Bank"]
+
+
+# ---------------------------------------------------------------------------
+# Audit follow-ups: everywhere a "current" view reads accounts
+# ---------------------------------------------------------------------------
+
+def test_close_clears_current_holdings(client, db, factory):
+    from app.models import Holding
+    brokerage = factory.account(name="Old brokerage", type="investment", subtype="brokerage")
+    db.add(Holding(account_id=brokerage.id, plaid_security_id="sec-1", quantity=3, institution_value=300.0))
+    factory.commit()
+    client.patch(f"/api/accounts/{brokerage.id}", json={"status": "closed"})
+    assert db.query(Holding).filter_by(account_id=brokerage.id).count() == 0
+
+
+def test_sync_skips_holdings_for_closed_account(db, plaid_item, monkeypatch):
+    from app.models import Holding
+    acct = _closed_plaid_account(db, plaid_item)
+    acct.type = "investment"
+    db.commit()
+    monkeypatch.setattr(sync_service, "get_investments_holdings", lambda client, token: {
+        "holdings": [{"account_id": "acct-1", "security_id": "sec-1", "quantity": 2.0,
+                      "institution_price": 10.0, "institution_value": 20.0, "cost_basis": None,
+                      "iso_currency_code": "USD"}],
+        "securities": [{"security_id": "sec-1", "name": "Fund", "ticker_symbol": "FND", "type": "etf"}],
+        "accounts": [],
+    }, raising=False)
+    monkeypatch.setattr(sync_service, "get_investment_transactions",
+                        lambda *a, **k: {"investment_transactions": [], "securities": []}, raising=False)
+    try:
+        sync_service._sync_investments(db, None, "tok", plaid_item)
+    except Exception:
+        pass  # only the holdings loop matters here
+    assert db.query(Holding).filter_by(account_id=acct.id).count() == 0
+
+
+def test_loans_and_hsa_lists_skip_closed(client, factory):
+    open_loan = factory.account(name="Car loan", type="loan", subtype="auto", current_balance=5000.0)
+    paid = factory.account(name="Paid-off loan", type="loan", subtype="auto", current_balance=0.0)
+    paid.status = "closed"
+    old_hsa = factory.account(name="Old HSA", type="investment", subtype="hsa", current_balance=0.0)
+    old_hsa.status = "closed"
+    live_hsa = factory.account(name="HSA", type="investment", subtype="hsa", current_balance=900.0)
+    factory.commit()
+
+    loans = client.get("/api/loans/").json()
+    loan_names = {row.get("name") for row in (loans if isinstance(loans, list) else loans.get("loans", []))}
+    assert "Paid-off loan" not in loan_names
+    hsa_ids = {a["id"] for a in client.get("/api/analytics/hsa-status").json()["accounts"]}
+    assert hsa_ids == {live_hsa.id}
+
+
+def test_ask_names_a_closed_account_as_closed(db, factory):
+    from app.services import assistant_retrieval as ar
+    factory.account(name="Joint Checking", current_balance=2500.0)
+    old = factory.account(name="Credit Union Checking", current_balance=0.0)
+    old.status = "closed"
+    old.closed_at = dt.date(2026, 1, 20)
+    factory.commit()
+    res = ar.account_balance(db, None, None, "now", question="what's in my credit union checking")
+    assert "closed on Jan 20, 2026" in res["answer"]
+    over = ar.accounts_overview(db, None, None, "now", question="what accounts do I have")
+    assert "You have 1 accounts" in over["answer"] or "You have 1 account" in over["answer"]
+    assert "Credit Union" not in over["answer"]

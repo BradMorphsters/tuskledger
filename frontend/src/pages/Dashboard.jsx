@@ -20,6 +20,7 @@ import TrendStat from '../components/TrendStat'
 import { SafeToSpend, FinancialPulse, CashFlowForecast, DailySnapshot, HsaTracker, DcfsaTracker, LoanPayoffCountdown, PortfolioSnapshot, CashBalances, AccountsOverview, SpendingPace } from '../components/DashboardTiles'
 import { Wallet, ChevronDown, ChevronUp, ChevronRight, CalendarClock } from 'lucide-react'
 import { formatCurrencyZero, cleanMerchantName } from '../lib/format'
+import { openAccounts } from '../lib/accountStatus'
 
 /** First/last day of a month as ISO yyyy-mm-dd. `month` is 1-12. */
 function monthRange(year, month) {
@@ -692,7 +693,7 @@ export default function Dashboard() {
               <tr><th>Account</th><th>Type</th><th style={{ textAlign: 'right' }}>Balance</th></tr>
             </thead>
             <tbody>
-              {accounts.map(a => (
+              {openAccounts(accounts).map(a => (
                 <tr key={`plaid-${a.id}`}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>

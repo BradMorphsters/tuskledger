@@ -13,6 +13,7 @@ import Pill from '../components/Pill'
 import CapitalLossTracker from '../components/CapitalLossTracker'
 import { SkeletonStatsGrid, SkeletonCard } from '../components/Skeleton'
 import { formatCurrency } from '../lib/format'
+import { openAccounts } from '../lib/accountStatus'
 
 function formatNumber(n, digits = 4) {
   if (n === null || n === undefined) return '—'
@@ -51,7 +52,7 @@ export default function Investments() {
   }
 
   const investmentAccounts = useMemo(
-    () => accounts.filter(a => a.type === 'investment'),
+    () => openAccounts(accounts).filter(a => a.type === 'investment'),
     [accounts]
   )
 

@@ -938,13 +938,22 @@ def account_balance(db, start, end, label, question: str = "") -> dict:
                 s += 2
         return s
 
-    ranked = sorted(accts, key=score, reverse=True)
+    # Ties go to an open account — 'personal checking' should mean the one still in use.
+    ranked = sorted(accts, key=lambda a: (score(a), a.status != "closed"), reverse=True)
     if score(ranked[0]) <= 0:
         return _result("account_balance", "now",
                        "Which account? Name it (e.g. 'checking', 'brokerage') and I'll pull the balance.",
                        found=False)
     a = ranked[0]
     val = round(float(a.current_balance or 0), 2)
+    if a.status == "closed":
+        when = f" on {a.closed_at:%b} {a.closed_at.day}, {a.closed_at.year}" if a.closed_at else ""
+        return _result("account_balance", "now",
+                       f"Your {a.custom_name or a.name} was closed{when}, so it no longer holds a balance. "
+                       "Its past transactions are still in your history.",
+                       rows=[{"account": a.custom_name or a.name, "balance": 0.0, "kind": a.subtype or a.type,
+                              "status": "closed"}],
+                       facts=[0.0])
     return _result("account_balance", "now", f"Your {a.custom_name or a.name} balance is {_money(val)}.",
                    rows=[{"account": a.custom_name or a.name, "balance": val, "kind": a.subtype or a.type}],
                    facts=[val])
@@ -953,7 +962,7 @@ def account_balance(db, start, end, label, question: str = "") -> dict:
 def accounts_overview(db, start, end, label, question: str = "") -> dict:
     """Assets vs liabilities across accounts + how many — 'what accounts do I have / how much debt'."""
     from app.models.account import Account
-    accts = db.query(Account).all()
+    accts = [a for a in db.query(Account).all() if a.status != "closed"]
     if not accts:
         return _result("accounts_overview", "now", "I don't have any accounts recorded yet.", found=False)
     assets = round(sum(float(a.current_balance or 0) for a in accts

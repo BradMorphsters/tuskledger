@@ -4,6 +4,7 @@ import { SkeletonCard } from '../Skeleton'
 import { formatCurrencyZero as fmtFull } from '../../lib/format'
 import { fmtMoney, tileCardStyle } from './shared'
 import { useAccounts } from '../../hooks/useAccounts'
+import { openAccounts } from '../../lib/accountStatus'
 
 /**
  * CashBalances — at-a-glance "is any checking account running low?"
@@ -45,7 +46,7 @@ export function CashBalances() {
   // institutions report subtype as null; in that case fall back to
   // the type field and assume any depository without a subtype is a
   // checking account (rare in practice with Plaid's classifier).
-  const checking = accounts
+  const checking = openAccounts(accounts)
     .filter(a => {
       if (a.type !== 'depository') return false
       const sub = (a.subtype || '').toLowerCase()

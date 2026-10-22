@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import { importCsv } from '../api/client'
 import { useAccounts } from '../hooks/useAccounts'
+import { accountLabel, openAccounts } from '../lib/accountStatus'
 
 /**
  * CSV Import Panel — drag-and-drop file upload for bulk transaction imports.
@@ -19,7 +20,7 @@ export default function CSVImportPanel() {
   // Auto-select the first account once accounts load.
   useEffect(() => {
     if (!selectedAccountId && accounts.length > 0) {
-      setSelectedAccountId(accounts[0].id.toString())
+      setSelectedAccountId((openAccounts(accounts)[0] || accounts[0]).id.toString())
     }
   }, [accounts, selectedAccountId])
 
@@ -129,7 +130,7 @@ export default function CSVImportPanel() {
           <option value="">— Select account —</option>
           {accounts.map(a => (
             <option key={a.id} value={a.id}>
-              {a.custom_name || a.name} ({a.type})
+              {accountLabel(a)} ({a.type})
             </option>
           ))}
         </select>

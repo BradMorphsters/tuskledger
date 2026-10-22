@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Account, MortgageDetail, CreditCardDetail, Transaction
+from app.models import Account, Holding, MortgageDetail, CreditCardDetail, Transaction
 from app.schemas.schemas import (
     AccountOut,
     AccountUpdate,
@@ -274,8 +274,17 @@ def update_account(account_id: int, body: AccountUpdate, db: Session = Depends(g
 
     if data.get("status") is not None:
         _apply_status(account, data["status"], data.get("closed_at"))
+        if account.status == "closed":
+            # Positions are current state, not history (that lives in
+            # investment_transactions). A closed brokerage holds nothing.
+            db.query(Holding).filter_by(account_id=account.id).delete()
 
     db.commit()
+    if data.get("status") is not None:
+        # The balance just moved to (or back from) zero — re-snapshot so the
+        # Dashboard / Net Worth headline doesn't wait for the next Plaid sync.
+        from app.services.sync_service import take_net_worth_snapshot
+        take_net_worth_snapshot(db)
     db.refresh(account)
     _attach_derived_fields([account], db)
     return account

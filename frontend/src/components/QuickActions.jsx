@@ -17,6 +17,7 @@ import { toLocalISODate } from '../lib/format'
 import { useToast } from './Toast'
 import { useNearCorner } from './AskPanel'
 import { useAccounts } from '../hooks/useAccounts'
+import { accountLabel, openAccounts } from '../lib/accountStatus'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 
 /* ───────────────────────────── Theme toggle ───────────────────────────── */
@@ -132,8 +133,9 @@ function QuickAddModal({ onClose, onSaved }) {
   // Default account = first depository / checking (most common for cash entries)
   useEffect(() => {
     if (!form.account_id && accounts.length) {
-      const dep = accounts.find(a => a.type === 'depository' || a.subtype === 'checking')
-      setForm(p => ({ ...p, account_id: (dep || accounts[0]).id }))
+      const open = openAccounts(accounts)
+      const dep = open.find(a => a.type === 'depository' || a.subtype === 'checking')
+      setForm(p => ({ ...p, account_id: (dep || open[0] || accounts[0]).id }))
     }
   }, [accounts])
 
@@ -203,7 +205,7 @@ function QuickAddModal({ onClose, onSaved }) {
               <option value="">Select…</option>
               {accounts.map(a => (
                 <option key={a.id} value={a.id}>
-                  {a.custom_name || a.name} ({a.institution_name})
+                  {accountLabel(a)} ({a.institution_name})
                 </option>
               ))}
             </select>

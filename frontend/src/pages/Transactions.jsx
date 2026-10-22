@@ -5,6 +5,7 @@ import {
   replaceTransactionSplits, clearTransactionSplits, getExportUrl,
 } from '../api/client'
 import { useAccounts } from '../hooks/useAccounts'
+import { accountLabel, isClosed } from '../lib/accountStatus'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 import BusinessBadge from '../components/BusinessBadge'
@@ -468,7 +469,7 @@ export default function Transactions() {
                           account_id: active ? '' : String(a.id),
                           offset: 0,
                         }))}
-                        title={label + (a.mask ? ` ····${a.mask}` : '')}
+                        title={label + (a.mask ? ` ····${a.mask}` : '') + (isClosed(a) ? ` · closed ${a.closed_at || ''}`.trimEnd() : '')}
                         style={pillStyle(active)}
                       >
                         {short}
@@ -528,7 +529,7 @@ export default function Transactions() {
             }}
           >
             <option value="">All Accounts</option>
-            {accounts.map(a => <option key={a.id} value={a.id}>{a.custom_name || a.name}</option>)}
+            {accounts.map(a => <option key={a.id} value={a.id}>{accountLabel(a)}</option>)}
           </select>
 
           {/* Category filter */}

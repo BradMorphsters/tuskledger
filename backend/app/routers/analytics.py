@@ -3384,6 +3384,7 @@ def hsa_status(
         .filter(
             (Account.subtype.ilike("%hsa%")) | (Account.name.ilike("%hsa%"))
         )
+        .filter(Account.status != "closed")
         .all()
     )
     # HSA contribution deadline = federal tax-filing deadline of the

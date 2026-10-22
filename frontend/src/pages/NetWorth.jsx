@@ -17,6 +17,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { formatCurrencyZero as formatCurrency } from '../lib/format'
 import { niceDomain, currencyTickFormatter } from '../lib/chartScale'
 import { useAccounts } from '../hooks/useAccounts'
+import { openAccounts } from '../lib/accountStatus'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 import { SkeletonCard } from '../components/Skeleton'
 
@@ -160,8 +161,8 @@ export default function NetWorth() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, manualAssets])
 
-  const bankAssets = accounts.filter(a => a.type !== 'credit' && a.type !== 'loan')
-  const bankLiabilities = accounts.filter(a => a.type === 'credit' || a.type === 'loan')
+  const bankAssets = openAccounts(accounts).filter(a => a.type !== 'credit' && a.type !== 'loan')
+  const bankLiabilities = openAccounts(accounts).filter(a => a.type === 'credit' || a.type === 'loan')
   const manualAssetRows = manualAssets.filter(a => (a.side || 'asset') === 'asset')
   const manualLiabilityRows = manualAssets.filter(a => a.side === 'liability')
 
@@ -180,7 +181,7 @@ export default function NetWorth() {
 
   // Mortgage accounts the user might want to pair with a home asset.
   const mortgageAccounts = useMemo(() =>
-    accounts.filter(a => a.type === 'loan' && (a.subtype || '').toLowerCase().includes('mortgage')),
+    openAccounts(accounts).filter(a => a.type === 'loan' && (a.subtype || '').toLowerCase().includes('mortgage')),
     [accounts]
   )
 

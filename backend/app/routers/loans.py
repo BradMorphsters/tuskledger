@@ -157,6 +157,7 @@ def list_loans(db: Session = Depends(get_db)):
                 "home equity", "heloc", "line of credit",
             )))
         )
+        .filter(Account.status != "closed")
         .all()
     )
     for acct in acct_rows:

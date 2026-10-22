@@ -41,8 +41,9 @@ anything large before writing the code.**
 - Multi-user / shared budgets / collaboration features
 - A second bank-sync provider in addition to Plaid
 - A cloud-hosted SaaS variant
-- A native mobile app rewrite (PWA + read-only is the v1 phone path;
-  snapshot replication is the v2 plan, tracked in the roadmap)
+- A mobile app as the primary interface (the native iOS app is a read-only
+  companion that mirrors your own machine over the local network; see
+  [ROADMAP.md](ROADMAP.md))
 - Internationalization beyond cosmetic changes
 - Envelope-budgeting paradigm grafted on top of category budgets
 - Telemetry or analytics, even opt-in

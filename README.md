@@ -39,7 +39,7 @@ Everything stays on your computer. No cloud. No third-party analytics. Just your
 
 > **🤖 Working with an AI assistant?** Read [AGENTS.md](AGENTS.md) — it's a working-memory doc written for Claude Code, Cursor, Cowork, and similar agents. It covers permission boundaries, common operations, and the project's known footguns so an agent can be productive without grepping the whole tree first.
 
-> **📝 What changed recently?** [CHANGELOG.md](CHANGELOG.md) — curated release notes with rationale, kept up-to-date with the work. Sibling docs: [ARCHITECTURE.md](ARCHITECTURE.md) for the load-bearing design decisions, [mobile/README.md](mobile/README.md) for the native iOS companion app, [MOBILE.md](MOBILE.md) for the PWA fallback path + Cloudflare Tunnel setup, [DEMO.md](DEMO.md) for the public demo deployment, [CONTRIBUTING.md](CONTRIBUTING.md) for project scope.
+> **📝 What changed recently?** [CHANGELOG.md](CHANGELOG.md) — curated release notes with rationale, kept up-to-date with the work. Sibling docs: [ARCHITECTURE.md](ARCHITECTURE.md) for the load-bearing design decisions, [mobile/README.md](mobile/README.md) for the native iOS companion app, [MOBILE.md](MOBILE.md) for the PWA fallback path + Cloudflare Tunnel setup, [DEMO.md](DEMO.md) for the public demo deployment, [CONTRIBUTING.md](CONTRIBUTING.md) for project scope, [ROADMAP.md](ROADMAP.md) for what's next.
 
 ---
 
@@ -193,7 +193,7 @@ To connect actual accounts, you need a Production secret. Here's the path that w
 
 ### Plaid products this app uses
 
-The link token is created with `products=[transactions]` and `optional_products=[investments, liabilities]`. The optional products gracefully degrade — if your bank doesn't support Investments or Liabilities, the connection still succeeds, you just don't get those tabs populated for that institution. To enable Liabilities/Investments scope on a previously-connected item you'll need to relink it (Plaid update mode is on the roadmap but not implemented).
+The link token is created with `products=[transactions]` and `optional_products=[investments, liabilities]`. The optional products gracefully degrade — if your bank doesn't support Investments or Liabilities, the connection still succeeds, you just don't get those tabs populated for that institution. To enable Liabilities/Investments scope on a previously-connected item you'll need to relink it. Plaid update mode is used for the **Reconnect** button (re-authenticating a broken connection); using it to add product scopes without relinking is on the [roadmap](ROADMAP.md).
 
 ---
 

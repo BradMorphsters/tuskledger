@@ -16,14 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.12 is the project's pinned runtime (see .python-version).
-        # 3.13 was in this matrix as a forward-check, but pydantic-core
-        # (pinned via pydantic 2.7.4) doesn't ship a 3.13 wheel — pip
-        # falls through to building from source via maturin, which fails
-        # on the runner. Once Dependabot bumps pydantic to 2.10+ (which
-        # does ship 3.13 wheels), add '3.13' back to this list.
-        # TODO(post-pydantic-2.10): re-add '3.13' to the matrix.
-        python: ['3.12']
+        # 3.12 is the project's pinned runtime (see .python-version); 3.13
+        # is a forward check. It was dropped while pydantic-core (via
+        # pydantic 2.7.4) had no 3.13 wheel; pydantic 2.14 ships one.
+        python: ['3.12', '3.13']
     defaults:
       run:
         working-directory: backend

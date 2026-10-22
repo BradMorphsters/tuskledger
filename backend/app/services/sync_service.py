@@ -273,6 +273,13 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
             )
             db.add(account)
 
+        if account.status == "closed":
+            # A closed account keeps the zero balance it was closed with.
+            # Plaid can keep serving the last cached balance for weeks,
+            # which would put money that has moved elsewhere back into
+            # Net Worth.
+            continue
+
         balance = pa.get("balances", {})
         current = balance.get("current")
         available = balance.get("available")
@@ -352,6 +359,8 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
             continue
         account = db.query(Account).filter_by(plaid_account_id=str(txn["account_id"])).first()
         if not account:
+            continue
+        if account.status == "closed" and _adopt_manual_row(db, account, txn, txn_id):
             continue
         categories = txn.get("personal_finance_category") or {}
         cat_primary = categories.get("primary")
@@ -433,6 +442,45 @@ def sync_single_item(db: Session, client, item: PlaidItem) -> dict:
     }
 
 
+# How far apart a Plaid row and a hand-entered row on a closed account may
+# be dated and still be treated as the same money movement.
+_ADOPT_DAY_WINDOW = 4
+
+
+def _adopt_manual_row(db: Session, account: Account, txn: dict, txn_id: str) -> bool:
+    """On a closed account, let a late-arriving Plaid row claim a matching
+    hand-entered row instead of inserting a duplicate.
+
+    When an account is closed, the closing move-out is usually recorded by
+    hand (the user knows where the money went before the bank's feed
+    shows it). If Plaid later delivers that same debit, attach its id to
+    the manual row — keeping the user's category, transfer flag and notes
+    — rather than double-counting it. Match: same account, no Plaid id
+    yet, same amount to the cent, dated within _ADOPT_DAY_WINDOW days.
+    """
+    raw_date = txn.get("date")
+    if raw_date is None:
+        return False
+    when = raw_date if hasattr(raw_date, "isoformat") else datetime.date.fromisoformat(str(raw_date))
+    window = datetime.timedelta(days=_ADOPT_DAY_WINDOW)
+    amount = float(txn["amount"])
+    match = (
+        db.query(Transaction)
+        .filter(
+            Transaction.account_id == account.id,
+            Transaction.plaid_transaction_id.is_(None),
+            Transaction.date >= when - window,
+            Transaction.date <= when + window,
+        )
+        .all()
+    )
+    for row in match:
+        if abs(row.amount - amount) < 0.005:
+            row.plaid_transaction_id = txn_id
+            return True
+    return False
+
+
 def item_health_report(db: Session, client=None, fetch=None, now=None, max_age=None) -> list:
     """Connection health for every linked Plaid item, from /item/get.
 
@@ -454,6 +502,10 @@ def item_health_report(db: Session, client=None, fetch=None, now=None, max_age=N
     report = []
     for item in db.query(PlaidItem).order_by(PlaidItem.id).all():
         accounts = db.query(Account).filter_by(plaid_item_id=item.id).all()
+        if accounts and all(a.status == "closed" for a in accounts):
+            # Every account at this bank is closed — a failing connection
+            # there is expected, not something to alert on.
+            continue
         has_cash = any(a.type not in INVESTMENT_ACCOUNT_TYPES for a in accounts)
         latest = [latest_by_account.get(a.id) for a in accounts if latest_by_account.get(a.id)]
         cached = _ITEM_STATUS_CACHE.get(item.id) if max_age is not None else None
@@ -579,6 +631,9 @@ def backfill_transactions(
                     plaid_account_id=str(txn["account_id"])
                 ).first()
                 if not account:
+                    continue
+                if account.status == "closed" and _adopt_manual_row(db, account, txn, txn_id):
+                    existing_ids.add(txn_id)
                     continue
                 categories = txn.get("personal_finance_category") or {}
                 cat_primary = categories.get("primary")

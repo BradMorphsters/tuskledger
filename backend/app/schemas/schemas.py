@@ -34,6 +34,8 @@ class AccountOut(BaseModel):
     transactions_through: Optional[date] = None        # MAX(transaction.date) for this account; null when no txns
     tax_bucket: Optional[str] = None                   # 'tax_deferred' | 'roth' | 'taxable' | 'hsa' | 'excluded' | None
     roth_split_pct: Optional[float] = None             # 0.0-1.0 fraction of balance treated as Roth (mixed 401k accounts)
+    status: str = "active"                             # 'active' | 'closed'
+    closed_at: Optional[date] = None                   # set when status == 'closed'
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +48,8 @@ class AccountUpdate(BaseModel):
     balance_as_of: Optional[date] = None                # explicit override; auto-set to today if balance changes
     tax_bucket: Optional[str] = None                    # one of: 'tax_deferred', 'roth', 'taxable', 'hsa', 'excluded'
     roth_split_pct: Optional[float] = None              # 0.0-1.0; splits balance between roth and tax_bucket
+    status: Optional[str] = None                        # 'active' | 'closed'
+    closed_at: Optional[date] = None                    # with status='closed'; defaults to today
 
 
 class ManualAccountCreate(BaseModel):

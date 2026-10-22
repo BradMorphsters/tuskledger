@@ -137,6 +137,8 @@ def list_stale_accounts(
 
     stale_list = []
     for acct in db.query(Account).all():
+        if acct.status == "closed":
+            continue  # closed on purpose — nothing more is coming
         # "When was this account last touched?" = max of (balance snapshot,
         # most recent transaction). Both are evidence the account is current.
         # Earlier this was an either/or that preferred balance_as_of, which
@@ -200,12 +202,15 @@ def get_account(account_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{account_id}", response_model=AccountOut)
 def update_account(account_id: int, body: AccountUpdate, db: Session = Depends(get_db)):
-    """Update the user-editable fields on an account (currently just custom_name).
+    """Update the user-editable fields on an account.
 
     `custom_name`:
       - omitted or null  → no change
       - empty string     → clear the alias (fall back to the Plaid name)
       - any other string → set as the alias
+
+    `status`: 'closed' (with optional `closed_at`, default today) or
+    'active'. See _apply_status.
     """
     account = db.query(Account).filter_by(id=account_id).first()
     if not account:
@@ -267,10 +272,41 @@ def update_account(account_id: int, body: AccountUpdate, db: Session = Depends(g
                 )
             account.roth_split_pct = pct
 
+    if data.get("status") is not None:
+        _apply_status(account, data["status"], data.get("closed_at"))
+
     db.commit()
     db.refresh(account)
     _attach_derived_fields([account], db)
     return account
+
+
+def _apply_status(account: Account, new_status: str, closed_at: Optional[datetime.date]) -> None:
+    """Close or reopen an account.
+
+    Closing keeps every transaction (that's the point — history stays),
+    zeroes the balance so Net Worth and cash views stop counting money
+    that has moved elsewhere, and stamps closed_at. Record the money's
+    move out as a transfer row on the account if the other side is linked.
+
+    Reopening clears closed_at. A Plaid account picks its real balance up
+    on the next sync; a manual one keeps 0 until the user enters one.
+    """
+    if new_status not in ("active", "closed"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{new_status}'. Must be active or closed.",
+        )
+    if new_status == "closed":
+        when = closed_at or account.closed_at or datetime.date.today()
+        account.status = "closed"
+        account.closed_at = when
+        account.current_balance = 0.0
+        account.available_balance = 0.0 if account.available_balance is not None else None
+        account.balance_as_of = when
+    else:
+        account.status = "active"
+        account.closed_at = None
 
 
 @router.get("/{account_id}/mortgage", response_model=MortgageDetailOut)

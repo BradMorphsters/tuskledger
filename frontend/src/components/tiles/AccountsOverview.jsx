@@ -91,6 +91,9 @@ export function AccountsOverview() {
   // don't know how to classify (rare — Plaid's type vocabulary is small).
   const grouped = ACCOUNT_GROUPS.map((g) => {
     const items = accounts
+      // Closed accounts keep their history but hold no money — leave them
+      // off the "what's in each account" tile.
+      .filter((a) => a.status !== 'closed')
       .filter((a) => (a.type || '').toLowerCase() === g.key)
       .sort((a, b) => Math.abs(b.current_balance || 0) - Math.abs(a.current_balance || 0))
     const subtotal = items.reduce((s, a) => s + (a.current_balance || 0), 0)

@@ -51,6 +51,13 @@ class Account(Base):
     # alone — the user maintains the ratio manually from their plan portal.
     roth_split_pct = Column(Float, nullable=True)
 
+    # Lifecycle. A closed account is kept (not deleted) so its transaction
+    # history stays intact; it just drops out of "current" views. Closing
+    # zeroes the balance, and sync_service won't overwrite it afterwards.
+    # Allowed values: 'active' | 'closed'. Migration 0022.
+    status = Column(String, nullable=False, default="active", server_default="active")
+    closed_at = Column(Date, nullable=True)
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

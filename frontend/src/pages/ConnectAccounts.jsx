@@ -61,6 +61,7 @@ export default function ConnectAccounts() {
         value: a.current_balance,
         as_of: a.balance_as_of || null,
         notes: null,
+        closed: a.status === 'closed',
       }))
     const fromAssets = manualAssets.map(m => ({
       key: `asset-${m.id}`,
@@ -180,7 +181,9 @@ export default function ConnectAccounts() {
                             {itemAccounts.map(a => (
                               <li key={a.id} style={{ padding: '4px 0' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <SyncHealthDot asOf={a.balance_as_of} />
+                                  {a.status === 'closed'
+                                    ? <Pill title={`Closed ${a.closed_at || ''} — history kept`}>CLOSED</Pill>
+                                    : <SyncHealthDot asOf={a.balance_as_of} />}
                                   <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
                                     {a.custom_name || a.name}
                                   </span>
@@ -270,6 +273,7 @@ export default function ConnectAccounts() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Pill tone="warning">MANUAL</Pill>
                         <span>{m.name}</span>
+                        {m.closed && <Pill title="Closed — history kept, balance no longer counted">CLOSED</Pill>}
                       </div>
                       {m.notes && (
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -331,7 +335,7 @@ export default function ConnectAccounts() {
                 </tr>
               </thead>
               <tbody>
-                {accounts.map(a => (
+                {[...accounts.filter(a => a.status !== 'closed'), ...accounts.filter(a => a.status === 'closed')].map(a => (
                   <AccountRow key={a.id} account={a} onUpdated={loadData} />
                 ))}
               </tbody>
@@ -797,6 +801,7 @@ function AccountRow({ account, onUpdated }) {
   // backend attaches during serialization. Show a pill so they're scannable
   // in the unified Accounts table without scrolling up to the dedicated section.
   const isManual = !!account.is_manual
+  const isClosed = account.status === 'closed'
 
   // Lazy-load mortgage / CC detail the first time the row is expanded.
   const toggleExpanded = async () => {
@@ -839,7 +844,7 @@ function AccountRow({ account, onUpdated }) {
 
   return (
     <>
-      <tr>
+      <tr style={isClosed ? { opacity: 0.6 } : undefined}>
         <td style={{ fontWeight: 500 }}>
           {editing ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -894,6 +899,7 @@ function AccountRow({ account, onUpdated }) {
               )}
               <span>{display}</span>
               {isManual && <Pill tone="warning" title="Manually entered — not synced from a Plaid connection">MANUAL</Pill>}
+              {isClosed && <Pill title="Closed — transactions stay in history; the balance no longer counts toward Net Worth">CLOSED</Pill>}
               {account.custom_name && (
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: 12 }}>
                   ({account.name})
@@ -906,6 +912,7 @@ function AccountRow({ account, onUpdated }) {
               >
                 <Pencil size={13} />
               </button>
+              <AccountStatusControl account={account} onUpdated={onUpdated} />
             </div>
           )}
         </td>
@@ -940,7 +947,9 @@ function AccountRow({ account, onUpdated }) {
           {account.mask ? `••${account.mask}` : '—'}
         </td>
         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-          {formattedBalance}
+          {isClosed
+            ? <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Closed {account.closed_at || ''}</span>
+            : formattedBalance}
         </td>
       </tr>
       {expanded && (
@@ -958,6 +967,83 @@ function AccountRow({ account, onUpdated }) {
         </tr>
       )}
     </>
+  )
+}
+
+
+/**
+ * AccountStatusControl — "Close" / "Reopen" for one account.
+ *
+ * Closing keeps every transaction (history stays in Transactions, Spending
+ * and past Net Worth) but zeroes the balance and stops sync from
+ * overwriting it. Two-step inline confirm with a date — no browser dialog.
+ */
+export function AccountStatusControl({ account, onUpdated }) {
+  const isClosed = account.status === 'closed'
+  const [confirming, setConfirming] = useState(false)
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const linkStyle = {
+    background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+    fontSize: 11, color: 'var(--text-muted)', textDecoration: 'underline',
+  }
+
+  const submit = async (body) => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await updateAccount(account.id, body)
+      setConfirming(false)
+      onUpdated && onUpdated()
+    } catch (e) {
+      setErr(e.message || 'Update failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (isClosed) {
+    return (
+      <button
+        style={linkStyle}
+        disabled={busy}
+        title="Mark this account active again"
+        onClick={() => submit({ status: 'active' })}
+      >
+        Reopen
+      </button>
+    )
+  }
+  if (!confirming) {
+    return (
+      <button style={linkStyle} title="Mark this account closed — keeps its history" onClick={() => setConfirming(true)}>
+        Close
+      </button>
+    )
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 400 }}>
+      <span style={{ color: 'var(--text-secondary)' }}>Closed on</span>
+      <input
+        type="date"
+        aria-label="Closed on"
+        value={date}
+        onChange={e => setDate(e.target.value)}
+        disabled={busy}
+        style={{ fontSize: 11, padding: '1px 4px' }}
+      />
+      <button
+        style={{ ...linkStyle, color: 'var(--accent-red)' }}
+        disabled={busy || !date}
+        onClick={() => submit({ status: 'closed', closed_at: date })}
+      >
+        Confirm
+      </button>
+      <button style={linkStyle} disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+      {err && <span style={{ color: 'var(--accent-red)' }}>{err}</span>}
+    </span>
   )
 }
 

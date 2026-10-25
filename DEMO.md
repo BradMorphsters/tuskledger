@@ -4,7 +4,7 @@ This runbook covers standing up a public, read-only Tusk Ledger instance
 at `demo.tuskledger.com` so visitors can poke around the UI without
 installing anything. Different from MOBILE.md, which covers reaching
 **your laptop** from your phone — DEMO.md is about a **separate hosted
-instance** running on Railway with synthetic Alex-Carter data.
+instance** running on Azure App Service with synthetic Alex-Carter data.
 
 The lockdown is the entire point: a public hosted instance can't share
 the security posture of a single-user laptop install. Every gate is on
@@ -23,7 +23,7 @@ pay the seeding cost and every redeploy gets a fresh dataset re-anchored
 to "today."
 
 ```
-Visitor → Cloudflare DNS → Railway → uvicorn → FastAPI
+Visitor → GoDaddy DNS → Azure App Service → uvicorn → FastAPI
                                                  │
                                                  ├── static bundle (React)
                                                  ├── /api/* (FastAPI routes)
@@ -51,7 +51,7 @@ backend:
 - **No Plaid keys.** The container has no `PLAID_CLIENT_ID` set, so
   Plaid Link won't initialize and Plaid sync won't run.
 - **No local LLM.** Ollama isn't installed in the container — running
-  an 8B model on a $5/mo Railway dyno is a bad fit. The Ask panel and
+  an 8B model on a small shared App Service plan is a bad fit. The Ask panel and
   AI Insights tile both fall back to canned responses in demo mode
   (which they already do client-side; no extra wiring needed).
 - **No auth.** `DEV_BYPASS_AUTH=true` so visitors don't hit a login
@@ -62,167 +62,94 @@ backend:
 
 ---
 
-## Required environment variables on Railway
+## Hosting (Azure)
+
+| Piece | Value |
+| --- | --- |
+| Web app | `tuskledger-demo-f64109` in resource group `rg-tuskledger-demo` (Central US), on the shared Linux plan `asp-sites-linux` |
+| Image | `ghcr.io/bradmorphsters/tuskledger-demo` (public package), built by `.github/workflows/azure-demo.yml` |
+| Container port | 8000 (`WEBSITES_PORT=8000`) |
+| Health check | `/api/health` |
+| Secrets | `SESSION_SECRET` is a Key Vault reference to `tuskledger-demo-session-secret` in `kv-sites-f64109` (generated in Azure, never displayed) |
+
+## Required app settings
 
 ```
 DEMO_LOCKED=true
 DEMO_ENABLED=true
 DEV_BYPASS_AUTH=true
 LLM_ENABLED=false
-PLAID_CLIENT_ID=
-PLAID_SECRET=
-SESSION_SECRET=<a long random string — `openssl rand -hex 32`>
+WEBSITES_PORT=8000
+SESSION_SECRET=@Microsoft.KeyVault(VaultName=kv-sites-f64109;SecretName=tuskledger-demo-session-secret)
 ```
 
-The blank Plaid keys are deliberate. `SESSION_SECRET` should be a real
-random string so session cookies are stable across container restarts
-(otherwise visitors get logged-out-looking weirdness on every redeploy).
+The Plaid keys are deliberately absent.
 
 ---
 
-## Deploy steps
+## Deploy
 
-### 1. Push the deploy artifacts
+Every push to `main` runs `.github/workflows/azure-demo.yml`: it builds the
+image (seeding a fresh demo DB), pushes it to ghcr.io, points the web app at
+the new tag and waits for `/api/health`. GitHub signs in to Azure with OIDC,
+so no Azure secret lives in GitHub. The job only runs in the `production`
+environment, which is restricted to `main`.
 
-```
-cd ~/Documents/Claude/Projects/Personal\ finance\ tracking/tuskledger
-git push
-```
+The same workflow runs daily at 09:00 UTC, so the demo's dates are
+re-anchored to "today" without anyone redeploying by hand.
 
-The Dockerfile, .dockerignore, and railway.json are all at the repo
-root.
+### Verify the lockdown after a deploy
 
-### 2. Create the Railway service
+Hit `https://tuskledger-demo-f64109.azurewebsites.net/api/health` — it should
+return `{"status":"ok"}` — then poke the UI:
 
-```
-# from the tuskledger repo root
-railway login
-railway init        # pick "Empty Project" → name it tuskledger-demo
-railway up          # builds + deploys; first build takes ~3–5 min
-```
-
-If you'd rather click through the UI: railway.app → New Project →
-Deploy from GitHub repo → BradMorphsters/tuskledger → main branch.
-Railway picks up `railway.json` automatically.
-
-### 3. Set the env vars
-
-```
-railway variables --set DEMO_LOCKED=true \
-                  --set DEMO_ENABLED=true \
-                  --set DEV_BYPASS_AUTH=true \
-                  --set LLM_ENABLED=false \
-                  --set SESSION_SECRET=$(openssl rand -hex 32)
-```
-
-Or in the Railway dashboard: Project → Variables tab → paste each one.
-A redeploy auto-fires on save.
-
-### 4. Verify the lockdown
-
-Once the build finishes, Railway gives you a `*.up.railway.app` URL.
-Hit `/api/health` first — should return `{"status":"ok"}`. Then poke
-the UI. Look for these signals that the lockdown is on:
-
-- The startup logs show the `📣 DEMO_LOCKED is ON` banner (Railway →
-  Deployments → latest → View Logs).
+- The startup log shows the `📣 DEMO_LOCKED is ON` banner
+  (`az webapp log tail -g rg-tuskledger-demo -n tuskledger-demo-f64109`).
 - Trying to flip a budget value gives a 403 with `code: read_only_mode`.
-- The Sync button is hidden (read-only middleware blocks the underlying
-  POST so the frontend hides the affordance).
-- All visible data is the Alex-Carter synthetic dataset (Costco, NYT,
-  fictional checking + brokerage + mortgage).
+- The Sync button is hidden.
+- All visible data is the Alex-Carter synthetic dataset.
 
-If any of those don't match, **don't point DNS at it yet.** Fix first.
+If any of those don't match, don't point DNS at it. Fix first.
 
-### 5. Point DNS at it
-
-In GoDaddy DNS for `tuskledger.com`:
+### DNS (GoDaddy, `tuskledger.com`)
 
 ```
-Type   Name   Value                              TTL
-CNAME  demo   <your-service>.up.railway.app      1 hour
+Type   Name        Value                                   
+CNAME  demo        tuskledger-demo-f64109.azurewebsites.net
+TXT    asuid.demo  <the subscription's custom-domain verification ID>
 ```
 
-In Railway: Project → Settings → Domains → "Custom Domain" → enter
-`demo.tuskledger.com`. Railway provisions a TLS cert (a few minutes).
-
-### 6. Add to marketing site
-
-`tuskledger-site/src/App.jsx` — add a "Try the live demo" CTA pointing
-at `https://demo.tuskledger.com`. One-line change in the hero or the
-ForAgents section.
-
----
-
-## Daily reset (optional but recommended)
-
-Visitors can't mutate state thanks to the read-only middleware, but the
-demo dates are anchored to the build time. To keep the demo feeling
-"current" without redeploying by hand, add a Railway cron service:
+Then bind the hostname and a free managed certificate:
 
 ```
-railway service add --name tuskledger-demo-reset
-railway variables --service tuskledger-demo-reset --set CRON_SCHEDULE="0 9 * * *"
+az webapp config hostname add -g rg-tuskledger-demo --webapp-name tuskledger-demo-f64109 --hostname demo.tuskledger.com
+az webapp config ssl create -g rg-tuskledger-demo -n tuskledger-demo-f64109 --hostname demo.tuskledger.com
 ```
-
-Schedule a daily redeploy at 9 AM UTC. The image rebuilds (re-running
-`seed_demo.py` against today's date) and restarts the main service.
-
-If you don't set this up, a stale demo isn't broken — the dates just
-drift further from "today" the longer between deploys.
-
----
-
-## Cost expectations
-
-Railway's free tier gives 500 hours of execution per month with $5 of
-usage credit. A demo container at the smallest tier (~256MB RAM) sized
-for the demo's traffic should fit well inside that. If the demo gets
-real traffic, the next tier is $5/mo for 8GB / always-on.
-
-Things to watch:
-
-- **Cold starts.** Free tier sleeps after inactivity. First visitor
-  after sleep waits ~10–15 seconds for boot. Acceptable for a demo.
-- **Memory.** SQLite + FastAPI + the seeded DB fits in 256MB. If you
-  ever add the LLM (don't), memory blows up.
-- **Outbound bandwidth.** No real-time data fetched, so this should
-  stay near-zero.
 
 ---
 
 ## What to monitor
 
-- **Uptime:** Railway's built-in dashboard plus `/api/health`. If
-  `/api/health` doesn't return `{"status":"ok"}` within 30 seconds,
-  the healthcheck-driven restart kicks in.
-- **Logs:** spot-check after each deploy that the `DEMO_LOCKED` banner
-  is present. If it's missing, the env var got dropped — visitors can
-  mutate things, which is the entire failure mode this runbook exists
-  to prevent.
-- **Cost:** Railway dashboard → Usage. If you cross half the free
-  tier in a normal week, the demo is getting more traffic than
-  expected (good news, but plan accordingly).
+- **Uptime:** the App Service health check pings `/api/health` and
+  restarts the container if it stops answering.
+- **Logs:** after each deploy, check the `DEMO_LOCKED` banner is present.
+  If it's missing, the setting got dropped — visitors could mutate data,
+  which is the failure this runbook exists to prevent.
+- **Cost:** the demo shares the B1 plan with the other sites, so it adds
+  nothing on its own. The subscription's $20/month budget alert covers it.
 
 ---
 
 ## Rollback
 
-If the demo goes sideways:
+Re-point the app at a known-good image tag (tags are `<commit>-<run>`):
 
 ```
-railway service redeploy --service tuskledger-demo --version <prior>
+az webapp config container set -g rg-tuskledger-demo -n tuskledger-demo-f64109 \
+  --container-image-name ghcr.io/bradmorphsters/tuskledger-demo:<good-tag>
 ```
 
-Or in the dashboard: Deployments → pick the last known-good → Redeploy.
-
-To take the URL offline without uninstalling anything:
-
-```
-# Railway dashboard → Settings → Domains → remove demo.tuskledger.com
-```
-
-The `*.up.railway.app` URL keeps working for debugging.
+To take the public URL offline: `az webapp stop -g rg-tuskledger-demo -n tuskledger-demo-f64109`.
 
 ---
 

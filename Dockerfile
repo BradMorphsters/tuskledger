@@ -69,29 +69,23 @@ RUN apt-get purge -y --auto-remove build-essential libffi-dev || true
 # The demo binds to a non-privileged port (8000) and needs no root
 # capabilities at runtime, so run uvicorn as an unprivileged user.
 #
-# NEEDS-TESTING-ON-RAILWAY: SQLite opens the demo DB read-WRITE (the
+# NOTE: SQLite opens the demo DB read-WRITE (the
 # engine is created without mode=ro), so at runtime it writes -journal
 # /-wal sidecar files next to the DB and the real engine may create an
 # empty tuskledger.db in the same dir. The non-root user therefore needs
 # write access to BOTH the seeded DB and its containing directory
 # (/app/backend). We chown /app so those writes succeed; verify the demo
-# still boots and serves after this change on Railway.
+# still boots and serves after this change.
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
-# Healthcheck-friendly env. Railway maps $PORT into the container.
+# Healthcheck-friendly env. Azure routes to port 8000 (WEBSITES_PORT=8000).
 ENV PYTHONUNBUFFERED=1
 ENV HOST=0.0.0.0
 EXPOSE 8000
 
-# Start command: bind uvicorn to a FIXED port (8000) rather than
-# Railway's dynamic $PORT. The custom-domain config in Railway has to
-# specify a target port at create time — if the container binds to a
-# different port than the custom domain expects, the public URL 502s
-# even though the internal healthcheck passes (Railway routes the
-# healthcheck on its own port). Hard-coding 8000 here means there's
-# only one number to keep in sync, and it matches the Railway custom-
-# domain target-port setting documented in DEMO.md.
+# Start command: bind uvicorn to a fixed port (8000). The Azure web app
+# setting WEBSITES_PORT=8000 must match it.
 WORKDIR /app/backend
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000"]

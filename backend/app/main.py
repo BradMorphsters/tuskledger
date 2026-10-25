@@ -155,7 +155,7 @@ def _detect_listen_host() -> str | None:
     canonical sources in priority order:
 
       1. UVICORN_HOST env var (set by some launchers)
-      2. HOST env var (Railway / generic)
+      2. HOST env var (containers / generic)
       3. ./start.sh-style hint variable, if any
       4. None — caller treats this as "unknown, don't crash"
 
@@ -311,7 +311,7 @@ async def lifespan(app: FastAPI):
         # user data to protect, the only DB is the synthetic Alex-Carter
         # demo. Auth in front of a read-only synthetic dataset would be a
         # nuisance, not a protection. The demo is deliberately bound to
-        # 0.0.0.0 so Railway can reach it.
+        # 0.0.0.0 so the container host can reach it.
         #
         # SECOND EXCEPTION: when LAN_SYNC_ENABLED is true, the user has
         # deliberately enabled mobile sync over their home Wi-Fi. The

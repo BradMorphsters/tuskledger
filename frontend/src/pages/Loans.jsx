@@ -57,6 +57,14 @@ export function iconFor(subtype) {
 
 // HELOCs come back from Plaid with various subtype labels. Treat any
 // "home equity" / "heloc" / "line of credit (home)" string as a HELOC.
+// A manual loan whose rate and payment are stored on the server (and
+// possibly broken into pieces) doesn't need the browser-local override
+// inputs. Stale overrides must not silently replace stored terms, so they
+// are only applied to loans without stored terms. Exported for tests.
+export function hasStoredTerms(loan) {
+  return !!loan && loan.source === 'liability' && loan.interest_rate != null && loan.monthly_payment != null
+}
+
 // Exported for unit tests + reuse by panels that need to detect HELOCs.
 export function isHelocSubtype(subtype) {
   if (!subtype) return false
@@ -114,7 +122,10 @@ export default function Loans() {
           contributes a balance trajectory; user can see which one
           frees up cashflow first. */}
       {loans.filter(l => l.months_remaining).length >= 2 && (
-        <MultiLoanTimeline loans={loans} overrides={overrides} />
+        <MultiLoanTimeline
+          loans={loans}
+          overrides={Object.fromEntries(Object.entries(overrides).filter(([id]) => !hasStoredTerms(loans.find(l => l.id === id))))}
+        />
       )}
 
       <div style={{
@@ -163,7 +174,7 @@ export default function Loans() {
           <LoanDetail
             key={selectedId}
             loan={loans.find(l => l.id === selectedId)}
-            override={overrides[selectedId] || {}}
+            override={hasStoredTerms(loans.find(l => l.id === selectedId)) ? {} : (overrides[selectedId] || {})}
             setOverride={(k, v) => setOverride(selectedId, k, v)}
           />
         )}
@@ -231,7 +242,7 @@ function LoanDetail({ loan, override, setOverride }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{loan.name}</h2>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
             Balance: {fmtRounded(loan.balance)}
-            {loan.interest_rate != null && ` · Rate ${(loan.interest_rate * 100).toFixed(3)}%`}
+            {loan.interest_rate != null && ` · ${loan.tranche_count ? 'Avg rate' : 'Rate'} ${(loan.interest_rate * 100).toFixed(3)}%`}
             {loan.monthly_payment != null && ` · P+I ${fmtRounded(loan.monthly_payment)}/mo`}
           </div>
         </div>
@@ -247,8 +258,10 @@ function LoanDetail({ loan, override, setOverride }) {
         )}
       </div>
 
+      {data?.loan?.tranches?.length > 0 && <LoanPiecesTable pieces={data.loan.tranches} />}
+
       {/* Override inputs — shown when there's no MortgageDetail. */}
-      {(!loan.has_mortgage_detail || needsOverrides) && (
+      {((!loan.has_mortgage_detail && !hasStoredTerms(loan)) || needsOverrides) && (
         <div style={{
           padding: 10, marginBottom: 12,
           background: 'var(--accent-blue-bg)',
@@ -1128,6 +1141,60 @@ function SummaryTile({ label, value, sub, tone }) {
           {sub}
         </div>
       )}
+    </div>
+  )
+}
+
+
+/**
+ * LoanPiecesTable — the individual loans inside a multi-piece manual loan
+ * (e.g. federal student loan groups), each with its own rate and payment.
+ * The schedule above amortizes them separately; this shows what's inside.
+ * Payoff per piece uses the standard fixed-payment formula.
+ */
+export function piecePayoffMonths(balance, rate, payment) {
+  if (!(balance > 0) || !(payment > 0)) return null
+  const r = rate / 12
+  if (r <= 0) return Math.ceil(balance / payment)
+  if (payment <= balance * r) return null   // payment doesn't cover interest
+  return Math.round(-Math.log(1 - (balance * r) / payment) / Math.log(1 + r))
+}
+
+function LoanPiecesTable({ pieces }) {
+  const rows = [...pieces].sort((a, b) => b.rate - a.rate)
+  const cell = { padding: '4px 8px', fontSize: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+        {pieces.length} loans inside, highest rate first · extra payments go to the top row first
+      </div>
+      <div className="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style={{ ...cell, textAlign: 'left' }}>Loan</th>
+              <th style={cell}>Balance</th>
+              <th style={cell}>Rate</th>
+              <th style={cell}>Payment</th>
+              <th style={cell}>Paid off in</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p => {
+              const n = piecePayoffMonths(p.balance, p.rate, p.payment)
+              return (
+                <tr key={p.label}>
+                  <td style={{ ...cell, textAlign: 'left' }}>{p.label}</td>
+                  <td style={cell}>{fmtRounded(p.balance)}</td>
+                  <td style={cell}>{(p.rate * 100).toFixed(2)}%</td>
+                  <td style={cell}>{fmtRounded(p.payment)}/mo</td>
+                  <td style={cell}>{n == null ? '—' : n >= 12 ? `${Math.floor(n / 12)}y ${n % 12}m` : `${n}m`}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

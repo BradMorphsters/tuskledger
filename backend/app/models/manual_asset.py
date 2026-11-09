@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, String, Float, Date, DateTime, Integer, ForeignKey
+from sqlalchemy import Column, String, Float, Date, DateTime, Integer, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.utils import utcnow
@@ -69,6 +69,16 @@ class ManualAsset(Base):
         foreign_keys=[paired_manual_liability_id],
         remote_side="ManualAsset.id",
     )
+
+    # Loan terms for side='liability' rows (migration 0023). All optional;
+    # the Loans page falls back to user-entered overrides when unset.
+    interest_rate = Column(Float, nullable=True)     # annual, as a fraction (0.0595 = 5.95%)
+    monthly_payment = Column(Float, nullable=True)   # total scheduled monthly payment
+    # Optional per-piece breakdown: [{label, balance, rate, payment}, ...].
+    # Federal student loans are usually several loans with different
+    # rates and payments; amortizing them together under one blended rate
+    # misstates the payoff timeline, so the Loans page amortizes each one.
+    loan_tranches = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

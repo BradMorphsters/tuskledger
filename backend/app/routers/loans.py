@@ -32,6 +32,9 @@ from app.services.amortization import (
     compare_refinance,
     compute_heloc_schedule,
     find_pmi_dropoff,
+    compute_tranche_schedule,
+    compare_extra_payment_tranches,
+    tranche_totals,
 )
 
 
@@ -65,6 +68,19 @@ def _subtype_for_manual(asset_type: str) -> str:
         "student_loan": "student",
         "personal_loan": "personal",
     }.get(asset_type, "personal")
+
+
+def _manual_terms(liab: ManualAsset) -> tuple[Optional[float], Optional[float], Optional[list]]:
+    """(rate, payment, tranches) stored on a manual liability. With
+    tranches, rate is their balance-weighted average and payment their sum
+    unless the row stores its own."""
+    tranches = [t for t in (liab.loan_tranches or []) if float(t.get("balance") or 0) > 0] or None
+    rate, payment = liab.interest_rate, liab.monthly_payment
+    if tranches:
+        totals = tranche_totals(tranches)
+        rate = rate if rate is not None else totals["rate"]
+        payment = payment if payment is not None else totals["payment"]
+    return rate, payment, tranches
 
 
 def _resolve_loan(
@@ -112,8 +128,9 @@ def _resolve_loan(
             "subtype": _subtype_for_manual(liab.type),
             "source": "liability",
         }
-        default_rate = None
-        default_payment = None
+        default_rate, default_payment, tranches = _manual_terms(liab)
+        if tranches:
+            loan_meta["tranches"] = tranches
 
     rate = rate_override if rate_override is not None else default_rate
     if rate is None:
@@ -202,6 +219,19 @@ def list_loans(db: Session = Depends(get_db)):
         .all()
     )
     for liab in liab_rows:
+        rate, payment, tranches = _manual_terms(liab)
+        months_remaining = maturity = None
+        if tranches:
+            sched = compute_tranche_schedule(tranches)
+            months_remaining = len(sched) or None
+            maturity = sched[-1]["date"] if sched else None
+        elif rate is not None and payment and liab.current_value:
+            months_remaining = compute_remaining_months(abs(liab.current_value), rate, payment)
+            if months_remaining and months_remaining < 1200:
+                sched = compute_schedule(abs(liab.current_value), rate, payment)
+                maturity = sched[-1]["date"] if sched else None
+            else:
+                months_remaining = None
         out.append({
             "id": f"{_LIAB}{liab.id}",
             "source": "liability",
@@ -209,13 +239,13 @@ def list_loans(db: Session = Depends(get_db)):
             "type": "loan",
             "subtype": _subtype_for_manual(liab.type),
             "balance": abs(liab.current_value or 0.0),
-            # Manual liabilities have no rate/payment in DB. The Loans
-            # page surfaces the overrides input automatically when these
-            # are null, so the user just types them once.
-            "interest_rate": None,
-            "monthly_payment": None,
-            "months_remaining": None,
-            "maturity_date": None,
+            # Stored loan terms (migration 0023). When unset, the Loans
+            # page shows its override inputs so the user can type them.
+            "interest_rate": rate,
+            "monthly_payment": payment,
+            "months_remaining": months_remaining,
+            "maturity_date": maturity,
+            "tranche_count": len(tranches) if tranches else 0,
             "origination_date": None,
             "has_pmi": None,
             "has_mortgage_detail": False,
@@ -266,22 +296,31 @@ def amortization(
             "comparison": None,
         }
 
-    schedule = compute_schedule(
-        principal=principal,
-        annual_rate=rate,
-        monthly_payment=payment,
-        extra_principal=extra_principal,
-    )
-    summary = compute_summary(schedule)
-
-    comparison = None
-    if extra_principal > 0:
-        comparison = compare_extra_payment(
+    # A multi-piece manual loan is amortized piece by piece, unless the
+    # user is overriding the terms (then the overrides describe the whole).
+    tranches = loan_meta.get("tranches") if rate_override is None and payment_override is None else None
+    if tranches:
+        schedule = compute_tranche_schedule(tranches, extra_principal=extra_principal)
+    else:
+        schedule = compute_schedule(
             principal=principal,
             annual_rate=rate,
             monthly_payment=payment,
             extra_principal=extra_principal,
         )
+    summary = compute_summary(schedule)
+
+    comparison = None
+    if extra_principal > 0:
+        if tranches:
+            comparison = compare_extra_payment_tranches(tranches, extra_principal)
+        else:
+            comparison = compare_extra_payment(
+                principal=principal,
+                annual_rate=rate,
+                monthly_payment=payment,
+                extra_principal=extra_principal,
+            )
 
     return {
         "loan": {

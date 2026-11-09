@@ -478,3 +478,100 @@ def find_pmi_dropoff(
             pmi_monthly_cost * months_remaining_after_dropoff, 2
         ),
     }
+
+
+# ─── Multi-piece loans (e.g. federal student loan groups) ───────────
+#
+# A manual loan can be stored as several pieces ("tranches"), each with
+# its own balance, rate and monthly payment. Amortizing them together
+# under one blended rate gets the payoff timeline wrong: the pieces end
+# at different times and the total monthly payment steps down as each
+# one is paid off. These helpers amortize each piece on its own and sum
+# the pieces month by month into the same row shape compute_schedule()
+# returns, so compute_summary() and the Loans page work unchanged.
+
+
+def tranche_totals(tranches: list[dict]) -> dict:
+    """Balance, total payment and balance-weighted rate for a set of pieces."""
+    live = [t for t in tranches if float(t.get("balance") or 0) > 0]
+    balance = sum(float(t["balance"]) for t in live)
+    payment = sum(float(t.get("payment") or 0) for t in live)
+    rate = (sum(float(t["balance"]) * float(t.get("rate") or 0) for t in live) / balance) if balance > 0 else 0.0
+    return {"balance": round(balance, 2), "payment": round(payment, 2), "rate": rate}
+
+
+def compute_tranche_schedule(
+    tranches: list[dict],
+    extra_principal: float = 0.0,
+    start_date: Optional[datetime.date] = None,
+    max_months: int = 600,
+) -> list[dict]:
+    """Month-by-month schedule for a loan made of several pieces.
+
+    Each piece pays its own scheduled payment until it is paid off.
+    `extra_principal` (per month) goes to the highest-rate piece that
+    still has a balance (the "avalanche" order, which minimizes total
+    interest), moving to the next-highest as each one is cleared.
+    """
+    if start_date is None:
+        start_date = datetime.date.today()
+    pieces = [
+        {"balance": float(t["balance"]), "r": float(t.get("rate") or 0) / 12, "payment": float(t.get("payment") or 0),
+         "rate": float(t.get("rate") or 0)}
+        for t in tranches if float(t.get("balance") or 0) > 0.01
+    ]
+    extra = max(0.0, float(extra_principal))
+    rows: list[dict] = []
+    month = 0
+    while any(p["balance"] > 0.01 for p in pieces) and month < max_months:
+        month += 1
+        beginning = sum(p["balance"] for p in pieces)
+        interest_total = std_principal_total = 0.0
+        for p in pieces:
+            if p["balance"] <= 0.01:
+                continue
+            interest = p["balance"] * p["r"]
+            std = min(max(0.0, p["payment"] - interest), p["balance"])
+            p["balance"] -= std
+            interest_total += interest
+            std_principal_total += std
+        extra_left = extra
+        for p in sorted(pieces, key=lambda p: -p["rate"]):
+            if extra_left <= 0.005:
+                break
+            if p["balance"] <= 0.01:
+                continue
+            applied = min(extra_left, p["balance"])
+            p["balance"] -= applied
+            extra_left -= applied
+        extra_paid = extra - max(0.0, extra_left)
+        ending = sum(max(0.0, p["balance"]) for p in pieces)
+        rows.append({
+            "month": month,
+            "date": _add_months(start_date, month).isoformat(),
+            "beginning_balance": round(beginning, 2),
+            "payment": round(interest_total + std_principal_total + extra_paid, 2),
+            "interest": round(interest_total, 2),
+            "principal": round(std_principal_total, 2),
+            "extra_principal": round(extra_paid, 2),
+            "ending_balance": round(ending, 2),
+        })
+    return rows
+
+
+def compare_extra_payment_tranches(
+    tranches: list[dict],
+    extra_principal: float,
+    start_date: Optional[datetime.date] = None,
+) -> dict:
+    """compare_extra_payment() for a multi-piece loan (same response shape)."""
+    base_sum = compute_summary(compute_tranche_schedule(tranches, 0.0, start_date))
+    extra_sum = compute_summary(compute_tranche_schedule(tranches, extra_principal, start_date))
+    return {
+        "extra_principal_per_month": round(extra_principal, 2),
+        "baseline": base_sum,
+        "with_extra": extra_sum,
+        "months_saved": base_sum["months"] - extra_sum["months"],
+        "interest_saved": round(base_sum["total_interest"] - extra_sum["total_interest"], 2),
+        "total_paid_saved": round(base_sum["total_paid"] - extra_sum["total_paid"], 2),
+    }

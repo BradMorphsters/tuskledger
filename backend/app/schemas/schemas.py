@@ -318,6 +318,14 @@ class CreditCardDetailOut(BaseModel):
 
 
 # --- Manual Assets (homes, vehicles, etc.) ---
+class LoanTranche(BaseModel):
+    """One piece of a multi-part manual loan (e.g. one federal loan group)."""
+    label: str
+    balance: float = Field(..., ge=0)
+    rate: float = Field(..., ge=0, le=0.5)        # annual, as a fraction
+    payment: float = Field(..., ge=0)             # this piece's monthly payment
+
+
 class ManualAssetBase(BaseModel):
     name: str
     side: str = "asset"                                # "asset" | "liability"
@@ -332,6 +340,10 @@ class ManualAssetBase(BaseModel):
     address_country: Optional[str] = None
     plaid_mortgage_account_id: Optional[int] = None
     paired_manual_liability_id: Optional[int] = None
+    # Loan terms (liabilities only). See models/manual_asset.py.
+    interest_rate: Optional[float] = Field(None, ge=0, le=0.5)
+    monthly_payment: Optional[float] = Field(None, ge=0)
+    loan_tranches: Optional[List[LoanTranche]] = None
 
 
 class ManualAssetCreate(ManualAssetBase):
@@ -353,6 +365,9 @@ class ManualAssetUpdate(BaseModel):
     address_country: Optional[str] = None
     plaid_mortgage_account_id: Optional[int] = None
     paired_manual_liability_id: Optional[int] = None
+    interest_rate: Optional[float] = Field(None, ge=0, le=0.5)
+    monthly_payment: Optional[float] = Field(None, ge=0)
+    loan_tranches: Optional[List[LoanTranche]] = None
 
 
 class ManualAssetOut(ManualAssetBase):

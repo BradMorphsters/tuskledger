@@ -87,3 +87,25 @@ describe('iconFor', () => {
     expect(iconFor('auto loan')).toBe(CreditCard)
   })
 })
+
+import { hasStoredTerms, piecePayoffMonths } from './Loans'
+
+describe('hasStoredTerms', () => {
+  it('is true only for manual loans with both rate and payment stored', () => {
+    expect(hasStoredTerms({ source: 'liability', interest_rate: 0.05, monthly_payment: 200 })).toBe(true)
+    expect(hasStoredTerms({ source: 'liability', interest_rate: null, monthly_payment: 200 })).toBe(false)
+    expect(hasStoredTerms({ source: 'account', interest_rate: 0.06, monthly_payment: 900 })).toBe(false)
+    expect(hasStoredTerms(undefined)).toBe(false)
+  })
+})
+
+describe('piecePayoffMonths', () => {
+  it('matches the fixed-payment payoff formula', () => {
+    expect(piecePayoffMonths(1200, 0, 100)).toBe(12)
+    expect(piecePayoffMonths(4000, 0.065, 60)).toBe(83)   // same as the backend formula
+  })
+  it('returns null when the payment never covers interest', () => {
+    expect(piecePayoffMonths(10000, 0.12, 50)).toBeNull()
+    expect(piecePayoffMonths(0, 0.05, 50)).toBeNull()
+  })
+})

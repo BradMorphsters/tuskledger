@@ -51,6 +51,9 @@ def create_manual_asset(body: ManualAssetCreate, db: Session = Depends(get_db)):
         address_country=body.address_country,
         plaid_mortgage_account_id=body.plaid_mortgage_account_id,
         paired_manual_liability_id=body.paired_manual_liability_id,
+        interest_rate=body.interest_rate,
+        monthly_payment=body.monthly_payment,
+        loan_tranches=[t.model_dump() for t in body.loan_tranches] if body.loan_tranches else None,
     )
     db.add(asset)
     db.commit()

@@ -20,6 +20,7 @@ from app.schemas.schemas import (
     TopHoldingRow,
 )
 from app.services.trading_tax import (
+    split_wash_locked_captured,
     aggregate_by_symbol,
     build_form_8949_rows,
     compute_quarterly_pacing,
@@ -706,14 +707,7 @@ def _summary_from_matches(matches: list, open_count: int, open_position_txn_ids:
     wash_locked = 0.0
     wash_captured = 0.0
     if open_position_txn_ids is not None:
-        for m in matches:
-            if m.wash_sale_disallowed <= 0:
-                continue
-            replacement_id = getattr(m, "wash_sale_replacement_txn_id", None)
-            if replacement_id in open_position_txn_ids:
-                wash_locked += m.wash_sale_disallowed
-            else:
-                wash_captured += m.wash_sale_disallowed
+        wash_locked, wash_captured = split_wash_locked_captured(matches, open_position_txn_ids)
     else:
         wash_captured = wash
     return {

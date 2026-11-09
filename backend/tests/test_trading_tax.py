@@ -1399,3 +1399,107 @@ def test_harvest_candidates_empty_open_positions():
         current_prices={},
         recent_buy_dates={},
     ) == []
+
+
+# ─── Partial replacement: only the re-acquired shares are washed ─────
+#
+# Treas. Reg. §1.1091-1(c): when fewer shares are re-acquired than were
+# sold at a loss, only the loss on the re-acquired number of shares is
+# disallowed, and each replacement share absorbs the loss of one sold
+# share. Earlier versions disallowed the WHOLE loss whenever any buy
+# landed in the window, which overstated the disallowance (and the
+# estimated tax) whenever a buy-back was smaller than the sale.
+
+
+def test_partial_buyback_after_sale_disallows_only_rebought_shares():
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 100, 50.0, txn_id="b1"),
+        _txn(D(2026, 3, 1), "sell", 100, 40.0, txn_id="s1"),   # $1,000 loss on 100 sh
+        _txn(D(2026, 3, 10), "buy", 10, 41.0, txn_id="b2"),    # rebuy only 10 sh
+    ]
+    r = compute_realized_pnl(txns)
+    m = r["matches"][0]
+    assert m.gain_loss == -1000.0
+    assert m.wash_sale_disallowed == 100.0          # 10/100 of the loss
+    assert m.wash_sale_washed_quantity == 10
+    assert r["summary"]["st_loss"] == -900.0        # $900 still deductible
+    p = r["open_positions"][0]
+    assert p.cost_basis == 510.0                    # 10 × $41 + $100 rolled in
+
+
+def test_partial_buyback_before_sale_disallows_only_rebought_shares():
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 100, 50.0, txn_id="b1"),
+        _txn(D(2026, 2, 25), "buy", 25, 42.0, txn_id="b2"),    # 25 sh, 4 days before
+        _txn(D(2026, 3, 1), "sell", 100, 40.0, txn_id="s1"),   # closes b1: $1,000 loss
+    ]
+    r = compute_realized_pnl(txns)
+    m = r["matches"][0]
+    assert m.wash_sale_disallowed == 250.0          # 25/100 of the loss
+    assert m.wash_sale_washed_quantity == 25
+    assert r["summary"]["st_loss"] == -750.0
+
+
+def test_one_replacement_share_washes_only_one_sold_share():
+    """Two separate loss sales, one small buy: the buy's 10 shares can't
+    wash 10 shares of EACH loss — they're used up on the first."""
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 10, 50.0, txn_id="b1"),
+        _txn(D(2026, 1, 2), "buy", 10, 50.0, txn_id="b2", sec_id="AAPL"),
+        _txn(D(2026, 3, 1), "sell", 10, 40.0, txn_id="s1"),    # $100 loss (b1)
+        _txn(D(2026, 3, 2), "sell", 10, 40.0, txn_id="s2"),    # $100 loss (b2)
+        _txn(D(2026, 3, 10), "buy", 10, 41.0, txn_id="b3"),    # 10 replacement sh
+    ]
+    r = compute_realized_pnl(txns)
+    washed = [m.wash_sale_disallowed for m in r["matches"]]
+    assert sorted(washed) == [0.0, 100.0]           # not [100, 100]
+    assert r["summary"]["wash_sale_disallowed"] == 100.0
+    # The EARLIEST loss gets the replacement shares first.
+    first = min(r["matches"], key=lambda m: m.sell_date)
+    assert first.wash_sale_disallowed == 100.0
+
+
+def test_loss_washed_by_two_buys_splits_and_records_both():
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 100, 50.0, txn_id="b1"),
+        _txn(D(2026, 3, 1), "sell", 100, 40.0, txn_id="s1"),   # $1,000 loss
+        _txn(D(2026, 3, 5), "buy", 30, 41.0, txn_id="b2"),
+        _txn(D(2026, 3, 20), "buy", 50, 42.0, txn_id="b3"),
+    ]
+    r = compute_realized_pnl(txns)
+    m = r["matches"][0]
+    assert m.wash_sale_disallowed == 800.0          # 80 of 100 shares rebought
+    assert [(x["txn_id"], x["quantity"], x["disallowed"]) for x in m.wash_sale_replacements] == [
+        ("b2", 30, 300.0), ("b3", 50, 500.0),
+    ]
+    # Open lots of one security in one account roll up into one position:
+    # (30 × $41 + $300) + (50 × $42 + $500) = $4,130.
+    assert [round(p.cost_basis, 2) for p in r["open_positions"]] == [4130.0]
+
+
+def test_full_buyback_still_disallows_whole_loss():
+    """Regression guard: re-buying at least as many shares still washes
+    the entire loss, exactly as before."""
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 10, 100.0, txn_id="b1"),
+        _txn(D(2026, 3, 1), "sell", 10, 80.0, txn_id="s1"),
+        _txn(D(2026, 3, 15), "buy", 25, 85.0, txn_id="b2"),
+    ]
+    r = compute_realized_pnl(txns)
+    assert r["matches"][0].wash_sale_disallowed == 200.0
+    assert r["matches"][0].wash_sale_washed_quantity == 10
+
+
+def test_locked_vs_captured_split_per_replacement():
+    """A loss washed by two buys, one later sold: the part rolled into the
+    sold buy is CAPTURED, the part on the still-held buy is LOCKED."""
+    txns = [
+        _txn(D(2026, 1, 1), "buy", 100, 50.0, txn_id="b1"),
+        _txn(D(2026, 3, 1), "sell", 100, 40.0, txn_id="s1"),   # $1,000 loss
+        _txn(D(2026, 3, 5), "buy", 30, 41.0, txn_id="b2"),     # washes 30 sh → $300
+        _txn(D(2026, 3, 20), "buy", 50, 42.0, txn_id="b3"),    # washes 50 sh → $500
+        _txn(D(2026, 6, 1), "sell", 30, 45.0, txn_id="s2"),    # sells all of b2
+    ]
+    s = compute_realized_pnl(txns)["summary"]
+    assert s["wash_sale_disallowed_locked"] == 500.0
+    assert s["wash_sale_disallowed_captured"] == 300.0

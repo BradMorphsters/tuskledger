@@ -89,6 +89,70 @@ class Lot:
     plaid_txn_id: Optional[str] = None
     account_id: Optional[int] = None
     disallowed_basis_added: float = 0.0  # wash-sale adjustments
+    # Shares of this lot already used as wash-sale replacements. Each
+    # replacement share can absorb the disallowed loss of only one sold
+    # share (Treas. Reg. §1.1091-1(c)); without this a single small buy
+    # could wash any number of losses.
+    replacement_shares_used: float = 0.0
+
+
+def _lot_replacement_capacity(lot: "Lot") -> float:
+    """Shares of `lot` still available to serve as a wash replacement."""
+    return max(0.0, lot.quantity - lot.replacement_shares_used)
+
+
+def _apply_wash(match: "Match", lot: "Lot", lot_txn_id: Optional[str], lot_account_id) -> float:
+    """Disallow the loss on as many of `match`'s shares as `lot` can still
+    replace, roll that amount into the lot's basis, and record it.
+
+    IRC §1091 / Treas. Reg. §1.1091-1(c): when fewer shares are re-acquired
+    than were sold at a loss, only the loss on the re-acquired number of
+    shares is disallowed, and each replacement share is matched once.
+    Returns the number of shares washed (0 when nothing applied).
+    """
+    remaining = match.quantity - match.wash_sale_washed_quantity
+    take = min(remaining, _lot_replacement_capacity(lot))
+    if take <= 1e-9 or match.gain_loss >= 0:
+        return 0.0
+    disallowed = round(-match.gain_loss * take / match.quantity, 2)
+    match.wash_sale_washed_quantity += take
+    match.wash_sale_disallowed = round(match.wash_sale_disallowed + disallowed, 2)
+    match.wash_sale_replacements.append({
+        "txn_id": lot_txn_id,
+        "account_id": lot_account_id,
+        "quantity": round(take, 6),
+        "disallowed": disallowed,
+    })
+    if match.wash_sale_replacement_txn_id is None:
+        match.wash_sale_replacement_txn_id = lot_txn_id
+    if match.account_id != lot_account_id and match.wash_sale_replacement_account_id is None:
+        match.wash_sale_replacement_account_id = lot_account_id
+    lot.replacement_shares_used += take
+    lot.disallowed_basis_added += disallowed
+    return take
+
+
+def split_wash_locked_captured(matches: list, open_lot_txn_ids) -> tuple[float, float]:
+    """Split disallowed losses into LOCKED (the replacement shares are still
+    held, so the deduction is still deferred) and CAPTURED (the replacement
+    shares were sold, so the loss has flowed into that later sale's basis).
+
+    Uses each match's per-replacement record, so a loss washed by several
+    buys is split across them correctly.
+    """
+    locked = captured = 0.0
+    for m in matches:
+        if m.wash_sale_disallowed <= 0:
+            continue
+        parts = getattr(m, "wash_sale_replacements", None) or [
+            {"txn_id": getattr(m, "wash_sale_replacement_txn_id", None), "disallowed": m.wash_sale_disallowed}
+        ]
+        for part in parts:
+            if part.get("txn_id") in open_lot_txn_ids:
+                locked += part["disallowed"]
+            else:
+                captured += part["disallowed"]
+    return locked, captured
 
 
 @dataclass
@@ -123,6 +187,15 @@ class Match:
     # captured via inflated basis). Without this, the headline tile
     # double-counts each chain link.
     wash_sale_replacement_txn_id: Optional[str] = None
+    # Shares of this loss that were re-acquired inside the wash window.
+    # Only the loss on these shares is disallowed (§1.1091-1(c)); the
+    # rest of the loss stays deductible. Equals `quantity` for a full wash.
+    wash_sale_washed_quantity: float = 0.0
+    # Every replacement buy that absorbed part of this loss:
+    # {"txn_id", "account_id", "quantity", "disallowed"}. A loss can be
+    # washed by several buys; `wash_sale_replacement_txn_id` keeps the
+    # first one for display.
+    wash_sale_replacements: list = field(default_factory=list)
 
 
 @dataclass
@@ -306,9 +379,12 @@ def compute_realized_pnl(
             # any future sell that consumes this lot will see the
             # inflated basis (chain propagation).
             wash_window_start = date - datetime.timedelta(days=WASH_WINDOW_DAYS)
+            # Collect the losses inside the window (matches are appended in
+            # chronological order, so walk back until past the window), then
+            # hand this buy's shares to the EARLIEST loss first, the way
+            # brokers allocate replacement shares.
+            window_losses = []
             for prior in reversed(matches):
-                # Matches are appended in chronological order, so once
-                # we go past the window we can stop.
                 if prior.sell_date < wash_window_start:
                     break
                 if prior.symbol != _label(sec_id):
@@ -318,20 +394,19 @@ def compute_realized_pnl(
                     continue
                 if prior.gain_loss >= 0:
                     continue
-                if prior.wash_sale_disallowed > 0:
-                    continue  # already washed by an earlier replacement
+                if prior.wash_sale_washed_quantity >= prior.quantity - 1e-9:
+                    continue  # every sold share already has a replacement
                 if not _scope_allows(prior.account_id, acct_id):
                     continue
                 # Skip if this buy IS the originating buy of the loss
                 # match (can't be a "replacement" for itself).
                 if txn_id and txn_id == prior.buy_txn_id:
                     continue
-                disallowed = round(-prior.gain_loss, 2)
-                prior.wash_sale_disallowed = disallowed
-                prior.wash_sale_replacement_txn_id = txn_id
-                if prior.account_id != acct_id:
-                    prior.wash_sale_replacement_account_id = acct_id
-                new_lot.disallowed_basis_added += disallowed
+                window_losses.append(prior)
+            for prior in reversed(window_losses):
+                if _lot_replacement_capacity(new_lot) <= 1e-9:
+                    break  # this buy's shares are all used as replacements
+                _apply_wash(prior, new_lot, txn_id, acct_id)
 
             open_lots_by_group.setdefault((acct_id, sec_id), deque()).append(new_lot)
 
@@ -464,11 +539,12 @@ def compute_realized_pnl(
                 # Search open lots across all accounts for a recent buy
                 # in this security. We want the OLDEST qualifying buy
                 # in the window so the wash attribution is stable.
-                replacement_lot = None
-                for (a, s), lot_q in open_lots_by_group.items():
-                    if s != sec_id:
-                        continue
-                    if not _scope_allows(m.account_id, a):
+                # Every open buy of this security inside the window (oldest
+                # first) can serve as a replacement, each share once, until
+                # all of this loss's shares are covered.
+                candidates = []
+                for (a, sid), lot_q in open_lots_by_group.items():
+                    if sid != sec_id or not _scope_allows(m.account_id, a):
                         continue
                     for lot in lot_q:
                         if lot.buy_date < wash_window_start:
@@ -477,17 +553,12 @@ def compute_realized_pnl(
                             continue  # forward wash already handled above
                         if lot.plaid_txn_id == m.buy_txn_id:
                             continue  # the originating buy
-                        if replacement_lot is None or lot.buy_date < replacement_lot.buy_date:
-                            replacement_lot = lot
-                            break  # oldest in this group is fine
-                if replacement_lot is None:
-                    continue
-                disallowed = round(-m.gain_loss, 2)
-                m.wash_sale_disallowed = disallowed
-                m.wash_sale_replacement_txn_id = replacement_lot.plaid_txn_id
-                if m.account_id != replacement_lot.account_id:
-                    m.wash_sale_replacement_account_id = replacement_lot.account_id
-                replacement_lot.disallowed_basis_added += disallowed
+                        candidates.append(lot)
+                candidates.sort(key=lambda lot: lot.buy_date)
+                for replacement_lot in candidates:
+                    if m.wash_sale_washed_quantity >= m.quantity - 1e-9:
+                        break
+                    _apply_wash(m, replacement_lot, replacement_lot.plaid_txn_id, replacement_lot.account_id)
 
     # ── Open positions per (account, security) ──
     # One row per (account, security) pair so the user sees AAPL-in-
@@ -556,15 +627,7 @@ def compute_realized_pnl(
         for lot in lots:
             if lot.plaid_txn_id and lot.quantity > 1e-9:
                 open_lot_txn_ids.add(lot.plaid_txn_id)
-    wash_locked = 0.0
-    wash_captured = 0.0
-    for m in matches:
-        if m.wash_sale_disallowed <= 0:
-            continue
-        if m.wash_sale_replacement_txn_id in open_lot_txn_ids:
-            wash_locked += m.wash_sale_disallowed
-        else:
-            wash_captured += m.wash_sale_disallowed
+    wash_locked, wash_captured = split_wash_locked_captured(matches, open_lot_txn_ids)
 
     return {
         "matches": matches,

@@ -38,9 +38,11 @@ const DB_NAME = 'tuskledger.db';
 // 5: added upcoming_bills (derived mortgage/CC due dates teaser).
 // 6: added transactions.is_refund so the phone's income / spending /
 //    budget sums net refunds the same way the laptop does (backend 0021).
+// 7: added accounts.status + closed_at so closed accounts keep their
+//    history but drop out of balances and filter chips.
 // Bumping forces a one-time wipe + full re-pull on next launch — fine
 // because the mirror is disposable and the laptop is the source of truth.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 let _db: SQLite.SQLiteDatabase | null = null;
 
@@ -74,7 +76,9 @@ const SCHEMA_SQL = `
       current_balance REAL,
       available_balance REAL,
       currency TEXT,
-      updated_at TEXT
+      updated_at TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      closed_at TEXT
     );
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY,
@@ -210,6 +214,9 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
   // actual table shape every launch and patch it in place — cheap, and it
   // means a bad bump can never wedge the app until reinstall.
   await ensureColumn(db, 'transactions', 'is_refund', 'INTEGER NOT NULL DEFAULT 0');
+  // v7: closed-account status.
+  await ensureColumn(db, 'accounts', 'status', "TEXT NOT NULL DEFAULT 'active'");
+  await ensureColumn(db, 'accounts', 'closed_at', 'TEXT');
 }
 
 async function ensureColumn(
@@ -309,8 +316,9 @@ export async function applySync(
       const stmt = await db.prepareAsync(
         `INSERT OR REPLACE INTO accounts
          (id, name, custom_name, type, subtype, institution_name, mask,
-          current_balance, available_balance, currency, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          current_balance, available_balance, currency, updated_at,
+          status, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       try {
         for (const a of accounts) {
@@ -326,6 +334,8 @@ export async function applySync(
             a.available_balance,
             a.currency,
             a.updated_at,
+            a.status || 'active',
+            a.closed_at ?? null,
           ]);
         }
       } finally {

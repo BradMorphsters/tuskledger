@@ -1,10 +1,14 @@
 /**
  * Transactions — debounced local search, date-filter chips, a
  * category-filter chip row (also the landing zone for the Dashboard's
- * top-category drill-down via appStore.txCategory), and an
- * infinite-scrolling list grouped by day with sticky headers (date +
- * day net). No network reads in here — sync drops new rows into the
- * SQLite mirror in the background and the list reacts via dataVersion.
+ * top-category drill-down via appStore.txCategory), an account chip row
+ * (the landing zone for the Dashboard's account drill-down via
+ * appStore.txAccountId — scoping to an account also shows its header:
+ * balance, this month in/out, last update), and an infinite-scrolling
+ * list grouped by day with sticky headers (date + day net). Tapping a
+ * row opens a read-only detail sheet. No network reads in here — sync
+ * drops new rows into the SQLite mirror in the background and the list
+ * reacts via dataVersion.
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -21,9 +25,13 @@ import Chip from '../components/Chip';
 import EmptyState from '../components/EmptyState';
 import Screen from '../components/Screen';
 import TransactionRow from '../components/TransactionRow';
+import TransactionDetailSheet from '../components/TransactionDetailSheet';
 import SkeletonBlock from '../components/SkeletonBlock';
+import { monthYear } from '../format/dates';
 import {
   AccountChip,
+  AccountDetail,
+  accountDetail,
   accountsWithActivity,
   listTransactions,
   spendCategories,
@@ -34,7 +42,9 @@ import { syncNow, useSyncStore } from '../sync/manager';
 import {
   colors,
   formatDayLabel,
+  formatCurrency,
   formatDelta,
+  formatRelative,
   layout,
   radius,
   space,
@@ -123,7 +133,11 @@ export default function TransactionsScreen() {
   const [rows, setRows] = useState<Tx[]>([]);
   const [cats, setCats] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<AccountChip[]>([]);
-  const [accountId, setAccountId] = useState<number | null>(null);
+  // Account filter lives in the app store too (Dashboard drill-down).
+  const accountId = useAppStore((s) => s.txAccountId);
+  const setAccountId = useAppStore((s) => s.setTxAccountId);
+  const [account, setAccount] = useState<AccountDetail | null>(null);
+  const [selected, setSelected] = useState<Tx | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -155,6 +169,21 @@ export default function TransactionsScreen() {
       cancelled = true;
     };
   }, [dataVersion]);
+
+  // Header for the scoped account.
+  useEffect(() => {
+    if (accountId == null) {
+      setAccount(null);
+      return;
+    }
+    let cancelled = false;
+    accountDetail(accountId).then((a) => {
+      if (!cancelled) setAccount(a);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, dataVersion]);
 
   // Reset pagination when search, filter, or the underlying data change.
   useEffect(() => {
@@ -207,6 +236,15 @@ export default function TransactionsScreen() {
     () => (category && !cats.includes(category) ? [category, ...cats] : cats),
     [category, cats],
   );
+  // Same for an account reached by drill-down that isn't in the top set
+  // (closed accounts are never in it).
+  const chipAccounts = useMemo(
+    () =>
+      account && !accounts.some((a) => a.id === account.id)
+        ? [{ id: account.id, label: account.label }, ...accounts]
+        : accounts,
+    [account, accounts],
+  );
 
   // Empty-state messaging depends on whether there's a search term.
   const empty = useMemo(() => {
@@ -222,6 +260,7 @@ export default function TransactionsScreen() {
 
   return (
     <Screen title="Transactions" scroll={false}>
+      {account ? <AccountHeader account={account} onClear={() => setAccountId(null)} /> : null}
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>⌕</Text>
         <TextInput
@@ -285,13 +324,13 @@ export default function TransactionsScreen() {
           ))}
         </ScrollView>
       )}
-      {accounts.length > 1 && (
+      {chipAccounts.length > 1 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.catRow}
           contentContainerStyle={styles.catRowContent}>
-          {accounts.map((a) => (
+          {chipAccounts.map((a) => (
             <Chip
               key={a.id}
               label={accountId === a.id ? `${a.label} ✕` : a.label}
@@ -306,7 +345,11 @@ export default function TransactionsScreen() {
         keyExtractor={(r) => String(r.id)}
         renderItem={({ item }) => (
           <View style={styles.rowWrap}>
-            <TransactionRow tx={item} />
+            <TransactionRow
+              tx={item}
+              showAccount={accountId == null}
+              onPress={() => setSelected(item)}
+            />
           </View>
         )}
         renderSectionHeader={({ section }) => (
@@ -342,11 +385,104 @@ export default function TransactionsScreen() {
         }
         ListFooterComponent={<View style={{ height: space(8) }} />}
       />
+      <TransactionDetailSheet
+        tx={selected}
+        onClose={() => setSelected(null)}
+        onFilterAccount={(id) => {
+          setSelected(null);
+          setCategory(null);
+          setAccountId(id);
+        }}
+        onFilterMerchant={(merchant) => {
+          setSelected(null);
+          setCategory(null);
+          setAccountId(null);
+          setFilter('all');
+          setSearchInput(merchant);
+          setSearch(merchant);
+        }}
+      />
     </Screen>
   );
 }
 
+const LIABILITY_TYPES = new Set(['credit', 'loan']);
+
+/** Scoped-account header: who, balance, this month's flow, freshness. */
+function AccountHeader({ account, onClear }: { account: AccountDetail; onClear(): void }) {
+  const liability = LIABILITY_TYPES.has((account.type || '').toLowerCase());
+  const closed = account.status === 'closed';
+  const sub = [
+    account.institution_name,
+    account.mask ? `····${account.mask}` : null,
+    closed ? `Closed ${monthYear(account.closed_at)}`.trim() : `Updated ${formatRelative(account.updated_at)}`,
+  ].filter(Boolean).join(' · ');
+  return (
+    <View style={styles.acctCard} accessibilityLabel={`Showing ${account.label}`}>
+      <View style={styles.acctTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={type.h2} numberOfLines={1}>{account.label}</Text>
+          <Text style={[type.small, { marginTop: 2 }]} numberOfLines={1}>{sub}</Text>
+        </View>
+        <Pressable
+          onPress={onClear}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Show all accounts"
+          style={styles.acctClear}>
+          <Text style={styles.acctClearText}>All accounts ✕</Text>
+        </Pressable>
+      </View>
+      <View style={styles.acctStats}>
+        <View style={{ flex: 1.3 }}>
+          <Text style={type.small}>{closed ? 'Final balance' : liability ? 'Owed' : 'Balance'}</Text>
+          <Text style={[styles.acctBalance, { color: liability && !closed ? colors.expense : colors.text }]}>
+            {liability && !closed && account.current_balance ? '−' : ''}{formatCurrency(account.current_balance)}
+          </Text>
+          {!closed && !liability && account.available_balance != null
+            && Math.abs(account.available_balance - account.current_balance) >= 1 ? (
+            <Text style={type.small}>{formatCurrency(account.available_balance)} available</Text>
+          ) : null}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={type.small}>In this month</Text>
+          <Text style={[styles.acctFlow, { color: colors.income }]}>+{formatCurrency(account.month_in)}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={type.small}>Out this month</Text>
+          <Text style={styles.acctFlow}>{formatCurrency(account.month_out)}</Text>
+        </View>
+      </View>
+      {account.txn_count === 0 ? (
+        <Text style={[type.small, { marginTop: space(2) }]}>
+          No transactions sync for this account — only its balance.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  acctCard: {
+    marginHorizontal: layout.screenPad,
+    marginTop: space(2),
+    padding: space(4),
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+  },
+  acctTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space(3) },
+  acctClear: {
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentBg,
+  },
+  acctClearText: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  acctStats: { flexDirection: 'row', marginTop: space(3), gap: space(2) },
+  acctBalance: { fontSize: 22, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 2 },
+  acctFlow: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'], marginTop: 6 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',

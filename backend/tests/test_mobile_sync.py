@@ -246,6 +246,22 @@ def test_sync_payload_carries_is_refund(client, db, factory):
     assert flags == {"Store": True, "Payroll": False}
 
 
+def test_sync_payload_carries_account_status(client, db, factory):
+    """Closed accounts keep their history on the phone but drop out of
+    balances, so the phone needs the status and close date."""
+    import datetime
+    open_acct = factory.account(name="Checking")
+    closed = factory.account(name="Old Savings", current_balance=0.0)
+    closed.status = "closed"
+    closed.closed_at = datetime.date(2026, 10, 20)
+    factory.commit()
+    token = _pair(client)
+    body = client.get("/api/mobile/sync", headers=_hdr(token)).json()
+    got = {a["name"]: (a["status"], a["closed_at"]) for a in body["accounts"]}
+    assert got["Checking"] == ("active", None)
+    assert got["Old Savings"] == ("closed", "2026-10-20")
+
+
 # ─── Insights (schema v5) ────────────────────────────────────────────────
 
 def test_insights_requires_token(client):

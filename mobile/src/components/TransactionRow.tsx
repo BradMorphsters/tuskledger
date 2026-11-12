@@ -8,10 +8,10 @@
  * money in. Income renders green with an explicit +; transfers render
  * muted; pending rows dim and italicize the amount.
  *
- * Read-only by design — the row is not pressable (there is no detail
- * screen to push, and the phone never edits).
+ * Read-only by design: with onPress the row opens a detail sheet; the
+ * phone never edits.
  */
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { TransactionRow as Tx } from '../db/queries';
 import {
   colors,
@@ -27,9 +27,10 @@ interface Props {
   tx: Tx;
   /** Hide the account label when the list is already account-scoped. */
   showAccount?: boolean;
+  onPress?: () => void;
 }
 
-export default function TransactionRow({ tx, showAccount = true }: Props) {
+export default function TransactionRow({ tx, showAccount = true, onPress }: Props) {
   const isIncome = tx.amount < 0;
   const glyph = categoryGlyph(tx.effective_category);
 
@@ -50,8 +51,12 @@ export default function TransactionRow({ tx, showAccount = true }: Props) {
       : colors.text;
 
   return (
-    <View
-      style={[styles.row, tx.pending && styles.pendingRow]}
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityHint={onPress ? 'Shows transaction details' : undefined}
+      style={({ pressed }) => [styles.row, tx.pending && styles.pendingRow, pressed && onPress ? { opacity: 0.6 } : null]}
       accessibilityLabel={`${tx.effective_name}, ${formatCurrency(Math.abs(tx.amount))}${tx.is_refund ? ' refunded' : isIncome ? ' received' : ''}, ${meta}${tx.pending ? ', pending' : ''}`}>
       <View style={[styles.glyph, { backgroundColor: glyph.bg }]}>
         {glyph.emoji ? (
@@ -82,7 +87,7 @@ export default function TransactionRow({ tx, showAccount = true }: Props) {
         {isIncome ? '+' : ''}
         {formatCurrency(-tx.amount)}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 

@@ -23,6 +23,13 @@ interface AppState {
    */
   txCategory: string | null;
   setTxCategory(category: string | null): void;
+  /**
+   * Account drill-down handoff, same pattern as txCategory: tapping an
+   * account on the Dashboard sets this and switches to Transactions,
+   * which scopes its list (and shows an account header) to it.
+   */
+  txAccountId: number | null;
+  setTxAccountId(accountId: number | null): void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -30,6 +37,8 @@ export const useAppStore = create<AppState>((set) => ({
   setDemoMode: (demoMode) => set({ demoMode }),
   txCategory: null,
   setTxCategory: (txCategory) => set({ txCategory }),
+  txAccountId: null,
+  setTxAccountId: (txAccountId) => set({ txAccountId }),
 }));
 
 /** Read the persisted demo flag once (App.tsx calls this on launch). */

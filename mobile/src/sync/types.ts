@@ -19,6 +19,10 @@ export interface AccountWire {
   available_balance: number | null;
   currency: string | null;
   updated_at: string | null; // ISO8601
+  /** 'active' | 'closed'. Absent from older laptops → treated as active. */
+  status?: string | null;
+  /** YYYY-MM-DD the account was closed, when status is 'closed'. */
+  closed_at?: string | null;
 }
 
 export interface TransactionWire {

@@ -3,8 +3,11 @@
  * tabular-nums. Liability balances render red with an explicit minus.
  * Stale chip appears when the account hasn't synced in a week (the
  * caller decides; manual entries pass staleDays=null to suppress it).
+ * With onPress the row is tappable (Dashboard → that account's
+ * transactions) and shows a chevron.
  */
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { monthYear } from '../format/dates';
 import { colors, formatCurrency, layout, space, type } from '../theme';
 
 interface Props {
@@ -13,6 +16,9 @@ interface Props {
   balance: number;
   liability?: boolean;
   staleDays?: number | null;
+  /** Closed accounts: shows "Closed <Mon YYYY>" instead of the balance. */
+  closedAt?: string | null;
+  onPress?: () => void;
 }
 
 export default function AccountRow({
@@ -21,19 +27,29 @@ export default function AccountRow({
   balance,
   liability = false,
   staleDays,
+  closedAt,
+  onPress,
 }: Props) {
+  const closed = closedAt !== undefined && closedAt !== null;
   return (
-    <View
-      style={styles.row}
-      accessibilityLabel={`${name}${mask ? `, ending ${mask}` : ''}, ${liability ? 'owes ' : ''}${formatCurrency(balance)}${staleDays != null ? `, ${staleDays} days stale` : ''}`}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityHint={onPress ? 'Shows this account’s transactions' : undefined}
+      style={({ pressed }) => [styles.row, pressed && onPress ? { opacity: 0.6 } : null]}
+      accessibilityLabel={`${name}${mask ? `, ending ${mask}` : ''}, ${closed ? `closed ${monthYear(closedAt)}` : `${liability ? 'owes ' : ''}${formatCurrency(balance)}`}${staleDays != null ? `, ${staleDays} days stale` : ''}`}>
       <View style={styles.left}>
         <Text style={type.body} numberOfLines={1}>
           {name}
         </Text>
-        {(mask || staleDays != null) && (
+        {(mask || staleDays != null || closed) && (
           <View style={styles.metaRow}>
             {mask ? (
               <Text style={[type.small, styles.mask]}>····{mask}</Text>
+            ) : null}
+            {closed ? (
+              <Text style={type.small}>{['Closed', monthYear(closedAt)].filter(Boolean).join(' ')}</Text>
             ) : null}
             {staleDays != null ? (
               <View style={styles.staleBadge}>
@@ -44,16 +60,21 @@ export default function AccountRow({
           </View>
         )}
       </View>
-      <Text
-        style={[
-          styles.balance,
-          { color: liability ? colors.expense : colors.text },
-        ]}
-        numberOfLines={1}>
-        {liability ? '−' : ''}
-        {formatCurrency(balance)}
-      </Text>
-    </View>
+      {closed ? (
+        <Text style={[styles.balance, { color: colors.textFaint }]}>History</Text>
+      ) : (
+        <Text
+          style={[
+            styles.balance,
+            { color: liability ? colors.expense : colors.text },
+          ]}
+          numberOfLines={1}>
+          {liability ? '−' : ''}
+          {formatCurrency(balance)}
+        </Text>
+      )}
+      {onPress ? <Text style={styles.chevron}>›</Text> : null}
+    </Pressable>
   );
 }
 
@@ -79,6 +100,11 @@ const styles = StyleSheet.create({
   },
   mask: {
     fontVariant: ['tabular-nums'],
+  },
+  chevron: {
+    fontSize: 18,
+    color: colors.textFaint,
+    marginLeft: space(2),
   },
   balance: {
     fontSize: 16,

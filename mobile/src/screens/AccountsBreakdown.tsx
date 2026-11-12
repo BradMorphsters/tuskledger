@@ -12,7 +12,13 @@
  * Data shape comes from accountsBreakdown() — including the
  * manual_assets fold-in — and is used EXACTLY as before; only the
  * presentation changed from a stack of cards to one expandable card.
+ *
+ * Tapping an account opens the Transactions tab scoped to it (manual
+ * entries have no transactions, so they aren't tappable). Closed
+ * accounts sit in their own "Closed" group with no balance and no
+ * stale badge — their history is still one tap away.
  */
+import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import AccountRow from '../components/AccountRow';
@@ -22,6 +28,7 @@ import {
   AccountBreakdownGroup,
   accountsBreakdown,
 } from '../db/queries';
+import { useAppStore } from '../state/appStore';
 import { useSyncStore } from '../sync/manager';
 import { colors, formatCurrency, layout, space, type } from '../theme';
 
@@ -44,6 +51,7 @@ function accentForKey(key: string): string {
     case 'loan':               return colors.expense;
     case 'manual-assets':      return colors.income;
     case 'manual-liabilities': return colors.expense;
+    case 'closed':             return colors.textFaint;
     default:                   return colors.textMuted;
   }
 }
@@ -61,6 +69,17 @@ export default function AccountsBreakdown() {
   const dataVersion = useSyncStore((s) => s.dataVersion);
   const [groups, setGroups] = useState<AccountBreakdownGroup[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const navigation = useNavigation<any>();
+  const setTxAccountId = useAppStore((s) => s.setTxAccountId);
+  const setTxCategory = useAppStore((s) => s.setTxCategory);
+
+  /** Tap an account → Transactions tab, scoped to that account. A
+   *  leftover category filter would hide most of its rows, so clear it. */
+  const openAccount = (id: number) => {
+    setTxCategory(null);
+    setTxAccountId(id);
+    navigation.navigate('Transactions');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +103,7 @@ export default function AccountsBreakdown() {
   const net = totalAssets - totalLiabilities;
 
   const synced = groups
-    .filter((g) => !isManualGroup(g.key))
+    .filter((g) => !isManualGroup(g.key) && g.key !== 'closed')
     .reduce((s, g) => s + g.items.length, 0);
   const manual = groups
     .filter((g) => isManualGroup(g.key))
@@ -110,6 +129,7 @@ export default function AccountsBreakdown() {
             onToggle={() =>
               setExpanded((e) => ({ ...e, [g.key]: !e[g.key] }))
             }
+            onOpenAccount={openAccount}
           />
         ))}
 
@@ -135,14 +155,17 @@ function Group({
   first,
   expanded,
   onToggle,
+  onOpenAccount,
 }: {
   group: AccountBreakdownGroup;
   first: boolean;
   expanded: boolean;
   onToggle: () => void;
+  onOpenAccount: (id: number) => void;
 }) {
   const accent = accentForKey(group.key);
   const liability = group.side === 'liability';
+  const closedGroup = group.key === 'closed';
   const noun = isManualGroup(group.key)
     ? group.items.length === 1 ? 'entry' : 'entries'
     : group.items.length === 1 ? 'account' : 'accounts';
@@ -153,7 +176,7 @@ function Group({
         onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${group.label}, ${group.items.length} ${noun}, ${formatCurrency(group.subtotal)}. ${expanded ? 'Collapse' : 'Expand'}.`}
+        accessibilityLabel={`${group.label}, ${group.items.length} ${noun}${closedGroup ? '' : `, ${formatCurrency(group.subtotal)}`}. ${expanded ? 'Collapse' : 'Expand'}.`}
         style={({ pressed }) => [styles.groupRow, pressed && { opacity: 0.65 }]}>
         <View style={[styles.dot, { backgroundColor: accent }]} />
         <View style={styles.groupLeft}>
@@ -164,15 +187,17 @@ function Group({
             {group.items.length} {noun}
           </Text>
         </View>
-        <Text
-          style={[
-            styles.subtotal,
-            { color: liability ? colors.expense : colors.text },
-          ]}
-          numberOfLines={1}>
-          {liability ? '−' : ''}
-          {formatCurrency(group.subtotal)}
-        </Text>
+        {closedGroup ? null : (
+          <Text
+            style={[
+              styles.subtotal,
+              { color: liability ? colors.expense : colors.text },
+            ]}
+            numberOfLines={1}>
+            {liability ? '−' : ''}
+            {formatCurrency(group.subtotal)}
+          </Text>
+        )}
         <Text
           style={[
             styles.chevron,
@@ -191,7 +216,10 @@ function Group({
               mask={a.mask}
               balance={a.current_balance}
               liability={liability}
-              staleDays={isManualGroup(group.key) ? null : staleDays(a.updated_at)}
+              staleDays={isManualGroup(group.key) || closedGroup ? null : staleDays(a.updated_at)}
+              closedAt={closedGroup ? a.closed_at ?? '' : null}
+              // Manual entries (home, vehicles) have no transactions.
+              onPress={isManualGroup(group.key) ? undefined : () => onOpenAccount(a.id)}
             />
           ))}
         </View>

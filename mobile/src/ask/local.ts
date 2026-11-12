@@ -374,7 +374,7 @@ async function cashFlow(period: Period): Promise<LocalAnswer> {
 async function balance(account: string | null): Promise<LocalAnswer> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ name: string; type: string; subtype: string | null; bal: number | null; inst: string | null }>(
-    `SELECT COALESCE(custom_name, name) AS name, type, subtype, current_balance AS bal, institution_name AS inst FROM accounts ORDER BY type, name`);
+    `SELECT COALESCE(custom_name, name) AS name, type, subtype, current_balance AS bal, institution_name AS inst FROM accounts WHERE COALESCE(status, 'active') != 'closed' ORDER BY type, name`);
   let hits = rows;
   if (account) {
     const a = account.toLowerCase().replace(/\bcredit card\b/, 'credit');
@@ -399,7 +399,7 @@ async function balance(account: string | null): Promise<LocalAnswer> {
 async function debtTotal(): Promise<LocalAnswer> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ name: string; bal: number | null }>(
-    `SELECT COALESCE(custom_name, name) AS name, current_balance AS bal FROM accounts WHERE type IN ('credit','loan') ORDER BY current_balance DESC`);
+    `SELECT COALESCE(custom_name, name) AS name, current_balance AS bal FROM accounts WHERE type IN ('credit','loan') AND COALESCE(status, 'active') != 'closed' ORDER BY current_balance DESC`);
   const manual = await db.getFirstAsync<{ t: number | null }>(`SELECT SUM(current_value) AS t FROM manual_assets WHERE side = 'liability'`);
   const total = rows.reduce((s, r) => s + (r.bal ?? 0), 0) + (manual?.t ?? 0);
   if (!total) return { answer: 'No balances owed on file.', basis: 'As of your last sync' };

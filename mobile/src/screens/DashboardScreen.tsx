@@ -87,6 +87,7 @@ function delta30d(history: NetWorthPoint[], current: number): number | null {
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const setTxCategory = useAppStore((s) => s.setTxCategory);
+  const setTxAccountId = useAppStore((s) => s.setTxAccountId);
   const dataVersion = useSyncStore((s) => s.dataVersion);
   const insights = useInsightsStore((s) => s.insights);
   const [summary, setSummary] = useState<MonthSummary | null>(null);
@@ -148,6 +149,8 @@ export default function DashboardScreen() {
   /** Tap a top-category row → Transactions tab, pre-filtered. */
   const drillIntoCategory = (category: string) => {
     setTxCategory(category);
+    // A leftover account scope would hide most of the category's rows.
+    setTxAccountId(null);
     navigation.navigate('Transactions');
   };
 

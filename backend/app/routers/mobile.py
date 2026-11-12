@@ -278,6 +278,11 @@ class AccountOut(BaseModel):
     available_balance: Optional[float]
     currency: Optional[str]
     updated_at: Optional[datetime.datetime]
+    # Closed accounts keep their history; the phone hides them from
+    # balances and lists them under "Closed". Defaults keep older
+    # phones parsing the payload.
+    status: str = "active"
+    closed_at: Optional[datetime.date] = None
 
 
 class TransactionOut(BaseModel):
@@ -764,6 +769,8 @@ def sync(
                 available_balance=a.available_balance,
                 currency=a.currency,
                 updated_at=a.updated_at,
+                status=a.status or "active",
+                closed_at=a.closed_at,
             )
             for a in accounts
         ],

@@ -211,11 +211,104 @@ export async function accountsWithActivity(limit = 8): Promise<AccountChip[]> {
     `SELECT a.id, COALESCE(a.custom_name, a.name) AS label
      FROM accounts a
      JOIN transactions t ON t.account_id = a.id
+     WHERE COALESCE(a.status, 'active') != 'closed'
      GROUP BY a.id
      ORDER BY COUNT(t.id) DESC
      LIMIT ?`,
     [limit],
   );
+}
+
+export interface AccountDetail {
+  id: number;
+  label: string;
+  type: string;
+  subtype: string | null;
+  institution_name: string | null;
+  mask: string | null;
+  current_balance: number;
+  available_balance: number | null;
+  updated_at: string | null;
+  status: string;
+  closed_at: string | null;
+  /** This calendar month, all rows including transfers: what came in
+   *  (amount < 0) and went out (amount > 0) of THIS account. */
+  month_in: number;
+  month_out: number;
+  txn_count: number;
+  first_date: string | null;
+}
+
+/** Header data for the Transactions screen when it's scoped to one
+ *  account (the Dashboard drill-down). Null if the account is gone. */
+export async function accountDetail(accountId: number): Promise<AccountDetail | null> {
+  const db = await getDb();
+  const a = await db.getFirstAsync<{
+    id: number; name: string; custom_name: string | null; type: string;
+    subtype: string | null; institution_name: string | null; mask: string | null;
+    current_balance: number | null; available_balance: number | null;
+    updated_at: string | null; status: string | null; closed_at: string | null;
+  }>(
+    `SELECT id, name, custom_name, type, subtype, institution_name, mask,
+            current_balance, available_balance, updated_at, status, closed_at
+     FROM accounts WHERE id = ?`,
+    [accountId],
+  );
+  if (!a) return null;
+  const t = await db.getFirstAsync<{
+    month_in: number | null; month_out: number | null; cnt: number; first_date: string | null;
+  }>(
+    `SELECT
+        SUM(CASE WHEN date >= ? AND amount < 0 THEN -amount ELSE 0 END) AS month_in,
+        SUM(CASE WHEN date >= ? AND amount > 0 THEN amount ELSE 0 END) AS month_out,
+        COUNT(*) AS cnt,
+        MIN(date) AS first_date
+     FROM transactions WHERE account_id = ?`,
+    [localMonthStart(), localMonthStart(), accountId],
+  );
+  return {
+    id: a.id,
+    label: a.custom_name || a.name || '(unnamed)',
+    type: a.type,
+    subtype: a.subtype,
+    institution_name: a.institution_name,
+    mask: a.mask,
+    current_balance: a.current_balance ?? 0,
+    available_balance: a.available_balance,
+    updated_at: a.updated_at,
+    status: a.status || 'active',
+    closed_at: a.closed_at,
+    month_in: t?.month_in ?? 0,
+    month_out: t?.month_out ?? 0,
+    txn_count: t?.cnt ?? 0,
+    first_date: t?.first_date ?? null,
+  };
+}
+
+export interface MerchantStats {
+  /** Visits and net spend over the last 12 months (transfers excluded). */
+  count: number;
+  total: number;
+  average: number;
+}
+
+/** "You've spent $X here across N visits this year" for the transaction
+ *  detail sheet. Matches on the resolved merchant name. */
+export async function merchantStats(merchant: string): Promise<MerchantStats> {
+  const db = await getDb();
+  const since = new Date(Date.now() - 365 * 86400000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const sinceIso = `${since.getFullYear()}-${pad(since.getMonth() + 1)}-${pad(since.getDate())}`;
+  const row = await db.getFirstAsync<{ cnt: number; total: number | null }>(
+    `SELECT COUNT(*) AS cnt, SUM(amount) AS total
+     FROM transactions
+     WHERE COALESCE(merchant_name, name) = ? AND date >= ? AND is_transfer = 0
+       AND (amount > 0 OR is_refund = 1)`,
+    [merchant, sinceIso],
+  );
+  const count = row?.cnt ?? 0;
+  const total = row?.total ?? 0;
+  return { count, total, average: count ? total / count : 0 };
 }
 
 /** Distinct effective categories with spend this month, largest first.
@@ -410,6 +503,8 @@ export interface AccountBreakdownRow {
   type: string;
   current_balance: number;
   updated_at: string | null;
+  /** YYYY-MM-DD; set only on rows in the 'closed' group. */
+  closed_at?: string | null;
 }
 
 export interface AccountBreakdownGroup {
@@ -445,7 +540,7 @@ export interface AccountBreakdownGroup {
  */
 export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<{
+  const allRows = await db.getAllAsync<{
     id: number;
     name: string;
     custom_name: string | null;
@@ -453,11 +548,19 @@ export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
     type: string;
     current_balance: number | null;
     updated_at: string | null;
+    status: string | null;
+    closed_at: string | null;
   }>(
-    `SELECT id, name, custom_name, mask, type, current_balance, updated_at
+    `SELECT id, name, custom_name, mask, type, current_balance, updated_at,
+            status, closed_at
      FROM accounts
      ORDER BY type, COALESCE(custom_name, name)`,
   );
+  // Closed accounts keep their history but don't count toward balances:
+  // they get their own group at the bottom (side 'closed', excluded from
+  // both the asset and liability totals).
+  const rows = allRows.filter((r) => r.status !== 'closed');
+  const closedRows = allRows.filter((r) => r.status === 'closed');
 
   const groupDef: { key: string; label: string; side: string }[] = [
     { key: 'depository', label: 'Cash',       side: 'asset' },
@@ -532,10 +635,31 @@ export async function accountsBreakdown(): Promise<AccountBreakdownGroup[]> {
     'Manual liabilities',
   );
 
+  const closedGroup: AccountBreakdownGroup | null = closedRows.length
+    ? {
+        key: 'closed',
+        label: 'Closed',
+        side: 'closed',
+        subtotal: 0,
+        items: closedRows
+          .map((r) => ({
+            id: r.id,
+            name: r.custom_name || r.name || '(unnamed)',
+            mask: r.mask,
+            type: r.type,
+            current_balance: r.current_balance ?? 0,
+            updated_at: r.updated_at,
+            closed_at: r.closed_at,
+          }))
+          .sort((a, b) => (b.closed_at || '').localeCompare(a.closed_at || '')),
+      }
+    : null;
+
   const allGroups = [
     ...plaidGroups.filter((g) => g.items.length > 0),
     ...(manualAssetGroup ? [manualAssetGroup] : []),
     ...(manualLiabilityGroup ? [manualLiabilityGroup] : []),
+    ...(closedGroup ? [closedGroup] : []),
   ];
 
   return allGroups;
@@ -561,7 +685,8 @@ export async function netWorth(): Promise<NetWorthSnapshot> {
     `SELECT
         SUM(CASE WHEN type IN ('depository','investment') THEN COALESCE(current_balance,0) ELSE 0 END) AS assets,
         SUM(CASE WHEN type IN ('credit','loan')           THEN COALESCE(current_balance,0) ELSE 0 END) AS liabilities
-     FROM accounts`,
+     FROM accounts
+     WHERE COALESCE(status, 'active') != 'closed'`,
   );
   const manualRow = await db.getFirstAsync<{
     assets: number | null;

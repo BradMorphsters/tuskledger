@@ -12,7 +12,7 @@ versioned and reviewed like the rest of the repo.
 - Agent trading has its own sprint plan:
   [docs/agent-trading-roadmap.md](docs/agent-trading-roadmap.md).
 
-_Last updated: October 2026._
+_Last updated: November 2026._
 
 ---
 
@@ -23,10 +23,6 @@ _Last updated: October 2026._
   then FastAPI and Starlette, then `plaid-python`, then the Expo SDK for the
   iOS app. Each wave lands separately with the full test suite green. CI now
   tests on Node 22 and 24. Node 20 was dropped after it reached end-of-life.
-- **Closed accounts on the iPhone app.** The web app can mark an account
-  closed so its history stays while its balance stops counting. The phone
-  mirror doesn't know about the status yet, so closed accounts still show
-  there at $0.
 - **CSV import ↔ bank-sync reconciliation.** When a bank feed later backfills
   transactions you already imported from a CSV, the synced row should adopt
   the matching imported row instead of creating a duplicate. Today sync
@@ -114,3 +110,8 @@ Highlights only. [CHANGELOG.md](CHANGELOG.md) has the details.
   Dashboard alert, and learned pay schedules on the Paychecks page.
 - **October:** closed accounts that keep their history, and Node 20 dropped
   from CI.
+- **November:** a Loans summary with a payoff planner (avalanche vs
+  snowball, where each extra dollar goes, mortgage escrow split out),
+  manual loan terms, demo data for these features, and on the phone:
+  tap an account to see its transactions, a transaction detail sheet,
+  and closed accounts.

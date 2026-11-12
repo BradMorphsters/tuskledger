@@ -44,13 +44,27 @@ const DB_NAME = 'tuskledger.db';
 // because the mirror is disposable and the laptop is the source of truth.
 const SCHEMA_VERSION = 7;
 
-let _db: SQLite.SQLiteDatabase | null = null;
+// Cache the open-AND-migrate promise, not the handle. Caching the handle
+// before migrate() finished let concurrent callers at launch (first sync,
+// hydrateLastSyncedAt, hydrateInsights) use the database mid-migration:
+// on the v7 bump the first sync prepared its accounts INSERT against the
+// old table and failed with "table accounts has no column named status".
+// Every caller now waits for the same open + migrate to complete.
+let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
-export async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync(DB_NAME);
-  await migrate(_db);
-  return _db;
+export function getDb(): Promise<SQLite.SQLiteDatabase> {
+  if (!_dbPromise) {
+    _dbPromise = (async () => {
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      await migrate(db);
+      return db;
+    })().catch((err) => {
+      // Let the next caller retry instead of caching the failure forever.
+      _dbPromise = null;
+      throw err;
+    });
+  }
+  return _dbPromise;
 }
 
 // Every mirrored table (everything except `meta`). Dropped and re-created

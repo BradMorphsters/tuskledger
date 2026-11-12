@@ -11,6 +11,7 @@ import {
 } from '../api/client'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 import { SkeletonPage } from '../components/Skeleton'
+import LoansSummary from '../components/LoansSummary'
 
 /**
  * Loans page — amortization timeline + extra-payment what-if calculator
@@ -114,8 +115,17 @@ export default function Loans() {
     <div style={{ padding: 16 }}>
       <h1 style={{ marginTop: 0, fontSize: 22, fontWeight: 600 }}>Loans</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: -8, fontSize: 13 }}>
-        Amortization schedules and extra-payment what-ifs for each loan.
+        Everything you owe in one place, a payoff plan across all loans, and amortization for each one.
       </p>
+
+      <LoansSummary
+        overrides={overrides}
+        needsOverride={id => { const l = loans.find(x => x.id === id); return !!l && !l.has_mortgage_detail && !hasStoredTerms(l) }}
+        onSelectLoan={id => {
+          setSelectedId(id)
+          document.getElementById('loan-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }}
+      />
 
       {/* Multi-loan stacked timeline — only meaningful with 2+ loans
           that have computable schedules. Each loan with rate+payment
@@ -128,7 +138,7 @@ export default function Loans() {
         />
       )}
 
-      <div style={{
+      <div id="loan-detail" style={{
         display: 'grid',
         gridTemplateColumns: '280px 1fr',
         gap: 16,
@@ -244,6 +254,8 @@ function LoanDetail({ loan, override, setOverride }) {
             Balance: {fmtRounded(loan.balance)}
             {loan.interest_rate != null && ` · ${loan.tranche_count ? 'Avg rate' : 'Rate'} ${(loan.interest_rate * 100).toFixed(3)}%`}
             {loan.monthly_payment != null && ` · P+I ${fmtRounded(loan.monthly_payment)}/mo`}
+            {loan.escrow_monthly > 0 && ` + ${fmtRounded(loan.escrow_monthly)} escrow`}
+            {loan.term_source === 'inferred from balance' && ` · ${Math.round(loan.term_months / 12)}-yr term (inferred)`}
           </div>
         </div>
         {loan.has_pmi && (

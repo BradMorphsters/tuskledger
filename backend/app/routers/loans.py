@@ -36,6 +36,7 @@ from app.services.amortization import (
     compare_extra_payment_tranches,
     tranche_totals,
 )
+from app.services.debt_plan import infer_mortgage_pi, summarize as summarize_debts
 
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -68,6 +69,29 @@ def _subtype_for_manual(asset_type: str) -> str:
         "student_loan": "student",
         "personal_loan": "personal",
     }.get(asset_type, "personal")
+
+
+def _mortgage_terms(acct: Account, md: Optional[MortgageDetail]) -> tuple[Optional[float], Optional[float], float, Optional[dict]]:
+    """(rate, P&I payment, escrow per month, inference) for a Plaid loan.
+
+    Servicers report the TOTAL monthly payment, which for most mortgages
+    includes escrow (tax + insurance). Amortizing that total as if it were
+    principal and interest pays the loan off years too early, so when the
+    loan's original amount, date and rate are known, the P&I payment is
+    recovered from the term (reported, or inferred from today's balance)
+    and the difference is reported as escrow.
+    """
+    rate = md.interest_rate_percentage / 100 if md and md.interest_rate_percentage else None
+    total = md.next_monthly_payment if md and md.next_monthly_payment else None
+    if not (md and rate and total):
+        return rate, total, 0.0, None
+    inferred = infer_mortgage_pi(
+        md.origination_principal_amount, md.origination_date, rate,
+        abs(acct.current_balance or 0.0), loan_term=md.loan_term, maturity_date=md.maturity_date,
+    )
+    if inferred and 0 < inferred["pi_payment"] <= total + 0.5:
+        return rate, inferred["pi_payment"], round(max(total - inferred["pi_payment"], 0.0), 2), inferred
+    return rate, total, 0.0, None
 
 
 def _manual_terms(liab: ManualAsset) -> tuple[Optional[float], Optional[float], Optional[list]]:
@@ -114,8 +138,11 @@ def _resolve_loan(
             .filter_by(account_id=num_id)
             .first()
         )
-        default_rate = md.interest_rate_percentage / 100 if md and md.interest_rate_percentage else None
-        default_payment = md.next_monthly_payment if md and md.next_monthly_payment else None
+        default_rate, default_payment, escrow, inferred = _mortgage_terms(acct, md)
+        if escrow:
+            loan_meta["escrow_monthly"] = escrow
+        if inferred:
+            loan_meta["term_inference"] = inferred
     else:
         liab = db.query(ManualAsset).filter_by(id=num_id).first()
         if not liab or liab.side != "liability":
@@ -187,8 +214,7 @@ def list_loans(db: Session = Depends(get_db)):
             .filter_by(account_id=acct.id)
             .first()
         )
-        rate = md.interest_rate_percentage / 100 if md and md.interest_rate_percentage else None
-        payment = md.next_monthly_payment if md and md.next_monthly_payment else None
+        rate, payment, escrow, inferred = _mortgage_terms(acct, md)
         months_remaining = None
         if rate and payment and acct.current_balance:
             months_remaining = compute_remaining_months(
@@ -204,15 +230,21 @@ def list_loans(db: Session = Depends(get_db)):
             "interest_rate": rate,
             "monthly_payment": payment,
             "months_remaining": months_remaining,
-            "maturity_date": md.maturity_date.isoformat() if md and md.maturity_date else None,
+            "maturity_date": (md.maturity_date.isoformat() if md and md.maturity_date
+                              else (inferred or {}).get("maturity_date")),
             "origination_date": md.origination_date.isoformat() if md and md.origination_date else None,
             "has_pmi": md.has_pmi if md else None,
             "has_mortgage_detail": md is not None,
+            # Escrow split out of the servicer's total payment (see _mortgage_terms).
+            "escrow_monthly": escrow or None,
+            "total_monthly_payment": round(payment + escrow, 2) if payment else None,
+            "term_months": (inferred or {}).get("term_months"),
+            "term_source": (inferred or {}).get("source"),
         })
 
     # ── Manual liabilities: auto, student, personal loans ──
-    # No rate/payment stored on ManualAsset today — user supplies via
-    # overrides on the Loans page (persisted to localStorage).
+    # Terms come from the row (migration 0023); when absent, the user
+    # supplies them via overrides on the Loans page (browser-local).
     liab_rows = (
         db.query(ManualAsset)
         .filter(ManualAsset.side == "liability")
@@ -492,3 +524,91 @@ def pmi_dropoff(
             ltv_threshold=ltv_threshold,
         ),
     }
+
+
+# ─── Household summary ───────────────────────────────────────────────
+
+def _monthly_take_home(db: Session, days: int = 90) -> Optional[float]:
+    """Average monthly take-home income: Income-category inflows into
+    cash accounts over the last `days`, excluding transfers and refunds."""
+    from sqlalchemy import func
+    from app.models import Transaction
+    since = datetime.date.today() - datetime.timedelta(days=days)
+    total = (
+        db.query(func.coalesce(func.sum(-Transaction.amount), 0.0))
+        .join(Account, Account.id == Transaction.account_id)
+        .filter(
+            Transaction.date >= since,
+            Transaction.amount < 0,
+            Transaction.is_transfer.is_(False),
+            Transaction.is_refund.is_(False),
+            func.coalesce(Transaction.custom_category, Transaction.category) == "Income",
+            Account.type == "depository",
+        )
+        .scalar()
+    ) or 0.0
+    return round(total / (days / 30.4375), 2) if total > 0 else None
+
+
+@router.get("/summary")
+def loans_summary(
+    extra: float = Query(0.0, ge=0, le=100000, description="Extra $/month to put toward debt in the avalanche/snowball plans"),
+    overrides: Optional[str] = Query(
+        None,
+        description='JSON {"<loan id>": {"rate": 0.05, "payment": 300}} for loans with no terms on file',
+    ),
+    exclude: Optional[str] = Query(
+        None, description="Comma-separated loan ids to leave out of the avalanche/snowball plans",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Every loan together: totals, debt-free date, payments as a share of
+    take-home income, when each loan ends and what it frees up, and the
+    current schedule compared with avalanche and snowball plans that put
+    `extra` (plus each paid-off loan's payment) toward the rest.
+
+    Loans with no rate/payment on file and no override are listed under
+    `excluded` rather than guessed at.
+    """
+    import json
+    try:
+        ov = json.loads(overrides) if overrides else {}
+    except ValueError:
+        raise HTTPException(400, "overrides must be JSON")
+    if not isinstance(ov, dict):
+        raise HTTPException(400, "overrides must be a JSON object")
+
+    def _num(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+    debts, excluded = [], []
+    for loan in list_loans(db)["loans"]:
+        if (loan.get("balance") or 0) <= 0.01:
+            continue
+        raw = ov.get(loan["id"]) if isinstance(ov.get(loan["id"]), dict) else {}
+        o = {k: v for k, v in (("rate", _num(raw.get("rate"))), ("payment", _num(raw.get("payment")))) if v is not None}
+        try:
+            principal, rate, payment, meta, _md = _resolve_loan(
+                loan["id"], db, o.get("rate"), o.get("payment"))
+        except HTTPException:
+            excluded.append({"id": loan["id"], "name": loan["name"],
+                             "reason": "No interest rate or monthly payment on file"})
+            continue
+        tranches = meta.get("tranches") if not o else None
+        pieces = ([{"label": t.get("label"), "balance": t["balance"], "rate": t["rate"], "payment": t["payment"]}
+                   for t in tranches] if tranches
+                  else [{"label": loan["name"], "balance": principal, "rate": rate, "payment": payment}])
+        debts.append({
+            "id": loan["id"], "name": loan["name"], "kind": loan.get("subtype"),
+            "balance": loan.get("balance"),
+            "escrow": meta.get("escrow_monthly", 0.0) if not o else 0.0,
+            "pieces": pieces,
+        })
+    result = summarize_debts(
+        debts, extra=extra, monthly_income=_monthly_take_home(db),
+        exclude_from_plan={x.strip() for x in (exclude or "").split(",") if x.strip()},
+    )
+    result["excluded"] = excluded
+    return result

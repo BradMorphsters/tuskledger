@@ -407,6 +407,15 @@ export const getRetirementProjection = (params = {}) => {
 
 // Loans — amortization + payoff timelines.
 export const getLoans = () => request('/loans/');
+// Every loan together: totals, debt-free date, payoff plans.
+// overrides: {loanId: {rate, payment}} for loans with no terms on file.
+// exclude: loan ids to leave out of the avalanche/snowball plans.
+export const getLoansSummary = ({ extra = 0, overrides = {}, exclude = [] } = {}) => {
+  const params = new URLSearchParams({ extra: String(extra || 0) });
+  if (Object.keys(overrides).length) params.set('overrides', JSON.stringify(overrides));
+  if (exclude.length) params.set('exclude', exclude.join(','));
+  return request(`/loans/summary?${params}`);
+};
 export const getLoanAmortization = (accountId, params = {}) => {
   const qs = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null)

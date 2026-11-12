@@ -20,6 +20,7 @@ import { getTradingTax, getHoldings, tradingTaxForm8949Url } from '../api/client
 import { formatCurrency, formatCurrencyZero, formatDate } from '../lib/format'
 import { useLatestRequest } from '../hooks/useLatestRequest'
 import PreflightSellModal from './PreflightSellModal'
+import WashSaleWatch from './WashSaleWatch'
 
 const STORAGE_KEY = 'tuskledger.tradingTaxRates.v1'
 const SCOPE_STORAGE_KEY = 'tuskledger.tradingTaxWashScope.v1'
@@ -319,6 +320,10 @@ export default function TradingTax({ accountFilter }) {
           hideSign
         />
       </div>
+
+      {/* Forward-looking wash-sale watch — only meaningful for the current
+          year (it's about what you can do from today). */}
+      {year === currentYear && data.wash_watch && <WashSaleWatch watch={data.wash_watch} />}
 
       {/* Empty state — no trades in this year yet */}
       {!hasActivity && !hasOpenPositions && (

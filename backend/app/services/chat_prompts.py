@@ -1113,10 +1113,11 @@ def known_horizon_ids(prompt_id: str) -> set[str]:
     return set()
 
 
-def build_bundle(db: Session, prompt_id: str, horizon: str) -> dict:
-    """Dispatch to the right handler. Raises KeyError on unknown id."""
+def build_bundle(db: Session, prompt_id: str, horizon: str, *, today: Optional[date] = None) -> dict:
+    """Dispatch to the right handler. Raises KeyError on unknown id.
+    `today` pins the clock (Ask Tusk passes its own; None = real today)."""
     handler = _HANDLERS[prompt_id]
-    return handler(db, horizon)
+    return handler(db, horizon, today=today) if today is not None else handler(db, horizon)
 
 
 def build_user_prompt(prompt_id: str, horizon: str, bundle: dict) -> str:

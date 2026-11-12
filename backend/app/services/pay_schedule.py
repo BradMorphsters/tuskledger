@@ -678,6 +678,19 @@ class IncomeProjection:
         self.profile = profile
         self._payer_keys = {i["payer_key"] for i in internals if i["payer_key"]}
         by_key = {e["key"]: e for e in profile["earners"]}
+        # Every earner, ended or hidden included, so callers can still
+        # collapse a payer's re-worded fragments into one row.
+        self._by_payer: dict = {}
+        for i in internals:
+            e = by_key.get(i["key"])
+            if e and i["payer_key"] and i["payer_key"] not in self._by_payer:
+                self._by_payer[i["payer_key"]] = {
+                    "key": e["key"], "label": e["display_name"], "per_check": e["per_check"],
+                    "normalized_monthly": e["normalized_monthly"], "rep": i["rep"],
+                    "frequency": e["schedule"]["frequency"],
+                    "next_payday": e["next_paydays"][0] if (i["active"] and e["next_paydays"]) else None,
+                    "active": i["active"],
+                }
         self.earners = []
         self.events = []
         for i in internals:
@@ -707,11 +720,7 @@ class IncomeProjection:
     def earner_for(self, stream) -> Optional[dict]:
         if not self.covers(stream):
             return None
-        pk = _merchant_key(stream.txns[-1])
-        for e in self.earners:
-            if _merchant_key(e["rep"]) == pk:
-                return e
-        return None
+        return self._by_payer.get(_merchant_key(stream.txns[-1]))
 
 
 def income_projection(db: Session, today: date, end: date) -> IncomeProjection:

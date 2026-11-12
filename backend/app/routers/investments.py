@@ -22,6 +22,7 @@ from app.schemas.schemas import (
 from app.services.trading_tax import (
     split_wash_locked_captured,
     aggregate_by_symbol,
+    build_wash_watch,
     build_form_8949_rows,
     compute_quarterly_pacing,
     compute_realized_pnl,
@@ -642,10 +643,15 @@ def trading_tax(
         sum(c["unrealized_loss"] for c in tlh_candidates), 2
     )
 
+    # Forward-looking wash-sale watch: taxpayer-wide on purpose (the
+    # 30-day rule spans every account), so it ignores the account filter.
+    wash_watch = _wash_watch_for(db, pnl, txns, holdings, today)
+
     return {
         "year": year_filter,
         "as_of": today.isoformat(),
         "account_id": account_id,
+        "wash_watch": wash_watch,
         "summary": summary_view,
         "tax": tax,
         "matches": matches_out,
@@ -679,6 +685,40 @@ def trading_tax(
             and (account_id is None or u["account_id"] == account_id)
         ],
     }
+
+
+def _wash_watch_for(db: Session, pnl: dict, txns: list, holdings: list, today: datetime.date) -> dict:
+    """Gather the router-side inputs for trading_tax.build_wash_watch."""
+    holding_rows = []
+    for h in holdings:
+        sec = h.security
+        stamp = h.updated_at or h.created_at
+        holding_rows.append({
+            "account_id": h.account_id,
+            "plaid_security_id": h.plaid_security_id,
+            "symbol": (sec.ticker_symbol or sec.name) if sec else h.plaid_security_id,
+            "quantity": h.quantity or 0.0,
+            "price": h.institution_price,
+            "security_type": sec.type if sec else None,
+            "updated": stamp.date() if stamp else None,
+        })
+    securities = db.query(Security).all()
+    last_prices = {s.plaid_security_id: s.close_price for s in securities if s.close_price}
+    security_types = {s.plaid_security_id: s.type for s in securities}
+    accounts = {
+        a.id: {"name": _account_display_name(a), "tax_bucket": a.tax_bucket}
+        for a in db.query(Account).filter(Account.type == "investment").all()
+    }
+    return build_wash_watch(
+        matches=pnl["matches"],
+        txns=txns,
+        open_positions=pnl["open_positions"],
+        holdings=holding_rows,
+        last_prices=last_prices,
+        accounts=accounts,
+        as_of=today,
+        security_types=security_types,
+    )
 
 
 def _summary_from_matches(matches: list, open_count: int, open_position_txn_ids: Optional[set] = None) -> dict:

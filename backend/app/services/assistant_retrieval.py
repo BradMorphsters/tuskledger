@@ -989,7 +989,7 @@ def _reuse_bundle(db, pid: str):
     try:
         hs = cp.known_horizon_ids(pid)
         hz = sorted(hs)[0] if hs else None
-        return cp.build_bundle(db, pid, hz) if hz else None
+        return cp.build_bundle(db, pid, hz, today=_now()) if hz else None
     except Exception:  # noqa: BLE001
         return None
 

@@ -6,6 +6,30 @@ breaking schema/API changes, minor for new features, patch for bug fixes.
 
 ## [Unreleased]
 
+### Added — Wash-sale watch on the Trading Tax page
+- Forward-looking companion to the wash-sale audit: **Don't buy back**
+  lists every loss sale from the last 30 days with the first date a
+  repurchase (in any account, retirement included) no longer washes;
+  **Can't harvest the loss yet** lists at-loss positions you bought more
+  of in the last 30 days, with the date selling at a loss becomes clean.
+- **Trades not reported yet.** Plaid often delivers a broker's positions
+  days before its trade history. When an account's positions are fresh
+  but its trades lag, positions that shrank or vanished are flagged as
+  estimated sells (valued at the last known price, with an estimated gain
+  or loss) and positions that grew as estimated buys, or as transfers
+  when another account's shares moved in. Their windows are counted from
+  today so the advice is never early. Retirement and manual accounts are
+  skipped (they report contributions, not trades), as are crypto and cash.
+- **Year-end note** in the last 45 days of the year: the last date to sell
+  at a loss and still buy back before New Year, and a flag on any window
+  that runs into January (a January rebuy moves the loss to next year).
+- `wash_watch` on `GET /api/investments/trading-tax`
+  (`services/trading_tax.build_wash_watch`, pure), taxpayer-wide
+  regardless of the account filter.
+- Fixed: Ask Tusk's budget answers read the real clock inside the shared
+  chat bundles (`build_bundle` now takes `today`); the Recurring page
+  collapses an ended employer's re-worded paycheck fragments too.
+
 ### Improved — Paychecks, round 2 (stress-tested against synthetic households)
 - **Every-4-weeks pay** (13 checks a year) is its own schedule instead of
   being mistaken for monthly (12).

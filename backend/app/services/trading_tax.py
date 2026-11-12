@@ -1447,3 +1447,316 @@ def harvest_candidates(
     # Sort by estimated tax savings descending — biggest opportunity
     # at the top.
     return sorted(out, key=lambda c: -c["estimated_tax_savings"])
+
+
+# ─── Wash-sale watch (forward-looking) ───────────────────────────────────
+# The rest of this module reports wash sales AFTER they happen. The watch
+# answers the question a trader has BEFORE acting: "what must I not buy
+# back, until when, and what can't I sell at a loss yet?" It is pure:
+# the router gathers inputs, this function only reasons over them.
+#
+# Three sources feed it:
+#   1. Recorded loss sales in the last 30 days → "don't rebuy X (in ANY
+#      account) until <sell + 31 days>". Rebuying earlier disallows the
+#      loss and moves it into the replacement shares' basis.
+#   2. Recorded buys in the last 30 days of a symbol you hold at a loss →
+#      "selling X at a loss before <buy + 31 days> would wash" (the window
+#      runs backward too).
+#   3. Trades the broker hasn't reported yet. Plaid often delivers a
+#      broker's holdings a day or more before its transactions. When an
+#      account's holdings are fresh but its trade history lags, a position
+#      that shrank or vanished is a probable unreported SELL and one that
+#      grew is a probable unreported BUY (or a transfer in). These are
+#      flagged as estimates, with the conservative assumption that the
+#      trade happened today.
+#
+# "Substantially identical" (e.g. two S&P 500 funds from different
+# issuers) can't be judged from data; only the same security is matched.
+
+def _next_window_end(day: datetime.date) -> datetime.date:
+    """First day a repurchase no longer washes a loss realized on `day`."""
+    return day + datetime.timedelta(days=WASH_WINDOW_DAYS + 1)
+
+
+def build_wash_watch(
+    matches: list,
+    txns: list[dict],
+    open_positions: list,
+    holdings: list[dict],
+    last_prices: dict,
+    accounts: dict,
+    as_of: Optional[datetime.date] = None,
+    security_types: Optional[dict] = None,
+    lag_tolerance_days: int = 1,
+    holdings_fresh_days: int = 3,
+) -> dict:
+    """Forward-looking wash-sale guidance.
+
+    Args:
+      matches: Match records (any year) from compute_realized_pnl.
+      txns: the same transaction dicts compute_realized_pnl consumed
+        (date, type, quantity, price, plaid_security_id, symbol,
+        account_id).
+      open_positions: OpenPosition records (all accounts) — the ledger's
+        view of what is held, derived from recorded trades.
+      holdings: broker-reported positions, one dict per (account,
+        security): account_id, plaid_security_id, symbol, quantity,
+        price, security_type, updated (date the row was last refreshed).
+      last_prices: plaid_security_id → last known price, used to value
+        positions that no longer appear in holdings.
+      accounts: account_id → {"name": str, "tax_bucket": str|None}.
+      as_of: today.
+      security_types: plaid_security_id → Plaid security type, for
+        securities that are no longer in holdings (crypto is often absent
+        from broker holdings entirely and must never read as "sold").
+
+    Returns a dict with do_not_rebuy, cannot_harvest_yet,
+    unreported_trades, data_lag, retirement_accounts, year_end.
+    """
+    if as_of is None:
+        as_of = datetime.date.today()
+    window_start = as_of - datetime.timedelta(days=WASH_WINDOW_DAYS)
+
+    def acct_name(aid):
+        return (accounts.get(aid) or {}).get("name") or (f"Account {aid}" if aid else "Account")
+
+    retirement = sorted(
+        acct_name(aid) for aid, a in accounts.items()
+        if (a.get("tax_bucket") or "") not in ("", "taxable", "excluded")
+    )
+
+    # ── data lag per account: fresh holdings, stale trade history ──
+    latest_txn: dict = {}
+    for t in txns:
+        aid = t.get("account_id")
+        if aid is not None and (aid not in latest_txn or t["date"] > latest_txn[aid]):
+            latest_txn[aid] = t["date"]
+    holdings_updated: dict = {}
+    for h in holdings:
+        u = h.get("updated")
+        if u and (h["account_id"] not in holdings_updated or u > holdings_updated[h["account_id"]]):
+            holdings_updated[h["account_id"]] = u
+    lagging: dict = {}
+    for aid, hu in holdings_updated.items():
+        if (as_of - hu).days > holdings_fresh_days:
+            continue  # broker positions themselves are stale; can't compare
+        # Only brokerage-style accounts whose trades we actually ledger.
+        # Retirement plans report contributions and fund exchanges, not
+        # buy/sell trades, and manual accounts have no trade feed at all —
+        # comparing their positions to a trade ledger is pure noise.
+        if (accounts.get(aid) or {}).get("tax_bucket") not in (None, "taxable", "excluded"):
+            continue
+        lt = latest_txn.get(aid)
+        if lt is None:
+            continue
+        if (hu - lt).days > lag_tolerance_days:
+            lagging[aid] = lt
+
+    # ── 3. unreported trades: ledger vs broker positions ──
+    ledger: dict = {}
+    for p in open_positions:
+        ledger[(p.account_id, p.plaid_security_id)] = p
+    held: dict = {}
+    for h in holdings:
+        held[(h["account_id"], h["plaid_security_id"])] = h
+    sec_meta: dict = {}
+    for h in holdings:
+        sec_meta.setdefault(h["plaid_security_id"], h)
+
+    def _is_tradeable(sec_type: Optional[str], symbol: Optional[str]) -> bool:
+        st = (sec_type or "").lower()
+        if st in ("cash", "cryptocurrency"):
+            return False  # crypto often isn't in broker holdings at all
+        return not (symbol or "").upper().startswith("CUR:")
+
+    unreported = []
+    for aid in lagging:
+        keys = {k for k in ledger if k[0] == aid} | {k for k in held if k[0] == aid}
+        for key in keys:
+            p, h = ledger.get(key), held.get(key)
+            sec_id = key[1]
+            meta = h or sec_meta.get(sec_id) or {}
+            symbol = (h or {}).get("symbol") or (p.symbol if p else None) or sec_id
+            sec_type = meta.get("security_type") or (security_types or {}).get(sec_id)
+            if not _is_tradeable(sec_type, symbol):
+                continue
+            ledger_qty = p.quantity if p else 0.0
+            held_qty = (h or {}).get("quantity") or 0.0
+            diff = held_qty - ledger_qty
+            price = (h or {}).get("price") or last_prices.get(sec_id) or 0.0
+            if abs(diff) * price < 1.0 or abs(diff) <= 1e-6 * max(abs(ledger_qty), 1.0):
+                continue
+            if diff < 0:
+                qty = -diff
+                basis = (p.avg_cost_per_share * qty) if p else 0.0
+                proceeds = qty * price
+                unreported.append({
+                    "kind": "sell",
+                    "symbol": symbol,
+                    "plaid_security_id": sec_id,
+                    "account_id": aid,
+                    "account_name": acct_name(aid),
+                    "quantity": round(qty, 6),
+                    "estimated_proceeds": round(proceeds, 2),
+                    "estimated_gain_loss": round(proceeds - basis, 2) if p else None,
+                    "term": ("LT" if p.is_long_term else "ST") if p else None,
+                    "since": (lagging[aid] + datetime.timedelta(days=1)).isoformat() if lagging[aid] else None,
+                })
+            else:
+                # Grew: a buy, or shares moved in from another account. A
+                # transfer isn't a purchase for wash purposes; recognise the
+                # common case where another account's ledger holds the same
+                # quantity and its broker positions no longer show it.
+                transfer_from = None
+                for (oaid, osec), op in ledger.items():
+                    if osec != sec_id or oaid == aid:
+                        continue
+                    oh = held.get((oaid, osec))
+                    o_held = (oh or {}).get("quantity") or 0.0
+                    o_fresh = oaid in holdings_updated and (as_of - holdings_updated[oaid]).days <= holdings_fresh_days
+                    if (not o_fresh or o_held < op.quantity) and abs(op.quantity - diff) <= 0.01 * max(diff, 1e-9):
+                        transfer_from = oaid
+                        break
+                unreported.append({
+                    "kind": "transfer_in" if transfer_from else "buy",
+                    "symbol": symbol,
+                    "plaid_security_id": sec_id,
+                    "account_id": aid,
+                    "account_name": acct_name(aid),
+                    "quantity": round(diff, 6),
+                    "estimated_value": round(diff * price, 2),
+                    "transfer_from": acct_name(transfer_from) if transfer_from else None,
+                    "since": (lagging[aid] + datetime.timedelta(days=1)).isoformat() if lagging[aid] else None,
+                })
+    unreported.sort(key=lambda u: (u["kind"] != "sell", u["symbol"]))
+
+    # ── 1. loss sales in the window: don't rebuy ──
+    by_sell: dict = {}
+    for m in matches:
+        if not (window_start < m.sell_date <= as_of):
+            continue
+        key = m.sell_txn_id or (m.symbol, m.sell_date, m.account_id)
+        e = by_sell.setdefault(key, {"symbol": m.symbol, "sell_date": m.sell_date,
+                                     "account_id": m.account_id, "loss": 0.0, "disallowed": 0.0})
+        if m.gain_loss < 0:
+            e["loss"] += m.gain_loss
+        e["disallowed"] += m.wash_sale_disallowed or 0.0
+
+    do_not_rebuy = []
+    for e in by_sell.values():
+        if e["loss"] >= -0.005:
+            continue
+        safe = _next_window_end(e["sell_date"])
+        do_not_rebuy.append({
+            "symbol": e["symbol"],
+            "account_id": e["account_id"],
+            "account_name": acct_name(e["account_id"]),
+            "sell_date": e["sell_date"].isoformat(),
+            "loss": round(-e["loss"], 2),
+            "already_washed": round(e["disallowed"], 2),
+            "safe_to_rebuy_on": safe.isoformat(),
+            "days_left": (safe - as_of).days,
+            "crosses_year_end": safe.year > e["sell_date"].year,
+            "estimated": False,
+        })
+    for u in unreported:
+        if u["kind"] != "sell" or u["estimated_gain_loss"] is None or u["estimated_gain_loss"] >= 0:
+            continue
+        # Sold some day after the last reported trade, at the latest today:
+        # count the window from today so the advice is never too early.
+        safe = _next_window_end(as_of)
+        do_not_rebuy.append({
+            "symbol": u["symbol"],
+            "account_id": u["account_id"],
+            "account_name": u["account_name"],
+            "sell_date": None,
+            "sold_since": u["since"],
+            "loss": round(-u["estimated_gain_loss"], 2),
+            "already_washed": 0.0,
+            "safe_to_rebuy_on": safe.isoformat(),
+            "days_left": (safe - as_of).days,
+            "crosses_year_end": safe.year > as_of.year,
+            "estimated": True,
+        })
+    # One row per symbol (the latest window wins), summing the losses.
+    merged: dict = {}
+    for r in sorted(do_not_rebuy, key=lambda r: r["safe_to_rebuy_on"]):
+        cur = merged.get(r["symbol"])
+        if cur is None:
+            merged[r["symbol"]] = {**r, "accounts": [r["account_name"]]}
+        else:
+            cur.update({k: r[k] for k in ("safe_to_rebuy_on", "days_left", "crosses_year_end")})
+            cur["loss"] = round(cur["loss"] + r["loss"], 2)
+            cur["already_washed"] = round(cur["already_washed"] + r["already_washed"], 2)
+            cur["estimated"] = cur["estimated"] or r["estimated"]
+            if r["account_name"] not in cur["accounts"]:
+                cur["accounts"].append(r["account_name"])
+    do_not_rebuy = sorted(merged.values(), key=lambda r: (r["days_left"], r["symbol"]))
+
+    # ── 2. recent buys that block selling an at-loss position ──
+    last_buy: dict = {}
+    for t in txns:
+        if t.get("type") != "buy" or not (window_start < t["date"] <= as_of):
+            continue
+        sec = t.get("plaid_security_id")
+        if sec not in last_buy or t["date"] > last_buy[sec][0]:
+            last_buy[sec] = (t["date"], t.get("account_id"), False)
+    for u in unreported:
+        if u["kind"] == "buy":
+            last_buy[u["plaid_security_id"]] = (as_of, u["account_id"], True)
+
+    taxable_ids = {aid for aid, a in accounts.items() if (a.get("tax_bucket") or "taxable") == "taxable"}
+    cannot_harvest = []
+    for sec, (bdate, baid, est) in last_buy.items():
+        positions = [p for p in open_positions if p.plaid_security_id == sec and p.account_id in taxable_ids]
+        price = (held.get((positions[0].account_id, sec)) or {}).get("price") if positions else None
+        price = price or last_prices.get(sec)
+        if not positions or not price:
+            continue
+        loss = sum(min(p.quantity * price - p.cost_basis, 0.0) for p in positions)
+        if loss >= -0.5:
+            continue
+        until = _next_window_end(bdate)
+        cannot_harvest.append({
+            "symbol": positions[0].symbol,
+            "plaid_security_id": sec,
+            "accounts": sorted({acct_name(p.account_id) for p in positions}),
+            "unrealized_loss": round(-loss, 2),
+            "last_buy_date": None if est else bdate.isoformat(),
+            "bought_in": acct_name(baid),
+            "harvest_ok_on": until.isoformat(),
+            "days_left": (until - as_of).days,
+            "estimated": est,
+        })
+    cannot_harvest.sort(key=lambda r: (r["days_left"], r["symbol"]))
+
+    # ── year-end: windows that run into next year ──
+    year_end = None
+    dec31 = datetime.date(as_of.year, 12, 31)
+    if (dec31 - as_of).days <= 45:
+        year_end = {
+            "year": as_of.year,
+            "last_day_to_realize": dec31.isoformat(),
+            # Sell on or before this date and you can buy back before New
+            # Year without washing; any later loss sale means waiting until
+            # January, and an early-January rebuy moves the loss off this
+            # year's return.
+            "rebuy_inside_year_if_sold_by": (dec31 - datetime.timedelta(days=WASH_WINDOW_DAYS + 1)).isoformat(),
+            "days_left": (dec31 - as_of).days,
+        }
+
+    return {
+        "as_of": as_of.isoformat(),
+        "do_not_rebuy": do_not_rebuy,
+        "cannot_harvest_yet": cannot_harvest,
+        "unreported_trades": unreported,
+        "data_lag": [
+            {"account_id": aid, "account_name": acct_name(aid),
+             "trades_through": lt.isoformat() if lt else None,
+             "positions_as_of": holdings_updated[aid].isoformat()}
+            for aid, lt in sorted(lagging.items(), key=lambda kv: acct_name(kv[0]))
+            if any(u["account_id"] == aid for u in unreported)
+        ],
+        "retirement_accounts": retirement,
+        "year_end": year_end,
+    }

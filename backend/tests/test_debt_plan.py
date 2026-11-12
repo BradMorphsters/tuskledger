@@ -89,6 +89,28 @@ def test_avalanche_beats_snowball_on_interest_and_both_beat_current():
     assert when(snow, "a") < when(ava, "a")
 
 
+def test_layers_and_extra_phases_follow_the_rates():
+    loan = {"id": "s", "name": "Student", "pieces": [
+        {"label": "hi", "balance": 1000.0, "rate": 0.07, "payment": 20.0},
+        {"label": "hi2", "balance": 500.0, "rate": 0.07, "payment": 10.0},
+        {"label": "lo", "balance": 2000.0, "rate": 0.03, "payment": 30.0},
+    ]}
+    car = {"id": "c", "name": "Car", "pieces": [{"label": "", "balance": 3000.0, "rate": 0.05, "payment": 100.0}]}
+    r = simulate([loan, car], "avalanche", extra=200, start_date=START)
+    # One layer per (loan, rate), highest rate first; same-rate pieces merge.
+    assert [(l["name"], l["rate"], l["balance"]) for l in r["layers"]] == [
+        ("Student", 0.07, 1500.0), ("Car", 0.05, 3000.0), ("Student", 0.03, 2000.0)]
+    assert len(r["series"][0]["layers"]) == 3
+    assert r["series"][0]["balance"] == pytest.approx(sum(r["series"][0]["layers"]), abs=0.05)
+    # Extra goes to 7% first, then 5%, then 3%, in consecutive phases.
+    assert [p["rate"] for p in r["extra_phases"]] == [0.07, 0.05, 0.03]
+    assert r["extra_phases"][0]["from_month"] == 1
+    for a, b in zip(r["extra_phases"], r["extra_phases"][1:]):
+        assert b["from_month"] == a["to_month"] + 1
+    # The current schedule has no extra, so no phases.
+    assert simulate([loan, car], "current", start_date=START)["extra_phases"] == []
+
+
 def test_rollover_alone_speeds_payoff():
     # No extra money: freed payments rolling into the next debt still help.
     cur = simulate(DEBTS, "current", start_date=START)

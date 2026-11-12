@@ -131,9 +131,12 @@ def _pieces(debts: list[dict]) -> list[dict]:
     for d in debts:
         for p in d["pieces"]:
             if float(p.get("balance") or 0) > 0.01:
+                rate = float(p.get("rate") or 0)
                 out.append({
                     "debt_id": d["id"], "debt_name": d["name"],
-                    "balance": float(p["balance"]), "rate": float(p.get("rate") or 0),
+                    # Pieces of one loan at the same rate form one chart layer.
+                    "layer": f"{d['id']}|{round(rate, 5)}",
+                    "balance": float(p["balance"]), "rate": rate,
                     "payment": float(p.get("payment") or 0), "paid_off_month": None,
                 })
     return out
@@ -159,8 +162,22 @@ def simulate(
     use_pool = strategy != "current"
     extra = max(0.0, float(extra)) if use_pool else 0.0
 
+    # Layers: one per (loan, rate), highest rate first, for the "where the
+    # extra goes" chart. Each series row carries layer balances in this order.
+    layer_keys: list[str] = []
+    layer_info: dict[str, dict] = {}
+    for p in sorted(pieces, key=lambda p: (-p["rate"], p["debt_name"])):
+        k = p["layer"]
+        if k not in layer_info:
+            layer_keys.append(k)
+            layer_info[k] = {"key": k, "debt_id": p["debt_id"], "name": p["debt_name"],
+                             "rate": p["rate"], "balance": 0.0}
+        layer_info[k]["balance"] += p["balance"]
+    layer_idx = {k: i for i, k in enumerate(layer_keys)}
+
     total_interest = total_paid = 0.0
     series = []
+    focus_by_month: list[Optional[str]] = []
     month = 0
     while any(p["balance"] > 0.01 for p in pieces) and month < max_months:
         month += 1
@@ -180,11 +197,14 @@ def simulate(
             paid_this_month += pay
             if pay < p["payment"] and use_pool:
                 pool += p["payment"] - pay   # a final partial payment frees the rest
+        focus = None
         if use_pool and pool > 0.005:
             key = (lambda p: (-p["rate"], p["balance"])) if strategy == "avalanche" else (lambda p: (p["balance"], -p["rate"]))
             for p in sorted((p for p in pieces if p["balance"] > 0.01), key=key):
                 if pool <= 0.005:
                     break
+                if focus is None:
+                    focus = p["layer"]
                 applied = min(pool, p["balance"])
                 p["balance"] -= applied
                 pool -= applied
@@ -194,12 +214,32 @@ def simulate(
                 p["balance"] = 0.0
                 p["paid_off_month"] = month
         total_paid += paid_this_month
+        focus_by_month.append(focus)
+        lb = [0.0] * len(layer_keys)
+        for p in pieces:
+            lb[layer_idx[p["layer"]]] += p["balance"]
         series.append({
             "month": month,
             "date": _add_months(start_date, month).isoformat(),
             "balance": round(sum(p["balance"] for p in pieces), 2),
             "payment": round(paid_this_month, 2),
+            "layers": [round(x, 2) for x in lb],
         })
+
+    # Phases: consecutive months where the extra money goes to the same layer.
+    phases = []
+    for i, f in enumerate(focus_by_month, start=1):
+        if f is None:
+            continue
+        if phases and phases[-1]["layer"] == f and phases[-1]["to_month"] == i - 1:
+            phases[-1]["to_month"] = i
+        else:
+            phases.append({"layer": f, "from_month": i, "to_month": i})
+    for ph in phases:
+        info = layer_info[ph["layer"]]
+        ph.update(name=info["name"], rate=info["rate"],
+                  from_date=_add_months(start_date, ph["from_month"]).isoformat(),
+                  to_date=_add_months(start_date, ph["to_month"]).isoformat())
 
     payoff = {}
     for p in pieces:
@@ -218,6 +258,8 @@ def simulate(
             {"id": i, "name": names[i], "months": m, "date": _add_months(start_date, m).isoformat()}
             for i, m in order
         ],
+        "layers": [{**layer_info[k], "balance": round(layer_info[k]["balance"], 2)} for k in layer_keys],
+        "extra_phases": phases,
         "series": series,
     }
 

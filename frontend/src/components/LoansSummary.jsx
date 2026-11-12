@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Loader2, AlertCircle, TrendingDown, CalendarCheck } from 'lucide-react'
+import { Loader2, AlertCircle, TrendingDown, CalendarCheck, ArrowRight } from 'lucide-react'
 import { getLoansSummary } from '../api/client'
 
 /**
@@ -106,6 +106,39 @@ export function yearTicks(rows) {
   }).map(r => r.date)
 }
 
+// Rows for the stacked "where the extra goes" chart: {date, L0, L1, ...}
+// where Ln is layer n's balance (layers are ordered highest rate first).
+export function layerChartRows(series, layerCount, maxPoints = 180) {
+  if (!series?.length) return []
+  const stride = Math.max(1, Math.ceil(series.length / maxPoints))
+  const rows = []
+  for (let i = 0; i < series.length; i += stride) {
+    const p = series[i]
+    const row = { date: p.date }
+    for (let j = 0; j < layerCount; j++) row[`L${j}`] = p.layers?.[j] ?? 0
+    rows.push(row)
+  }
+  const last = series[series.length - 1]
+  if (rows[rows.length - 1]?.date !== last.date) {
+    const row = { date: last.date }
+    for (let j = 0; j < layerCount; j++) row[`L${j}`] = last.layers?.[j] ?? 0
+    rows.push(row)
+  }
+  return rows
+}
+
+// Highest rate → warmest color.
+const LAYER_COLORS = [
+  'var(--accent-red, #ef4444)', 'var(--accent-orange, #f97316)', 'var(--accent-yellow, #eab308)',
+  'var(--accent-green, #22c55e)', 'var(--accent-blue, #3b82f6)', 'var(--accent-purple, #a855f7)',
+]
+export const layerColor = (i) => LAYER_COLORS[Math.min(i, LAYER_COLORS.length - 1)]
+
+export function layerLabel(layer, sameNameCount) {
+  const pct = `${Number((layer.rate * 100).toFixed(2))}%`
+  return sameNameCount > 1 ? `${layer.name} · ${pct}` : `${layer.name} (${pct})`
+}
+
 const card = {
   padding: 16,
   background: 'var(--bg-card)',
@@ -132,6 +165,94 @@ function Kpi({ label, value, sub, tone }) {
       <div style={{ ...eyebrow, fontSize: 10 }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+function ExtraFlow({ plans, series, best, exclude }) {
+  const [plan, setPlan] = useState(best)
+  useEffect(() => { setPlan(best) }, [best])
+  const p = plans[plan]
+  const layers = p?.layers || []
+  const counts = layers.reduce((m, l) => ({ ...m, [l.name]: (m[l.name] || 0) + 1 }), {})
+  const rows = layerChartRows(series?.[plan], layers.length)
+  const idx = Object.fromEntries(layers.map((l, i) => [l.key, i]))
+  if (!layers.length || rows.length < 2) return null
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div>
+          <div style={eyebrow}>Where the extra goes</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+            Balance by interest rate, highest first. Watch each layer shrink as the extra reaches it.
+          </div>
+        </div>
+        <div role="group" aria-label="Plan" style={{ display: 'inline-flex', border: '1px solid var(--border-color, rgba(255,255,255,0.12))', borderRadius: 6, overflow: 'hidden' }}>
+          {['avalanche', 'snowball'].map(k => (
+            <button key={k} type="button" onClick={() => setPlan(k)} aria-pressed={plan === k} style={{
+              padding: '4px 10px', fontSize: 12, border: 0, cursor: 'pointer',
+              background: plan === k ? 'var(--accent-blue-bg, rgba(59,130,246,0.15))' : 'transparent',
+              color: plan === k ? 'var(--accent-blue)' : 'var(--text-secondary)',
+            }}>{PLAN_LABEL[k]}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ height: 240, marginTop: 8 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} margin={{ top: 5, right: 16, bottom: 5, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color, rgba(255,255,255,0.08))" />
+            <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={11} ticks={yearTicks(rows)}
+              tickFormatter={d => (d ? d.slice(0, 4) : '')} minTickGap={24} />
+            <YAxis stroke="var(--text-muted)" fontSize={11} tickFormatter={v => `$${Math.round(v / 1000)}k`} />
+            <Tooltip
+              labelFormatter={fmtMonthYear}
+              formatter={(v, k) => [money(v), layerLabel(layers[Number(k.slice(1))], counts[layers[Number(k.slice(1))].name])]}
+              itemSorter={item => Number(item.dataKey.slice(1))}
+              contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color, rgba(255,255,255,0.15))', borderRadius: 6, fontSize: 12 }} />
+            {/* Lowest rate at the bottom of the stack, highest on top. */}
+            {layers.map((l, i) => i).reverse().map(i => (
+              <Area key={i} type="monotone" dataKey={`L${i}`} stackId="1"
+                stroke={layerColor(i)} fill={layerColor(i)} fillOpacity={0.35} strokeWidth={1.25} isAnimationActive={false} />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+        {layers.map((l, i) => (
+          <span key={l.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: layerColor(i), display: 'inline-block' }} />
+            {layerLabel(l, counts[l.name])} · {money(l.balance)}
+          </span>
+        ))}
+      </div>
+      {p.extra_phases?.length > 0 ? (
+        <ol aria-label="Extra payment timeline" style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {p.extra_phases.map((ph, n) => {
+            const i = idx[ph.layer] ?? 0
+            return (
+              <li key={`${ph.layer}-${ph.from_month}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <span style={{ flex: '0 0 auto', width: 6, alignSelf: 'stretch', borderRadius: 3, background: layerColor(i) }} />
+                <span style={{ color: 'var(--text-muted)', minWidth: 150, fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtMonthYear(ph.from_date)}{ph.to_date !== ph.from_date ? ` – ${fmtMonthYear(ph.to_date)}` : ''}
+                </span>
+                <ArrowRight size={12} style={{ color: 'var(--text-muted)' }} />
+                <span>
+                  {n === 0 ? 'Extra goes to ' : 'Then '}
+                  <strong>{layerLabel(layers[i], counts[layers[i].name])}</strong>
+                  <span style={{ color: 'var(--text-muted)' }}> · {fmtDuration(ph.to_month - ph.from_month + 1)}</span>
+                </span>
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+          Add an extra amount above to see where it goes.
+        </div>
+      )}
+      {exclude.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Loans left out of the plan aren't shown.</div>
+      )}
     </div>
   )
 }
@@ -375,6 +496,10 @@ export default function LoansSummary({ overrides = {}, needsOverride = () => fal
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loans left out of the plan aren't in this chart.</div>
           )}
         </div>
+      )}
+
+      {planHasLoans && (
+        <ExtraFlow plans={data.plans} series={data.series} best={best} exclude={exclude} />
       )}
 
       {/* Per-loan breakdown */}

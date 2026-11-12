@@ -60,9 +60,11 @@ from app.models import (
     Security,
     SubscriptionRule,
     Transaction,
+    TransferRule,
     User,
 )
 from app.models.subscription_rule import KIND_FORCE_SUB, KIND_FORCE_NOT_SUB
+from app.services.amortization import compute_pi_payment
 from app.services.auth_service import generate_totp_secret, hash_password
 from app.utils import utcnow
 
@@ -70,6 +72,42 @@ from app.utils import utcnow
 # ─── Seed configuration ──────────────────────────────────────────────
 TODAY = date.today()
 RNG = random.Random(20260425)  # Deterministic-ish across runs
+
+# Mortgage: a 30-year fixed taken out two years ago. The servicer's
+# monthly payment includes escrow (property tax + insurance), as real
+# ones do, so the Loans page can split P&I from escrow. The balance is
+# what this loan's own schedule leaves after two years.
+MORTGAGE_ORIGINAL = 292_500.00
+MORTGAGE_RATE = 0.06125
+MORTGAGE_TERM_MONTHS = 360
+MORTGAGE_ESCROW = 418.40
+MORTGAGE_PI = round(compute_pi_payment(MORTGAGE_ORIGINAL, MORTGAGE_RATE, MORTGAGE_TERM_MONTHS), 2)
+MORTGAGE_PAYMENT = round(MORTGAGE_PI + MORTGAGE_ESCROW, 2)
+
+# HELOC: variable rate, paying a bit more than interest during the draw.
+HELOC_RATE = 0.0825
+HELOC_PAYMENT = 450.00
+
+# Auto loan: stored terms on the manual liability.
+AUTO_RATE = 0.0649
+AUTO_PAYMENT = 489.00
+
+# Federal student loans: several loans at different rates (how servicers
+# actually hold them). Feeds the per-rate payoff view on the Loans page.
+STUDENT_LOAN_PIECES = [
+    {"label": "Unsub 2012", "balance": 3600.00, "rate": 0.0680, "payment": 45.00},
+    {"label": "Unsub 2014", "balance": 5200.00, "rate": 0.0654, "payment": 62.00},
+    {"label": "Unsub 2013", "balance": 4100.00, "rate": 0.0541, "payment": 47.00},
+    {"label": "Sub 2013",   "balance": 3450.00, "rate": 0.0386, "payment": 38.00},
+    {"label": "Sub 2012",   "balance": 2400.00, "rate": 0.0340, "payment": 28.00},
+]
+STUDENT_LOAN_PAYMENT = round(sum(p["payment"] for p in STUDENT_LOAN_PIECES), 2)
+
+# A credit union savings account the household closed ~6 weeks ago; the
+# balance moved to checking. Shows the closed-account status: history
+# kept, balance no longer counted.
+CLOSED_SAVINGS_CLOSED_ON = TODAY - timedelta(days=42)
+CLOSED_SAVINGS_FINAL = 3180.22
 
 
 def jitter(base: float, spread: float = 0.15) -> float:
@@ -252,6 +290,11 @@ def seed_database(db: Session) -> dict:
     # Sprinkle a handful of free-text notes on existing transactions so
     # the new TransactionDrawer notes field has examples to show.
     seed_transaction_notes(db)
+    # Closed account with history, refunds that net against spending, and
+    # a per-payee transfer rule.
+    seed_closed_account_history(db, accounts)
+    seed_refunds(db, accounts)
+    seed_transfer_rules(db)
     seed_net_worth_snapshots(db, accounts, manual_assets)
     db.commit()
 
@@ -389,8 +432,8 @@ def seed_accounts(db, items: dict) -> dict:
         type="loan",
         subtype="mortgage",
         institution_name="Wells Fargo",
-        mask="3584",
-        current_balance=285420.00,
+        mask="8270",
+        current_balance=0.0,  # set below from the loan's own schedule
         available_balance=None,
         balance_as_of=TODAY,
     )
@@ -476,6 +519,23 @@ def seed_accounts(db, items: dict) -> dict:
         balance_as_of=TODAY,
     )
 
+    # Closed account — history stays, balance stops counting.
+    accts["cu_savings"] = Account(
+        plaid_account_id="demo_acct_cu_sav",
+        plaid_item_id=items["wf"].id,
+        name="Share Savings",
+        custom_name="Old Credit Union Savings",
+        type="depository",
+        subtype="savings",
+        institution_name="Lakeshore Community Credit Union",
+        mask="1150",
+        current_balance=0.0,
+        available_balance=0.0,
+        balance_as_of=CLOSED_SAVINGS_CLOSED_ON,
+        status="closed",
+        closed_at=CLOSED_SAVINGS_CLOSED_ON,
+    )
+
     # HSA — exercises the HSA contribution tracker tile + the 4th
     # tax bucket in the retirement simulator + the Tax Prep Pack page.
     # Without this, the HSA tracker on the dashboard shows the empty
@@ -514,6 +574,10 @@ def seed_accounts(db, items: dict) -> dict:
         tax_bucket="roth",
     )
 
+    from app.services.debt_plan import _balance_after
+    accts["wf_mortgage"].current_balance = round(_balance_after(
+        MORTGAGE_ORIGINAL, MORTGAGE_RATE, MORTGAGE_PI, 23), 2)
+
     for a in accts.values():
         db.add(a)
     db.flush()
@@ -526,17 +590,18 @@ def seed_mortgage_detail(db, accounts: dict) -> None:
     mtg = accounts["wf_mortgage"]
     detail = MortgageDetail(
         account_id=mtg.id,
-        account_number="****3584",
-        interest_rate_percentage=6.125,
+        account_number="****8270",
+        interest_rate_percentage=MORTGAGE_RATE * 100,
         interest_rate_type="fixed",
         loan_term="30y",
         loan_type_description="Conventional",
         origination_date=TODAY - timedelta(days=730),
-        origination_principal_amount=315000.00,
+        origination_principal_amount=MORTGAGE_ORIGINAL,
         maturity_date=TODAY + timedelta(days=365 * 28),
-        next_monthly_payment=1399.57,
+        # Servicers report the total payment, escrow included.
+        next_monthly_payment=MORTGAGE_PAYMENT,
         next_payment_due_date=date(TODAY.year, TODAY.month, 1) + timedelta(days=32),
-        last_payment_amount=1399.57,
+        last_payment_amount=MORTGAGE_PAYMENT,
         last_payment_date=date(TODAY.year, TODAY.month, 1),
         ytd_interest_paid=4820.10,
         ytd_principal_paid=2156.80,
@@ -550,6 +615,21 @@ def seed_mortgage_detail(db, accounts: dict) -> None:
         property_country="US",
     )
     db.add(detail)
+
+    # HELOC terms (Plaid reports HELOCs through the same liabilities feed).
+    db.add(MortgageDetail(
+        account_id=accounts["wf_heloc"].id,
+        account_number="****6612",
+        interest_rate_percentage=HELOC_RATE * 100,
+        interest_rate_type="variable",
+        loan_type_description="Home equity line of credit",
+        next_monthly_payment=HELOC_PAYMENT,
+        next_payment_due_date=date(TODAY.year, TODAY.month, 1) + timedelta(days=40),
+        last_payment_amount=HELOC_PAYMENT,
+        last_payment_date=date(TODAY.year, TODAY.month, 1) + timedelta(days=9),
+        has_pmi=False,
+        has_prepayment_penalty=False,
+    ))
 
 
 def seed_credit_card_details(db, accounts: dict) -> None:
@@ -603,7 +683,9 @@ def seed_manual_assets(db, accounts: dict) -> dict:
         type="auto_loan",
         current_value=21500.00,
         value_as_of=TODAY - timedelta(days=4),
-        notes="Hyundai Motor Finance · 32 months remaining · matures 2028-12",
+        notes="Hyundai Motor Finance · 6.49% APR",
+        interest_rate=AUTO_RATE,
+        monthly_payment=AUTO_PAYMENT,
     )
     # Student loan — a third loan on the Loans page so the multi-loan
     # stacked-timeline view (task #118) actually has 3+ tiers worth of
@@ -613,9 +695,10 @@ def seed_manual_assets(db, accounts: dict) -> dict:
         name="Nelnet student loans",
         side="liability",
         type="student_loan",
-        current_value=18750.00,
+        current_value=round(sum(p["balance"] for p in STUDENT_LOAN_PIECES), 2),
         value_as_of=TODAY - timedelta(days=2),
-        notes="Federal Direct Unsubsidized · 5.50% · ~$240/mo · 8 yrs remaining",
+        notes="Federal Direct loans · five loans at different rates",
+        loan_tranches=[dict(p) for p in STUDENT_LOAN_PIECES],
     )
     db.add_all([home, auto_loan, student_loan])
     db.flush()
@@ -913,10 +996,19 @@ def _seed_month(db, y: int, m: int, accounts: dict, businesses: dict) -> int:
             business_id=businesses["consulting"].id)
 
     # ── Loan / mortgage ────────────────────────────────────
-    add(chk, "WF HOME MTG AUTO PAY", 1399.57, 1, "Loan Payments",
+    add(chk, "WF HOME MTG AUTO PAY", MORTGAGE_PAYMENT, 1, "Loan Payments",
         merchant_name="Wells Fargo Mortgage", is_transfer=True)
-    add(chk, "Hyundai Motor Finance", 419.62, 7, "Loan Payments",
+    add(chk, "Hyundai Motor Finance", AUTO_PAYMENT, 7, "Loan Payments",
         is_transfer=True)
+    add(chk, "WF HELOC PAYMENT", HELOC_PAYMENT, 10, "Loan Payments",
+        merchant_name="Wells Fargo HELOC", is_transfer=True)
+    add(chk, "NELNET STUDENT LN", STUDENT_LOAN_PAYMENT, 22, "Loan Payments",
+        merchant_name="Nelnet", is_transfer=True)
+
+    # Money to a relative's account the app can't see: a per-payee
+    # transfer rule (seeded below) marks it as a transfer, not spending.
+    add(chk, "ZELLE TO SAM CARTER", 150.00, 3, "Transfer",
+        merchant_name="Zelle to Sam Carter", is_transfer=True)
 
     # ── Internal transfer checking → savings ──────────────
     add(chk, "Online Transfer to Way2Save", 500.00, 25, "Transfer",
@@ -1000,12 +1092,71 @@ def _seed_month(db, y: int, m: int, accounts: dict, businesses: dict) -> int:
     return n
 
 
+# ─── Closed account, refunds, transfer rules ─────────────────────────
+def seed_closed_account_history(db, accounts: dict) -> int:
+    """Six months of dividends on the old credit-union savings, then the
+    balance moved to checking on the day it closed (a paired transfer)."""
+    cu, chk = accounts["cu_savings"], accounts["wf_checking"]
+    closed = CLOSED_SAVINGS_CLOSED_ON
+    n = 0
+    for k in range(6, 0, -1):
+        d = (closed.replace(day=1) - timedelta(days=30 * k)).replace(day=28)
+        db.add(Transaction(
+            plaid_transaction_id=f"demo_cu_div_{k}", account_id=cu.id,
+            name="Dividend Earned", merchant_name="Lakeshore Community CU",
+            amount=-round(CLOSED_SAVINGS_FINAL * 0.0025 / 12 + RNG.uniform(0.05, 0.2), 2),
+            date=d, category="Income", is_transfer=False,
+        ))
+        n += 1
+    db.add(Transaction(
+        plaid_transaction_id="demo_cu_close_out", account_id=cu.id,
+        name="Transfer to Everyday Checking (account closed)",
+        merchant_name="Internal Transfer", amount=CLOSED_SAVINGS_FINAL,
+        date=closed, category="Transfer", is_transfer=True,
+    ))
+    db.add(Transaction(
+        plaid_transaction_id="demo_cu_close_in", account_id=chk.id,
+        name="Deposit from Lakeshore Community CU", merchant_name="Internal Transfer",
+        amount=-CLOSED_SAVINGS_FINAL, date=closed, category="Transfer", is_transfer=True,
+    ))
+    db.flush()
+    return n + 2
+
+
+def seed_refunds(db, accounts: dict) -> int:
+    """Returns credited back to the cards. Flagged as refunds so they net
+    against spending in their category instead of counting as income."""
+    rows = [
+        ("chase_cc", "Target", "Target", -38.99, 9, "Shopping"),
+        ("apple_card", "Amazon.com Return", "Amazon", -64.50, 17, "Shopping"),
+        ("chase_cc", "REI #108 Return", "REI", -89.95, 33, "Shopping"),
+    ]
+    for i, (acct, name, merchant, amt, days_ago, cat) in enumerate(rows):
+        db.add(Transaction(
+            plaid_transaction_id=f"demo_refund_{i}", account_id=accounts[acct].id,
+            name=name, merchant_name=merchant, amount=amt,
+            date=TODAY - timedelta(days=days_ago), category=cat,
+            is_transfer=False, is_refund=True,
+        ))
+    db.flush()
+    return len(rows)
+
+
+def seed_transfer_rules(db) -> None:
+    """Per-payee transfer rule for money sent to an account the app can't
+    see (the monthly Zelle to a relative)."""
+    db.add(TransferRule(pattern="zelle to sam carter"))
+    db.flush()
+
+
 # ─── Net worth snapshots ─────────────────────────────────────────────
 def seed_net_worth_snapshots(db, accounts: dict, manual_assets: dict) -> None:
     """Weekly snapshots for the past year. Net worth grows roughly linearly
     with some noise — close enough to look real on the chart."""
     home_value = manual_assets["home"].current_value
     auto_loan = manual_assets["auto_loan"].current_value
+    student = manual_assets["student_loan"].current_value
+    heloc = accounts["wf_heloc"].current_balance
 
     end_assets = (
         accounts["wf_checking"].current_balance
@@ -1059,10 +1210,14 @@ def seed_net_worth_snapshots(db, accounts: dict, manual_assets: dict) -> None:
         cc = accounts["chase_cc"].current_balance * RNG.uniform(0.4, 1.4)
         apple_cc = accounts["apple_card"].current_balance * RNG.uniform(0.3, 1.6)
         auto = auto_loan + (1 - progress) * 10500
+        stu = student + (1 - progress) * 2100
+        heloc_bal = heloc + (1 - progress) * 1800
         home_now = home_value * (0.96 + 0.04 * progress)  # mild appreciation
+        # The old credit-union savings counts until the day it closed.
+        old_cu = CLOSED_SAVINGS_FINAL - (1 - progress) * 40 if d < CLOSED_SAVINGS_CLOSED_ON else 0.0
 
-        assets = chk + sav + invest + home_now
-        liabilities = mtg + cc + apple_cc + auto
+        assets = chk + sav + invest + home_now + old_cu
+        liabilities = mtg + cc + apple_cc + auto + stu + heloc_bal
         nw = assets - liabilities
 
         db.add(NetWorthSnapshot(
@@ -1079,6 +1234,9 @@ def seed_net_worth_snapshots(db, accounts: dict, manual_assets: dict) -> None:
                 "chase_cc": round(cc, 2),
                 "apple_card": round(apple_cc, 2),
                 "auto_loan": round(auto, 2),
+                "student_loans": round(stu, 2),
+                "heloc": round(heloc_bal, 2),
+                "old_cu_savings": round(old_cu, 2),
             },
         ))
     db.flush()

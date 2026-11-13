@@ -127,7 +127,19 @@ def refresh_theme(domain: str, *, market_data=None, store=None, months: int = 14
         from app.services import market_data as market_data
     proxies = proxies_for(domain)
     histories: dict[str, dict] = {}
+    # Prefer the price cache the refresh pass just warmed: by the time this runs the free-tier
+    # provider (~8 req/min) is rate-limited, so re-fetching the ETFs returned nothing and the
+    # tailwind silently read n=0 / "unknown". Only fetch live when the cache lacks the proxy.
+    try:
+        from app.services import research_store as _rs
+        _cache = _rs.load_prices(domain) if store is None else {}
+    except Exception:
+        _cache = {}
     for etf in proxies:
+        _c = _cache.get(etf.upper()) or {}
+        if _c.get("history") and _c.get("current"):
+            histories[etf] = _c
+            continue
         try:
             fetched = market_data.fetch_prices(etf, months=months)
         except Exception:

@@ -5,6 +5,7 @@ import { formatCurrencyZero as fmtFull } from '../../lib/format'
 import { fmtMoney, tileCardStyle } from './shared'
 import { useAccounts } from '../../hooks/useAccounts'
 import { openAccounts } from '../../lib/accountStatus'
+import { isDcfsaAccount, isOtherCashAccount } from '../../lib/benefitCash'
 
 /**
  * CashBalances — at-a-glance "is any checking account running low?"
@@ -14,6 +15,12 @@ import { openAccounts } from '../../lib/accountStatus'
  * minimum-to-stay-open ($5–$10) by design and would generate noise; the
  * problem we're trying to surface is "did a bill autopay just empty out
  * a checking account that's about to bounce the next one?"
+ *
+ * Other cash: benefit wallets (subtype "cash management" — where an FSA
+ * administrator parks reimbursements) and dependent-care FSAs are listed
+ * in a second section below checking. They hold real household cash but
+ * never bounce an autopay, so they get no low-balance tinting and stay
+ * out of the "Checking total" headline.
  *
  * Sort: descending by current_balance so the largest balance is on
  * top. Low-balance accounts are still surfaced via the headline
@@ -56,7 +63,13 @@ export function CashBalances() {
     })
     .sort((a, b) => (b.current_balance || 0) - (a.current_balance || 0))
 
-  if (checking.length === 0) return null
+  const otherCash = openAccounts(accounts)
+    .filter(isOtherCashAccount)
+    .sort((a, b) => (b.current_balance || 0) - (a.current_balance || 0))
+
+  if (checking.length === 0 && otherCash.length === 0) return null
+
+  const otherTotal = otherCash.reduce((s, a) => s + (a.current_balance || 0), 0)
 
   const total = checking.reduce((s, a) => s + (a.current_balance || 0), 0)
   const lowCount = checking.filter(a => (a.current_balance || 0) < LOW_BALANCE_RED).length
@@ -189,6 +202,63 @@ export function CashBalances() {
           )
         })}
       </div>
+
+      {otherCash.length > 0 && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 8,
+          paddingTop: 10, marginTop: 10,
+          borderTop: '1px solid var(--border-color, rgba(255,255,255,0.05))',
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+            fontSize: 10, color: 'var(--text-muted)',
+            textTransform: 'uppercase', letterSpacing: 0.4,
+          }}>
+            <span>Other cash</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtFull(otherTotal)}</span>
+          </div>
+          {otherCash.map((acct) => {
+            const balance = acct.current_balance || 0
+            const fsa = isDcfsaAccount(acct)
+            return (
+              <div
+                key={acct.id}
+                style={{
+                  display: 'flex', alignItems: 'center',
+                  justifyContent: 'space-between', gap: 12,
+                  padding: '2px 0',
+                }}
+                title={fsa
+                  ? 'Dependent-care FSA — unclaimed contributions. Only usable through claims.'
+                  : 'Cash held outside your bank — move it to checking to spend it.'}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {acct.custom_name || acct.name}
+                  </div>
+                  <div style={{
+                    fontSize: 11, color: 'var(--text-muted)',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {fsa ? 'FSA · claims only' : 'Not yet in checking'}
+                    {acct.institution_name && ` · ${acct.institution_name}`}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: 14, fontWeight: 700,
+                  color: balance > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+                  fontVariantNumeric: 'tabular-nums', flexShrink: 0, textAlign: 'right',
+                }}>
+                  {fmtFull(balance)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

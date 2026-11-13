@@ -61,7 +61,7 @@ const CustomTooltip = ({ active, payload }) => {
 //   Row 4: Snapshot | Safe
 // v13: 'safe' moved from first to last. Safe-to-spend is a paycheck-to-
 // paycheck number; for a user who isn't budgeting cycle-to-cycle it's low
-// value at the top of the page (Eduardo, 2026-09-05). Still available —
+// value at the top of the page (2026-09-05). Still available —
 // and still movable — just not the lead. The key bump resets saved orders.
 const TILE_ORDER_KEY = 'tuskledger-health-tile-order.v13'
 // 'accounts' lands third in the default order, right after Pulse,
@@ -115,7 +115,7 @@ function HealthTilesRow() {
   }
 
   return (
-    <div style={{
+    <div className="health-tiles" style={{
       display: 'grid',
       // Column sizing math, no media queries:
       //   minmax(max(320px, calc((100% - 32px) / 3)), 1fr)
@@ -180,6 +180,10 @@ function HealthTilesRow() {
       <style>{`
         .tile-reorder { opacity: 0; }
         div:hover > .tile-reorder { opacity: 1; }
+        /* A tile component can render null after loading (no data, or a
+           failed fetch). Its wrapper then holds only the reorder arrows —
+           collapse it so the grid doesn't keep an empty cell. */
+        .health-tiles > div:not(:has(> :not(.tile-reorder))) { display: none; }
       `}</style>
     </div>
   )

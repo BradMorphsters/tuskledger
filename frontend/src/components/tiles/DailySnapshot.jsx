@@ -80,12 +80,27 @@ export function DailySnapshot() {
     const today = new Date()
     const cutoff = new Date(today)
     cutoff.setDate(cutoff.getDate() - 90)
-    getTransactions({
+    // The /transactions endpoint caps `limit` at 500 (a bigger value is a
+    // 422, which used to blank this tile and leave a hole in the Dashboard
+    // grid). Page through the 90-day window instead.
+    const PAGE = 500
+    const base = {
       start_date: cutoff.toISOString().slice(0, 10),
       end_date: today.toISOString().slice(0, 10),
-      limit: 5000,
-    })
-      .then(txns => { setData(processTxns(txns || [])); setLoading(false) })
+      limit: PAGE,
+    }
+    const fetchAll = async () => {
+      const all = []
+      for (let offset = 0; offset < 20 * PAGE; offset += PAGE) {
+        const page = await getTransactions({ ...base, offset })
+        if (!page || !page.length) break
+        all.push(...page)
+        if (page.length < PAGE) break
+      }
+      return all
+    }
+    fetchAll()
+      .then(txns => { setData(processTxns(txns)); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
 

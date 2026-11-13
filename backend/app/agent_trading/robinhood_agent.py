@@ -222,7 +222,7 @@ def _oauth_provider(store: EncryptedJsonStore, *, redirect_handler, callback_han
         "response_types": ["code"],
     })
     return OAuthClientProvider(
-        server_url=TRADING_MCP_URL.replace("/mcp/trading", ""),
+        server_url=TRADING_MCP_URL,  # RFC 9728: must equal the server's advertised resource (.../mcp/trading)
         client_metadata=metadata,
         storage=_sdk_token_storage(store),
         redirect_handler=redirect_handler,

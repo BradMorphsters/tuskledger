@@ -7,7 +7,8 @@
  *
  *   • Approve an add  → creates the research entity, fetches its price, assigns a *provisional*,
  *     evidence-based conviction, then runs the Analyst scorer and shows the name's standing.
- *   • Approve a drop  → removes the entity from the universe.
+ *   • Approve a drop  → archives the entity (restorable below). A name you HOLD is never
+ *     bulk-removed and needs its own confirmation: dropping it makes the agent propose selling it.
  *   • Reject          → durably dismisses the candidate so it doesn't reappear next week (Undo-able).
  *
  * Nothing here moves money or places a trade — it only edits the research candidate list.
@@ -18,6 +19,8 @@ import {
   getAgentTradingUniverseReview,
   decideAgentTradingUniverseCandidate,
   decideAgentTradingUniverseBulk,
+  getAgentTradingUniverseArchived,
+  restoreAgentTradingUniverseArchived,
 } from '../api/client'
 import Pill from './Pill'
 
@@ -39,13 +42,28 @@ export default function AgentUniverseReview() {
   const [err, setErr] = useState(null)
   const [results, setResults] = useState({})  // ticker -> approve outcome (standing banner)
   const [bulkResult, setBulkResult] = useState(null)  // last bulk outcome summary
+  const [archived, setArchived] = useState([])        // soft-deleted names (restorable)
 
   const load = useCallback(() => {
     setLoading(true)
     getAgentTradingUniverseReview()
       .then(setData).catch((e) => setErr(e.message || 'Failed to load the universe review'))
       .finally(() => setLoading(false))
+    getAgentTradingUniverseArchived()
+      .then((r) => setArchived(r?.archived || [])).catch(() => setArchived([]))
   }, [])
+
+  const restore = async (tickers, key) => {
+    if (!tickers.length) return
+    setBusy(key); setErr(null)
+    try {
+      await restoreAgentTradingUniverseArchived(tickers)
+    } catch (e) {
+      setErr(e.message || 'Restore failed')
+    } finally {
+      setBusy(null); load()
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -84,6 +102,9 @@ export default function AgentUniverseReview() {
     ...((data?.add_edgar || []).map((c) => ({ ...c, kind: 'add_edgar' }))),
   ]
   const drops = data?.drop || []
+  const bulkDrops = drops.filter((c) => !c.held)       // held names are never bulk-removed
+  const heldDrops = drops.length - bulkDrops.length
+  const overdue = data?.review_overdue || []
   const screened = data?.below_floor_screened || 0
   const ignored = data?.ignored || []
   const kept = data?.kept || []
@@ -175,21 +196,33 @@ export default function AgentUniverseReview() {
           action={
             <button
               onClick={() => decideBulk('approve', 'drops',
-                drops.map((c) => ({ ticker: c.ticker })),
-                `Remove all ${drops.length} flagged name${drops.length === 1 ? '' : 's'} from the universe?`)}
-              disabled={busy === 'bulk-drops'} title="Remove every drop candidate" style={{ ...bulkBtn, color: RED, borderColor: RED }}>
-              <Trash2 size={14} /> {busy === 'bulk-drops' ? 'Removing…' : `Remove all (${drops.length})`}
+                bulkDrops.map((c) => ({ ticker: c.ticker })),
+                `Remove ${bulkDrops.length} flagged name${bulkDrops.length === 1 ? '' : 's'} from the universe? `
+                + 'They move to "Removed" below and can be restored.'
+                + (heldDrops ? ` ${heldDrops} name${heldDrops === 1 ? '' : 's'} you hold ${heldDrops === 1 ? 'is' : 'are'} skipped.` : ''))}
+              disabled={busy === 'bulk-drops' || bulkDrops.length === 0}
+              title="Remove every drop candidate you don't hold"
+              style={{ ...bulkBtn, color: RED, borderColor: RED, opacity: bulkDrops.length === 0 ? 0.5 : 1 }}>
+              <Trash2 size={14} /> {busy === 'bulk-drops' ? 'Removing…' : `Remove all not held (${bulkDrops.length})`}
             </button>
           }>
           {drops.map((c) => (
             <div key={`drop:${c.ticker}`} style={row}>
               <span style={{ ...kindBadge, color: RED, borderColor: RED }}>DROP</span>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 650 }}>{c.ticker}</div>
+                <div style={{ fontSize: 14, fontWeight: 650, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {c.ticker}
+                  {c.held && <Pill tone="warning" soft>you hold this</Pill>}
+                </div>
                 <div style={rowSub}>{(c.reasons || []).join(' · ')}</div>
               </div>
               <button
-                onClick={() => decide({ action: 'approve', kind: 'drop', ticker: c.ticker })}
+                onClick={() => {
+                  if (c.held && !window.confirm(
+                    `You hold ${c.ticker}. Removing it from research makes the trading agent propose `
+                    + 'selling it on its next cycle. Remove anyway?')) return
+                  decide({ action: 'approve', kind: 'drop', ticker: c.ticker, confirm_held: !!c.held })
+                }}
                 disabled={busy === c.ticker} title="Approve — remove this name from the universe" style={{ ...actBtn, color: RED, borderColor: RED }}>
                 <Check size={15} /> Remove
               </button>
@@ -206,8 +239,35 @@ export default function AgentUniverseReview() {
       {!loading && data && adds.length === 0 && drops.length === 0 && (
         <p style={muted}>
           No candidates to review. The weekly screen found nothing new in the theme ETFs / SEC codes,
-          and no held name is weak or stale.
+          and no name is both weak and out of every theme ETF.
         </p>
+      )}
+
+      {overdue.length > 0 && (
+        <p style={{ ...muted, marginTop: 10 }}>
+          {overdue.length} name{overdue.length === 1 ? ' is' : 's are'} past {overdue.length === 1 ? 'its' : 'their'} research
+          review date. That alone doesn't flag a drop — refresh the research instead.
+        </p>
+      )}
+
+      {/* Removed (archived) — restorable */}
+      {archived.length > 0 && (
+        <Group title={`Removed (${archived.length})`} icon={<RotateCcw size={14} style={{ color: 'var(--text-secondary)' }} />} muted
+          action={
+            <button onClick={() => restore(archived.map((a) => a.ticker), 'restore-all')}
+              disabled={busy === 'restore-all'} title="Put every removed name back in the universe"
+              style={{ ...bulkBtn, color: BLUE, borderColor: BLUE }}>
+              <RotateCcw size={13} /> {busy === 'restore-all' ? 'Restoring…' : `Restore all (${archived.length})`}
+            </button>
+          }>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {archived.map((a) => (
+              <Dismissed key={`ar:${a.ticker}`} ticker={a.ticker} label="removed" busy={busy === `restore-${a.ticker}`}
+                undoTitle="Restore — put it back in the universe exactly as it was"
+                onUndo={() => restore([a.ticker], `restore-${a.ticker}`)} />
+            ))}
+          </div>
+        </Group>
       )}
 
       {/* Dismissed (rejected) — with undo */}
@@ -255,7 +315,9 @@ function BulkBanner({ r }) {
     text = `Approved ${r.count} add${r.count === 1 ? '' : 's'} — provisional scores assigned, prices fill on the next refresh`
       + (blocked ? ` · ${blocked} below the buy floor (need a thesis)` : '')
   } else if (r.applied === 'drop') {
-    text = `Removed ${r.count} name${r.count === 1 ? '' : 's'} from the universe`
+    const held = (r.skipped_held || []).length
+    text = `Removed ${r.count} name${r.count === 1 ? '' : 's'} from the universe (restorable below)`
+      + (held ? ` · skipped ${held} you hold: ${r.skipped_held.join(', ')}` : '')
   } else if (r.applied === 'ignore' || r.applied === 'keep') {
     text = `Dismissed ${r.count} candidate${r.count === 1 ? '' : 's'}`
   } else {
@@ -271,13 +333,13 @@ function BulkBanner({ r }) {
   )
 }
 
-function Dismissed({ ticker, label, onUndo, busy }) {
+function Dismissed({ ticker, label, onUndo, busy, undoTitle = 'Undo — put it back in the review queue' }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px',
                    border: '1px solid var(--border)', borderRadius: 8, fontSize: 12.5 }}>
       <span style={{ fontWeight: 600 }}>{ticker}</span>
       <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <button onClick={onUndo} disabled={busy} title="Undo — put it back in the review queue"
+      <button onClick={onUndo} disabled={busy} title={undoTitle}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 3, border: 'none', background: 'transparent',
                  color: BLUE, cursor: 'pointer', fontSize: 12, padding: 0 }}>
         <RotateCcw size={12} /> Undo

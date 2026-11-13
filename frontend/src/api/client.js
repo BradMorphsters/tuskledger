@@ -661,7 +661,10 @@ export const runAgentTradingDemo = () => request('/agent-trading/demo-run', { me
 export const getAgentTradingControl = () => request('/agent-trading/control');
 export const pauseAgentTrading = () => request('/agent-trading/pause', { method: 'POST' });
 export const resumeAgentTrading = () => request('/agent-trading/resume', { method: 'POST' });
-export const rearmAgentTrading = () => request('/agent-trading/rearm', { method: 'POST' });
+// resetPeak re-baselines the drawdown high-water mark to the sleeve's current value; without it
+// a sleeve still below the breaker line re-halts on the next cycle.
+export const rearmAgentTrading = (resetPeak = false) =>
+  request(`/agent-trading/rearm${resetPeak ? '?reset_peak=true' : ''}`, { method: 'POST' });
 export const setAgentTradingStrategy = (profile) =>
   request(`/agent-trading/strategy?profile=${encodeURIComponent(profile)}`, { method: 'POST' });
 export const getAgentTradingBacktest = (profile) =>
@@ -696,6 +699,11 @@ export const decideAgentTradingUniverseCandidate = (decision) =>
 // scores provisionally and lets prices fill on the next refresh (single-approve prices live).
 export const decideAgentTradingUniverseBulk = (decision) =>
   request('/agent-trading/universe-review/decide-bulk', { method: 'POST', body: JSON.stringify(decision) });
+// Dropped names are soft-deleted into an archive; these list and restore them.
+export const getAgentTradingUniverseArchived = () =>
+  request('/agent-trading/universe-review/archived');
+export const restoreAgentTradingUniverseArchived = (tickers) =>
+  request('/agent-trading/universe-review/restore-archived', { method: 'POST', body: JSON.stringify({ tickers }) });
 
 // Robinhood agentic-MCP connection (Tusk Ledger as the bound agent). connect runs the OAuth
 // consent in the user's browser; ping is a read-only self-check. None of these arm live trading.

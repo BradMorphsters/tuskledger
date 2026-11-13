@@ -35,9 +35,11 @@ def build_digest(plan: CyclePlan, *, strategy: Optional[str] = None,
     if scoreboard:
         lines.append(scoreboard)
 
-    if plan.halted:
+    if plan.halted and not getattr(plan, "sells_only", False):
         lines.append(f"HALTED — {plan.halt_reason}; nothing considered.")
         return "\n".join(lines)
+    if plan.halted:
+        lines.append(f"HALTED — {plan.halt_reason}; no new buys, exits only.")
 
     if plan.drift:
         lines.append("drift vs log: " + ", ".join(f"{d['ticker']} {d['delta']:+g}" for d in plan.drift))

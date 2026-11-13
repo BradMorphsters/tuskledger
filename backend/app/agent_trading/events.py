@@ -66,9 +66,11 @@ def plan_to_events(plan: CyclePlan, *, cycle_id: str, cash: Optional[float] = No
         add("read", "Reconcile vs decision log", "ok", detail="no drift")
 
     if plan.halted:
-        add("halted", "Loop halted", "halted", detail=plan.halt_reason)
-        add("cycle_completed", "Cycle complete — nothing placed", "halted")
-        return evs
+        add("halted", "Loop halted", "halted",
+            detail=plan.halt_reason + (" — exits only" if getattr(plan, "sells_only", False) else ""))
+        if not getattr(plan, "sells_only", False) or not (plan.approved or plan.blocked):
+            add("cycle_completed", "Cycle complete — nothing placed", "halted")
+            return evs
 
     for p in plan.approved:
         a = p.order_args

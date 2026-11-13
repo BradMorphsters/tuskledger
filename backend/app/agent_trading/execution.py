@@ -125,8 +125,9 @@ def place_approved_proposal(
     # Kill-switch parity: a manual pause or a drawdown halt blocks placement outright.
     if state_store is not None:
         st = state_store.load()
-        if st.halted or st.paused:
-            why = "halted (drawdown breaker — re-arm to resume)" if st.halted else "paused"
+        side = (getattr(proposal, "side", "") or "").lower()
+        if st.paused or (st.halted and side != "sell"):
+            why = "halted (drawdown breaker — no new buys until re-armed)" if not st.paused else "paused"
             msg = f"{proposal.ticker}: not placed — loop is {why}."
             if alert_log:
                 alert_log.emit(alerts.paused_skip(msg))
@@ -343,6 +344,9 @@ def run_live_cycle(
         if plan.halted:
             if "drawdown" in (plan.halt_reason or ""):
                 alert_log.emit(alerts.drawdown_halt(plan.drawdown, grc.max_drawdown_pct))
+            elif plan.sells_only:
+                alert_log.emit(alerts.paused_skip(
+                    f"{plan.halt_reason} — no new buys; {len(plan.approved)} exit(s) queued for approval"))
             else:
                 alert_log.emit(alerts.paused_skip(f"cycle produced nothing — {plan.halt_reason}"))
         for o in plan.blocked:

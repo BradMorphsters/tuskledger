@@ -484,6 +484,7 @@ def remove_entity(
             raise ResearchNotFound(f"No entity {entity_id!r} in domain {domain!r}")
         removed = entities.pop(idx)
         save_domain(domain, data, updated_by=updated_by)
+        _archive_entities(domain, [removed], updated_by=updated_by)  # soft delete — restorable
     return {
         "removed": True,
         "id": removed.get("id"),
@@ -504,6 +505,7 @@ def upsert_entities(
     if not entities:
         return {"written": [], "count": 0, "total": len(load_domain(domain).get("entities", []) or [])}
     with STORE_LOCK:
+        backup_domain(domain, reason="bulk-upsert")  # a bulk change is one click from a big diff
         data = load_domain(domain)
         meta_domain = (data.get("meta") or {}).get("domain", domain)
         rows = data.setdefault("entities", [])
@@ -552,15 +554,117 @@ def remove_entities(
             return {"removed": [], "count": 0, "remaining": len(rows)}
         kept: list[dict[str, Any]] = []
         removed: list[str] = []
+        removed_rows: list[dict[str, Any]] = []
         for e in rows:
             if (e.get("id") or "").upper() in want or (e.get("ticker") or "").upper() in want:
                 removed.append(e.get("id"))
+                removed_rows.append(e)
             else:
                 kept.append(e)
         if removed:
+            backup_domain(domain, reason="bulk-remove")
             data["entities"] = kept
             save_domain(domain, data, updated_by=updated_by)
+            _archive_entities(domain, removed_rows, updated_by=updated_by)
     return {"removed": removed, "count": len(removed), "remaining": len(kept)}
+
+
+# ── Soft delete (archive) + pre-change backups ─────────────────────────────
+# A dropped name used to be gone for good: the only copy left was whatever git last saw. Every
+# removal now lands in an archive sidecar (restorable from the Research tab / API), and every
+# BULK change first snapshots the whole research file into research/backups/.
+BACKUP_KEEP = 30
+
+
+def archive_path(domain: str) -> Path:
+    return research_dir() / f"{_slug(domain)}.archive.json"
+
+
+def load_archive(domain: str) -> dict[str, Any]:
+    """``{TICKER: {"removed_at", "removed_by", "entity"}}`` — most recent removal wins.
+    Missing/corrupt → empty."""
+    p = archive_path(domain)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        return dict(data.get("entities") or {}) if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _archive_entities(domain: str, removed: list[dict[str, Any]], *, updated_by: str) -> None:
+    if not removed:
+        return
+    arch = load_archive(domain)
+    stamp = _now_iso()
+    for e in removed:
+        key = (e.get("ticker") or e.get("id") or "").upper()
+        if key:
+            arch[key] = {"removed_at": stamp, "removed_by": updated_by, "entity": e}
+    _atomic_write(archive_path(domain), {"entities": arch})
+
+
+def restore_entities(domain: str, tickers: list[str], updated_by: str = "tuskledger") -> dict[str, Any]:
+    """Put archived entities back into the domain (one validated write). Names already present
+    are left alone (the live copy wins) and simply cleared from the archive. Unknown tickers are
+    reported, not raised."""
+    want = [(t or "").strip().upper() for t in (tickers or []) if (t or "").strip()]
+    with STORE_LOCK:
+        arch = load_archive(domain)
+        data = load_domain(domain)
+        rows = data.setdefault("entities", [])
+        have = {(e.get("ticker") or e.get("id") or "").upper() for e in rows}
+        restored, already, missing = [], [], []
+        for tk in want:
+            item = arch.get(tk)
+            if not item:
+                missing.append(tk)
+                continue
+            if tk in have:
+                already.append(tk)
+            else:
+                rows.append(item["entity"])
+                have.add(tk)
+                restored.append(tk)
+        if restored:
+            save_domain(domain, data, updated_by=updated_by)
+        for tk in restored + already:
+            arch.pop(tk, None)
+        if restored or already:
+            _atomic_write(archive_path(domain), {"entities": arch})
+    return {"restored": restored, "already_present": already, "not_archived": missing,
+            "total": len(rows)}
+
+
+def backups_dir() -> Path:
+    return research_dir() / "backups"
+
+
+def backup_domain(domain: str, *, reason: str = "") -> Optional[Path]:
+    """Copy the current research file to research/backups/<slug>.research.<UTC stamp>[.<reason>].json
+    and keep the newest :data:`BACKUP_KEEP`. Best-effort: a backup failure never blocks the edit
+    (but the bulk paths call this BEFORE writing, so a working disk always gets one)."""
+    src = domain_path(domain)
+    if not src.exists():
+        return None
+    try:
+        d = backups_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        tag = f".{reason}" if reason else ""
+        dst = d / f"{_slug(domain)}.research.{stamp}{tag}.json"
+        dst.write_bytes(src.read_bytes())
+        olds = sorted(d.glob(f"{_slug(domain)}.research.*.json"))
+        for old in olds[:-BACKUP_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        return dst
+    except OSError:
+        return None
 
 
 # ── Universe-review decisions (reject persistence) ─────────────────────────

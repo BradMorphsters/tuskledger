@@ -62,6 +62,9 @@ class CyclePlan:
     as_of: str
     halted: bool = False
     halt_reason: str = ""
+    # Halted by the drawdown breaker (now or persisted): buys are held back, but sells/exits still
+    # go through the gate so the loop can cut risk. A manual PAUSE stops everything (sells_only False).
+    sells_only: bool = False
     drawdown: float = 0.0          # account drawdown this cycle (fraction); what the breaker saw
     approved: list[PlannedOrder] = field(default_factory=list)
     blocked: list[OrderOutcome] = field(default_factory=list)
@@ -74,8 +77,11 @@ class CyclePlan:
         return [p.order_args for p in self.approved]
 
     def summary(self) -> str:
-        if self.halted:
+        if self.halted and not self.sells_only:
             return f"[{self.as_of}] HALTED — {self.halt_reason}; approving nothing"
+        if self.halted:
+            return (f"[{self.as_of}] HALTED — {self.halt_reason}; exits only: approved "
+                    f"{len(self.approved)} sell(s), blocked {len(self.blocked)}, held back {len(self.skipped)}")
         drift = f" · ⚠ {len(self.drift)} drift" if self.drift else ""
         return (f"[{self.as_of}] approved {len(self.approved)}, blocked {len(self.blocked)}, "
                 f"skipped {len(self.skipped)}{drift}")
@@ -150,10 +156,10 @@ def plan_cycle(
     as_of = as_of or datetime.now(timezone.utc).date().isoformat()
     plan = CyclePlan(as_of=as_of, state=persisted)
 
-    # Persisted halt/pause survives restarts — approve nothing until a human re-arms.
-    if persisted.halted or persisted.paused:
+    # A manual pause stops everything until resumed.
+    if persisted.paused:
         plan.halted = True
-        plan.halt_reason = "paused" if persisted.paused else "halted (awaiting re-arm)"
+        plan.halt_reason = "paused"
         return plan
 
     rec = reconcile(snapshot, persisted,
@@ -168,16 +174,22 @@ def plan_cycle(
     if working.equity_peak > 0:
         drawdown = (working.equity_peak - working.total_value()) / working.equity_peak
     plan.drawdown = round(drawdown, 4)
-    if drawdown > config.max_drawdown_pct:
-        plan.halted = True
+    if persisted.halted:
+        # Persisted halt survives restarts — no new buys until a human re-arms; exits still run.
+        plan.halted, plan.sells_only = True, True
+        plan.halt_reason = "halted (awaiting re-arm)"
+    elif drawdown > config.max_drawdown_pct:
+        plan.halted, plan.sells_only = True, True
         plan.halt_reason = "drawdown limit hit"
         plan.state = replace(rec.state, halted=True)  # persist the trip
-        return plan
 
     running = working
     for d in decisions:
         if d.action.lower().strip() == "hold":
             plan.skipped.append(d)
+            continue
+        if plan.sells_only and d.action.lower().strip() == "buy":
+            plan.skipped.append(d)   # held back by the halt (logged as "halted")
             continue
         order = ProposedOrder(
             ticker=d.ticker,
@@ -226,10 +238,12 @@ def cycle_log_rows(plan: CyclePlan, fills: Optional[list] = None) -> list[dict]:
 
     rows: list[dict] = []
     if plan.halted:
-        # nothing approved; record the proposals we declined to act on
+        # record the proposals we declined to act on (all of them when paused; buys when
+        # sells-only) — then fall through for any exits the gate approved/blocked.
         for d in plan.skipped:
             rows.append(base(d, "halted"))
-        return rows
+        if not plan.sells_only:
+            return rows
 
     for i, p in enumerate(plan.approved):
         fill = fills[i] if i < len(fills) else None
@@ -237,8 +251,9 @@ def cycle_log_rows(plan: CyclePlan, fills: Optional[list] = None) -> list[dict]:
                          guardrail=p.guardrail, fill=fill))
     for o in plan.blocked:
         rows.append(base(o.decision, "blocked", guardrail=o.guardrail))
-    for d in plan.skipped:
-        rows.append(base(d, "skipped"))
+    if not plan.halted:
+        for d in plan.skipped:
+            rows.append(base(d, "skipped"))
     return rows
 
 
@@ -346,7 +361,7 @@ def render_plan(plan: CyclePlan) -> str:
     if plan.drift:
         lines.append("  drift vs log: " + ", ".join(
             f"{d['ticker']} {d['delta']:+g}" for d in plan.drift))
-    if plan.halted:
+    if plan.halted and not plan.sells_only:
         return "\n".join(lines)
     for p in plan.approved:
         a = p.order_args

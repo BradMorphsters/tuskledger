@@ -162,10 +162,15 @@ class StateStore:
             self.save(s)
             return s
 
-    def rearm(self) -> AgentState:
-        """Human re-arm: clear halt/pause so the loop can run again."""
+    def rearm(self, *, reset_peak: bool = False) -> AgentState:
+        """Human re-arm: clear halt/pause so the loop can run again. ``reset_peak`` also clears
+        the drawdown high-water mark; the next :func:`reconcile` re-seeds it from the live value
+        (otherwise a sleeve still below the breaker line re-trips on the next cycle)."""
         with _STATE_LOCK:
-            s = replace(self.load(), halted=False, paused=False)
+            changes = {"halted": False, "paused": False}
+            if reset_peak:
+                changes["equity_peak"] = 0.0
+            s = replace(self.load(), **changes)
             self.save(s)
             return s
 

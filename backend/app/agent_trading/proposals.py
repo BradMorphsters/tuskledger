@@ -96,8 +96,8 @@ def proposals_from_plan(plan, *, cycle_id: str, now: Optional[str] = None,
                         ttl_minutes: int = DEFAULT_TTL_MIN) -> list[Proposal]:
     """Turn a CyclePlan's gate-APPROVED orders into pending Proposals. A halted plan yields
     nothing. Pure — no IO; ``plan`` only needs ``.approved`` (list of PlannedOrder) + ``.as_of``."""
-    if getattr(plan, "halted", False):
-        return []
+    if getattr(plan, "halted", False) and not getattr(plan, "sells_only", False):
+        return []   # paused: nothing. Halted-sells-only: plan.approved holds only exits.
     now = now or _now()
     try:
         exp = (datetime.fromisoformat(now) + timedelta(minutes=ttl_minutes)).isoformat()

@@ -57,6 +57,7 @@ def _control_payload(store: StateStore) -> dict:
         "halted": s.halted,
         "paused": s.paused,
         "equity_peak": s.equity_peak,
+        "max_drawdown_pct": settings.AGENT_TRADING_MAX_DRAWDOWN,
         "last_reconciled": s.last_reconciled,
         "strategy": s.strategy or settings.AGENT_TRADING_STRATEGY,  # active Analyst profile
         "strategies": list(PROFILES),                              # the selectable profiles
@@ -559,10 +560,11 @@ def agent_trading_generate_proposals(
         frac = min(0.10, per_pos / total_val)
         sizing = SizingConfig(method="fixed_fractional", fraction=frac,
                               max_fraction=min(0.20, max(frac * 1.5, 0.05)))
-        grc = GuardrailConfig(max_deployed_notional=cap)
+        grc = GuardrailConfig(max_deployed_notional=cap,
+                              max_drawdown_pct=settings.AGENT_TRADING_MAX_DRAWDOWN)
     else:
         sizing = SizingConfig(method="fixed_fractional", fraction=0.10)
-        grc = GuardrailConfig()
+        grc = GuardrailConfig(max_drawdown_pct=settings.AGENT_TRADING_MAX_DRAWDOWN)
     # Order type is env-driven (AGENT_TRADING_ORDER_TYPE): "market" = fractional/instant, "limit" =
     # a marketable limit a few bps through last (whole-share, slippage-capped) for the thin juniors.
     from app.agent_trading.order_policy import OrderPolicy
@@ -870,11 +872,30 @@ def agent_trading_reject_proposal(pid: str):
     return {"ok": True, "proposal": _proposal_dict(p)}
 
 
+def _held_tickers(db: Session) -> set[str]:
+    """Tickers with a non-zero position in ANY linked account (main portfolio + the agentic
+    sleeve, as Plaid reports them). Dropping one of these from the research universe turns it
+    into a forced exit in the rotation strategy, so drops of held names need explicit consent."""
+    from app.models import Holding, Security
+    out: set[str] = set()
+    try:
+        rows = (db.query(Holding, Security)
+                .join(Security, Holding.plaid_security_id == Security.plaid_security_id).all())
+    except Exception:  # noqa: BLE001 — no holdings table / empty DB → nothing is held
+        return out
+    for h, sec in rows:
+        t = (sec.ticker_symbol or "").upper()
+        if t and (h.quantity or 0.0) > 0:
+            out.add(t)
+    return out
+
+
 @router.get("/universe-review")
-def agent_trading_universe_review():
+def agent_trading_universe_review(db: Session = Depends(get_db)):
     """Keep the candidate LIST fresh: discover names that should be ADDED (new players in the
-    theme's sector ETFs, fresh SEC filers in its mining codes) and flag weak/stale names to
-    DROP. A review queue — it never mutates your research universe. Read-only."""
+    theme's sector ETFs, fresh SEC filers in its mining codes) and flag weak names out of every
+    sector ETF to DROP. A review queue — it never mutates your research universe. Read-only.
+    Each drop row carries ``held: true`` when you own the name anywhere."""
     from app.agent_trading.universe_screen import run_universe_review
     from app.services import research_store as rs
 
@@ -882,8 +903,43 @@ def agent_trading_universe_review():
     if not dom:
         return {"configured": False, "domain": None, "add": [], "add_edgar": [], "drop": []}
     out = run_universe_review(dom)
+    held = _held_tickers(db)
+    for d in out.get("drop") or []:
+        d["held"] = (d.get("ticker") or "").upper() in held
     out["configured"] = True
     return out
+
+
+@router.get("/universe-review/archived")
+def agent_trading_universe_archived():
+    """Names removed from the research universe (soft-deleted), newest first — restorable."""
+    from app.services import research_store as rs
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        return {"domain": None, "archived": []}
+    arch = rs.load_archive(dom)
+    rows = [{"ticker": tk, "name": (v.get("entity") or {}).get("name"),
+             "removed_at": v.get("removed_at"), "removed_by": v.get("removed_by")}
+            for tk, v in arch.items()]
+    rows.sort(key=lambda r: r.get("removed_at") or "", reverse=True)
+    return {"domain": dom, "archived": rows}
+
+
+class UniverseRestoreIn(BaseModel):
+    tickers: list[str]
+
+
+@router.post("/universe-review/restore-archived")
+def agent_trading_universe_restore(body: UniverseRestoreIn):
+    """Undo a drop: put archived names back into the research universe exactly as they were."""
+    from app.services import research_store as rs
+    dom = rs.get_active_domain() or (rs.list_domains() or [None])[0]
+    if not dom:
+        raise HTTPException(status_code=409, detail="No active research domain.")
+    try:
+        return {"ok": True, **rs.restore_entities(dom, body.tickers, updated_by="universe-restore")}
+    except rs.ResearchValidationError as e:
+        raise HTTPException(status_code=422, detail={"msg": "restore failed validation", "errors": e.errors})
 
 
 class UniverseDecideIn(BaseModel):
@@ -896,6 +952,7 @@ class UniverseDecideIn(BaseModel):
     sources: list[str] = []           # the candidate's source tags (for ETF-count breadth)
     security_type: str = "equity"     # equity | fund | etf | trust | other (user-editable later)
     reason: str = ""                  # optional note stored with a rejection
+    confirm_held: bool = False        # required to drop a name you currently hold
 
 
 def _universe_standing(domain: str, ticker: str) -> Optional[dict]:
@@ -925,7 +982,7 @@ def _universe_standing(domain: str, ticker: str) -> Optional[dict]:
 
 
 @router.post("/universe-review/decide")
-def agent_trading_universe_decide(body: UniverseDecideIn):
+def agent_trading_universe_decide(body: UniverseDecideIn, db: Session = Depends(get_db)):
     """Act on one universe-review candidate. The review queue is read-only; THIS is the explicit,
     per-candidate apply step:
 
@@ -967,6 +1024,13 @@ def agent_trading_universe_decide(body: UniverseDecideIn):
 
         # ---- approve ----
         if kind == "drop":
+            # Dropping a held name makes it a forced exit in the rotation strategy — require an
+            # explicit second confirmation. The removal itself is a soft delete (restorable).
+            if tk in _held_tickers(db) and not body.confirm_held:
+                raise HTTPException(status_code=409, detail={
+                    "code": "held_requires_confirmation", "ticker": tk,
+                    "msg": f"You hold {tk}. Dropping it from research will make the agent propose "
+                           f"selling it. Confirm to drop anyway."})
             res = rs.remove_entity(dom, tk, updated_by="universe-review")
             return {"ok": True, "applied": "drop", "ticker": tk, **res}
 
@@ -1076,7 +1140,7 @@ class UniverseBulkIn(BaseModel):
 
 
 @router.post("/universe-review/decide-bulk")
-def agent_trading_universe_decide_bulk(body: UniverseBulkIn):
+def agent_trading_universe_decide_bulk(body: UniverseBulkIn, db: Session = Depends(get_db)):
     """Bulk Approve/Reject for the universe-review queue — the "approve all adds" / "remove all
     drops" buttons. One batched store write for the whole group (not one file rewrite per name).
 
@@ -1113,8 +1177,13 @@ def agent_trading_universe_decide_bulk(body: UniverseBulkIn):
 
         # ---- approve drops in bulk: batch-remove ----
         if group == "drops":
-            res = rs.remove_entities(dom, tickers, updated_by="universe-review")
-            return {"ok": True, "applied": "drop", **res}
+            # Bulk never drops a held name — those go one at a time with explicit confirmation.
+            held = _held_tickers(db)
+            skipped_held = [t for t in tickers if t in held]
+            to_drop = [t for t in tickers if t not in held]
+            res = rs.remove_entities(dom, to_drop, updated_by="universe-review") if to_drop \
+                else {"removed": [], "count": 0}
+            return {"ok": True, "applied": "drop", "skipped_held": skipped_held, **res}
 
         # ---- approve adds in bulk: batch create + provisional score, prices on next refresh ----
         import datetime as _dt
@@ -1311,11 +1380,17 @@ def agent_trading_set_strategy(profile: str = Query(..., description="Analyst pr
 
 
 @router.post("/rearm")
-def agent_trading_rearm():
+def agent_trading_rearm(reset_peak: bool = Query(False, description="also re-baseline the drawdown "
+                                                  "high-water mark to the sleeve's current value")):
     """Human re-arm after a drawdown halt (or pause): clears both flags so the loop may run
-    again. The deliberate acknowledgement that you've reviewed why it tripped."""
+    again. The deliberate acknowledgement that you've reviewed why it tripped.
+
+    Without ``reset_peak`` the old high-water mark stays, so if the sleeve is still below the
+    breaker line the very next cycle trips it again. ``reset_peak=true`` is the explicit "start
+    the drawdown clock from here" choice: the peak is cleared and the next account read sets it
+    to the current value."""
     store = _store()
-    store.rearm()
+    store.rearm(reset_peak=reset_peak)
     return _control_payload(store)
 
 

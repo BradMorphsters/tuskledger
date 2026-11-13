@@ -68,7 +68,7 @@ export default function AgentControl() {
             <Pill tone={meta.tone}>{meta.label}</Pill>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-            {status === 'halted' && 'Drawdown breaker tripped — review, then re-arm to resume.'}
+            {status === 'halted' && 'Drawdown breaker tripped — no new buys; exits can still be proposed. Review, then re-arm.'}
             {status === 'paused' && 'Manually paused — the loop will place nothing until resumed.'}
             {status === 'active' && 'The loop may run (subject to the read-only / armed mode).'}
           </div>
@@ -118,13 +118,27 @@ export default function AgentControl() {
           </button>
         )}
         {status === 'halted' && (
-          <button
-            onClick={() => act(rearmAgentTrading,
-              'Re-arm clears the drawdown halt and lets the loop run again. Only do this after reviewing why it tripped. Continue?')}
-            disabled={busy} style={btn('danger', busy)}
-          >
-            <RotateCcw size={14} /> Re-arm
-          </button>
+          <>
+            <button
+              onClick={() => act(() => rearmAgentTrading(false),
+                'Re-arm clears the halt but keeps the old high-water mark'
+                + (ctrl?.equity_peak ? ` ($${Number(ctrl.equity_peak).toFixed(2)})` : '')
+                + '. If the sleeve is still below the drawdown line, the next cycle halts again. Continue?')}
+              disabled={busy} style={btn('danger', busy)}
+              title="Clear the halt; keep the existing high-water mark"
+            >
+              <RotateCcw size={14} /> Re-arm
+            </button>
+            <button
+              onClick={() => act(() => rearmAgentTrading(true),
+                'Re-arm AND reset the drawdown peak: the breaker starts measuring from the sleeve\'s '
+                + 'current value. Only do this after reviewing why it tripped. Continue?')}
+              disabled={busy} style={btn('danger', busy)}
+              title="Clear the halt and start the drawdown clock from today's value"
+            >
+              <RotateCcw size={14} /> Re-arm &amp; reset peak
+            </button>
+          </>
         )}
       </div>
 

@@ -193,15 +193,16 @@ def check_order(
     )
     record("has_price", order.ref_price > 0, f"ref_price must be > 0, got {order.ref_price}")
 
-    # 1. Drawdown halt (account-level) -------------------------------------------
+    # 1. Drawdown halt (account-level) — gates BUYS only. A sell reduces risk; blocking it
+    #    in a drawdown would veto the very stop-loss / thesis exits a drawdown calls for.
     if state.equity_peak > 0:
         drawdown = (state.equity_peak - total) / state.equity_peak
     else:
         drawdown = 0.0
     record(
         "drawdown_halt",
-        drawdown <= config.max_drawdown_pct,
-        f"account drawdown {drawdown:.1%} exceeds limit {config.max_drawdown_pct:.0%} — loop should halt",
+        side != "buy" or drawdown <= config.max_drawdown_pct,
+        f"account drawdown {drawdown:.1%} exceeds limit {config.max_drawdown_pct:.0%} — no new buys",
     )
 
     # 2. Ticker permissions ------------------------------------------------------

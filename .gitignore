@@ -135,3 +135,6 @@ tmp/
 temp/
 *.bak
 *.err
+
+# Research-file safety snapshots taken before bulk edits (local only)
+research/backups/

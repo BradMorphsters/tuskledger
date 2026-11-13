@@ -200,25 +200,32 @@ def screen_universe(
         if len(add_tier2) >= max_edgar:
             break
 
-    # ── Drop: held/listed names out of every ETF AND weak or stale ───────
+    # ── Drop: names out of every ETF AND weak ────────────────────────────
+    # An overdue review is NOT a reason to drop on its own: research upkeep falling behind would
+    # otherwise flag most of the universe at once (one bulk click could empty it), and
+    # a dropped held name becomes a forced exit in the rotation strategy. Overdue names are
+    # reported separately as "review_overdue" so the gap is visible without being destructive.
     drops: list[dict] = []
+    overdue: list[str] = []
     for s in scored or []:
         tk = (s.get("ticker") or "").upper()
-        if not tk or tk in in_any_etf:
+        if not tk:
+            continue
+        stale = bool(s.get("stale"))
+        if stale:
+            overdue.append(tk)
+        if tk in in_any_etf:
             continue  # still in a sector fund → leave it
         weak = (s.get("research_score") or 0.0) < research_floor
-        stale = bool(s.get("stale"))
         # Grace period: a name just auto-added from this review (a provisional/auto score) is
         # below the floor by construction. Don't immediately re-flag it for drop — that's the
         # "approve → instantly a drop candidate" churn. Leave it until its review actually comes
-        # due (then `stale` fires and it surfaces normally).
+        # due (then it surfaces normally if still weak).
         if s.get("provisional") and not stale:
             continue
-        if not (weak or stale):
+        if not weak:
             continue
-        reasons = []
-        if weak:
-            reasons.append(f"conviction {(s.get('research_score') or 0.0):.2f} < floor {research_floor:.2f}")
+        reasons = [f"conviction {(s.get('research_score') or 0.0):.2f} < floor {research_floor:.2f}"]
         if stale:
             reasons.append("past its research review date")
         reasons.append("no longer in any theme ETF")
@@ -228,6 +235,7 @@ def screen_universe(
         "add": add_tier1,
         "add_edgar": add_tier2,
         "drop": drops,
+        "review_overdue": sorted(overdue),
         "in_etf_count": len(in_any_etf),
         "universe_count": len(have),
     }

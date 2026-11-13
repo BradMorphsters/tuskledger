@@ -200,6 +200,10 @@ class Settings(BaseSettings):
     # (e.g. 300) to go live with a restriction, then raise it to scale up. Enforced by the gate
     # at generation, so an over-cap order never reaches the approval queue.
     AGENT_TRADING_MAX_DEPLOYED: float = 0.0
+    # Drawdown breaker: halt NEW BUYS once the sleeve falls this far (fraction) below its
+    # high-water mark. Sells/exits still run so the loop can cut risk. 0.15 = 15%. Junior miners
+    # swing hard — widen it (e.g. 0.25) if the breaker trips on ordinary volatility.
+    AGENT_TRADING_MAX_DRAWDOWN: float = 0.15
     # Order type for live placement. "market" = fractional shares, instant fill, but exposed to
     # slippage on thin names. "limit" = a marketable limit a few bps through the last price —
     # whole-share only (Robinhood limit orders aren't fractional), with a hard cap on the fill

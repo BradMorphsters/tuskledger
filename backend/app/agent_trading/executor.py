@@ -124,10 +124,11 @@ class AgentTradingExecutor:
         persisted = None
         if self.state_store is not None:
             persisted = self.state_store.load()
-            # A persisted halt/pause survives restarts — refuse to trade until re-armed.
-            if persisted.halted or persisted.paused:
+            # A manual pause stops everything; a persisted drawdown halt survives restarts and
+            # blocks NEW BUYS until re-armed (exits still run — see below).
+            if persisted.paused:
                 report.halted = True
-                report.halt_reason = "paused" if persisted.paused else "halted (awaiting re-arm)"
+                report.halt_reason = "paused"
                 self._halt_all(report, decisions)
                 self._write(report)
                 return report
@@ -147,17 +148,22 @@ class AgentTradingExecutor:
         else:
             working = self.broker.snapshot()
 
-        # Account-level drawdown halt: evaluate once, up front. If tripped, place nothing.
-        if self._drawdown_tripped(working):
-            report.halted = True
+        # Account-level drawdown halt: evaluate once, up front. If tripped (now, or persisted from
+        # an earlier cycle), hold back every BUY but still run exits so the loop can cut risk.
+        sells_only = bool(persisted is not None and persisted.halted)
+        if not sells_only and self._drawdown_tripped(working):
+            sells_only = True
             report.halt_reason = "drawdown limit hit"
-            self._halt_all(report, decisions)
             if self.state_store is not None:
                 self.state_store.mark_halted()  # stays halted across restarts until re-armed
-            self._write(report)
-            return report
+        if sells_only:
+            report.halted = True
+            report.halt_reason = report.halt_reason or "halted (awaiting re-arm)"
 
         for d in decisions:
+            if sells_only and d.action.lower() == "buy":
+                report.outcomes.append(OrderOutcome(decision=d, status="halted"))
+                continue
             report.outcomes.append(self._handle_decision(d))
 
         # Persist any new high-water mark reached by this cycle's fills.

@@ -88,6 +88,7 @@ EXPECTED_JOB_IDS = (
     "research_warm_prices",
     "research_warm_flows",
     "budget_carry_forward",
+    "research_daily_snapshots",
 )
 
 
@@ -140,6 +141,29 @@ def register_background_jobs(scheduler, settings):
     scheduler.add_job(_warm_prices, "interval", hours=max(3, settings.SYNC_INTERVAL_HOURS),
                       id="research_warm_prices", next_run_time=_dt.now() + _td(seconds=25))
     scheduler.add_job(_warm_flows, "cron", hour=5, minute=20, id="research_warm_flows")
+    # Daily heartbeats: research thesis-drift snapshot + sector-rotation snapshot.
+    # These used to come only from the cloud "Daily research briefing" task, which
+    # can't reach this machine, so the history charts went flat. Backend-owned now;
+    # runs after the 05:20 flows warm so the rotation read uses fresh signals.
+    def _daily_snapshots():
+        try:
+            dom = _active_domain()
+            if not dom:
+                return
+            from app.services import research_store as _rs
+            try:
+                _rs.record_snapshots(dom)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                from app.services import rotation as _rot
+                _rot.snapshot(dom)
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    scheduler.add_job(_daily_snapshots, "cron", hour=5, minute=40, id="research_daily_snapshots")
     # New month → new budget, without waiting for the next page load.
     scheduler.add_job(_carry_forward_budget_job, "cron", hour=0, minute=10,
                       id="budget_carry_forward")

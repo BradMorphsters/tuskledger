@@ -63,3 +63,13 @@ def test_startup_hook_is_safe_when_db_is_empty(db, monkeypatch):
     main = _main()
     monkeypatch.setattr(main, "SessionLocal", lambda: db)
     main._carry_forward_budget_job()          # empty DB → nothing to clone → no error
+
+
+def test_daily_snapshots_run_after_the_flows_warm():
+    """Research + rotation snapshots are backend-owned (the cloud briefing
+    can't reach this machine) and must run after the 05:20 flows warm."""
+    main = _main()
+    sched = _FakeScheduler()
+    main.register_background_jobs(sched, types.SimpleNamespace(SYNC_INTERVAL_HOURS=6))
+    _, trigger, kw = sched.jobs["research_daily_snapshots"]
+    assert trigger == "cron" and (kw["hour"], kw["minute"]) > (5, 20)

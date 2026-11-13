@@ -4,8 +4,8 @@
     "domain": "critical-minerals",
     "title": "Critical Minerals — Long-Term Hold Research",
     "description": "Scored research universe for long-term holders across supply-constrained critical minerals.",
-    "last_updated": "2026-09-08T21:10:20Z",
-    "updated_by": "price-refresh",
+    "last_updated": "2026-11-13T18:51:14Z",
+    "updated_by": "restore",
     "as_of": "2026-06",
     "base_currency": "USD",
     "disclaimer": "Research/educational only; not investment advice. Scores are subjective judgments, not price targets. Figures approximate as of June 2026; verify before acting.",
@@ -265,11 +265,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$54.53",
+        "price": "$38.67",
         "market_cap": "~$10B",
         "revenue": "$276M FY25",
         "cash": "~$1.83B",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -291,11 +291,27 @@
           "description": "10X magnet/refining expansion milestones",
           "status": "upcoming",
           "impact": "med"
+        },
+        {
+          "due": "2026-Q3",
+          "description": "Separated gadolinium long-term offtake signed with a new American aerospace & defense customer — announced Aug 6, 2026 with Q2 results: \"Signed significant long-term offtake agreement with new American aerospace and defense customer for separated gadolinium, expanding HREE business at attractive economics.\" The same release launched Project Swarm, which aggregates demand and standardizes specs for the drone industry, with subscription agreements already executed with multiple leading U.S. and allied customers. Significance: broadens MP beyond the NdPr/magnet thesis into a second separated-REE product line with a defense counterparty, and builds an aggregated demand channel for drones. CAVEAT: counterparty, volumes, contract term and pricing are all undisclosed, so the revenue contribution cannot be sized from the disclosure.",
+          "status": "hit",
+          "impact": "med"
+        },
+        {
+          "due": "2026-Q4",
+          "description": "Q3-2026 results (Nov 5, 2026): revenue $147.7M (+176% y/y; Materials $133.5M, Magnetics $18.6M, incl. a $31.6M SEG+ sale to a US aerospace/defense customer); NdPr production 1,018 t (+41% y/y), NdPr sales 1,020 t (+94%); price-protection (PPA) income $8.1M in Q3 ($68.0M nine months); net loss $(20.7)M vs $(41.8)M; adj. EBITDA $41.1M vs $(12.6)M. GM magnet qualification completed - saleable magnet deliveries began, revenue starting Q4 2026 (tracks the DFARS-ramp catalyst). Independence start-up costs $14.2M in Q3. No guidance given; 10X expansion not updated.",
+          "status": "in_progress",
+          "impact": "high"
         }
       ],
       "risks": [
         {
           "desc": "Added to China's export-control list late June 2026 — indirect input exposure (suppliers reselling Chinese products); stock -13.4% in June",
+          "severity": "med"
+        },
+        {
+          "desc": "China Rare Earth Group (state-owned) is in talks to take a controlling stake in Shenghe Resources, which holds ~3% of MP — Reuters exclusive, Sept 18 2026. Talks have run since earlier in 2026; sources gave no timing for announcement or completion. If completed it would transfer Shenghe's foreign holdings, including the MP stake, to Beijing's control, at a company whose largest shareholder is the US Department of War/Defense — raising CFIUS, divestment and counterparty questions. CAVEAT: anonymously sourced reporting on an undecided transaction; MP has repeatedly said neither Shenghe nor the Chinese government controls its operations.",
           "severity": "med"
         }
       ],
@@ -329,14 +345,33 @@
           "as_of": "2026-08-06",
           "confidence": "high",
           "note": "Q2-26: rev +89% y/y to $108.5M; adj EBITDA +$28.5M; NdPr prod 840t (+41%), sales 1,006t; GM qualification magnets delivered; commercial magnet shipments expected Q4-2026"
+        },
+        {
+          "title": "MP Materials Reports Second Quarter 2026 Results — separated-gadolinium long-term offtake with a new American aerospace and defense customer; Project Swarm launched for the drone industry",
+          "url": "https://investors.mpmaterials.com/investor-news/news-details/2026/MP-Materials-Reports-Second-Quarter-2026-Results/default.aspx",
+          "as_of": "2026-08-06",
+          "confidence": "high"
+        },
+        {
+          "title": "Exclusive: China Rare Earth Group in talks to buy MP Materials shareholder Shenghe Resources, sources say (Reuters, via Investing.com)",
+          "url": "https://www.investing.com/news/stock-market-news/exclusivechina-rare-earth-group-in-talks-to-buy-mp-materials-shareholder-shenghe-resources-sources-say-4906784",
+          "as_of": "2026-09-18",
+          "confidence": "medium",
+          "note": "Reuters exclusive Sept 18 2026, corroborated by MINING.COM ('China Rare Earth eyes indirect stake in MP Materials') and Seeking Alpha. China Rare Earth Group seeks control of Shenghe, one of the last partly-private Chinese rare-earth miner/refiners; deal would hand Beijing Shenghe's ~3% MP stake. No announced timing; not confirmed by either company."
+        },
+        {
+          "title": "MP Materials Reports Third Quarter 2026 Results (company release, Nov 5, 2026): revenue $147.7M, NdPr 1,018 t, PPA income $8.1M, adj. EBITDA $41.1M, GM magnet qualification complete.",
+          "url": "https://investors.mpmaterials.com/investor-news/news-details/2026/MP-Materials-Reports-Third-Quarter-2026-Results/default.aspx",
+          "as_of": "2026-11-05",
+          "confidence": "high"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "scheduled-daily",
-      "updated_at": "2026-08-09",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 61,
         "base": 79,
@@ -377,11 +412,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$14.47",
+        "price": "$6.56",
         "market_cap": "~$4.3B",
         "revenue": "$36M Q1'26",
         "cash": "~$910M",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -420,6 +455,12 @@
           "due": "2026-Q3",
           "description": "Close US$299M all-scrip acquisition of Australian Strategic Materials (announced Jan 20, 2026) — COMPLETED Aug 28, 2026. ASM securityholders approved at the Aug 12 Perth scheme meetings; Federal Court of Australia approved both the Share Scheme and Option Scheme; schemes effective Aug 19-20; ASX suspension at the close of Aug 19 and removal from official quotation Aug 31. Consideration: 0.053 new Energy Fuels CDIs + A$0.13 cash per ASM share; A$0.50 cash per ASM option. Adds ASM's operating Korean Metals Plant (Ochang, South Korea) — commercial-scale RE metal and alloy capacity — and the Dubbo project (NSW). Energy Fuels becomes dual-listed (NYSE American / ASX CDIs). Extends the platform from mine/oxide into metals and alloys, one step short of magnets.",
           "status": "hit",
+          "impact": "med"
+        },
+        {
+          "due": "2026-Q4",
+          "description": "Q3-2026 results (Nov 5, 2026): revenue $29.2M (vs $17.7M); uranium sales 320,000 lbs at avg $88.90/lb (270,000 lbs LT at $88.79; 50,000 spot at $89.50); KMP sold $0.4M NdFeB alloys; net loss $52.2M ($0.20/sh) driven by a $35.3M non-cash mark-to-market loss on marketable securities; operating loss $25.3M; uranium segment profitable 3rd straight quarter. Mined 385,000 lbs U3O8 in Q3. Working capital $932.3M (cash $76.4M + marketable securities $779.5M). VAC close still early 2027; Donald FID by end-2026 (up to A$180M conditional EFA/NRF financing); heavy-REE circuits approved (Dy/Tb capacity early 2028). No REE production volumes reported.",
+          "status": "in_progress",
           "impact": "med"
         }
       ],
@@ -506,14 +547,20 @@
           "url": "https://www.prnewswire.com/news-releases/energy-fuels-completes-acquisition-of-australian-strategic-materials-302863022.html",
           "as_of": "2026-08-28",
           "confidence": "high"
+        },
+        {
+          "title": "Energy Fuels Announces Q3-2026 Results (Nov 5, 2026) via Investing News newswire reprint: revenue $29.2M, uranium 320k lbs at $88.90, net loss $52.2M (non-cash securities loss), working capital $932.3M, VAC close early 2027, Donald FID by end-2026. Company release not read directly.",
+          "url": "https://investingnews.com/energy-fuels-announces-q3-2026-results/",
+          "as_of": "2026-11-05",
+          "confidence": "medium"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "scheduled-daily",
-      "updated_at": "2026-08-29",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 15,
         "base": 22,
@@ -1003,11 +1050,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$12.08",
+        "price": "$6.64",
         "market_cap": "~$5.5B",
         "revenue": "$67M FY25",
         "cash": "$488M, no debt",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1029,6 +1076,12 @@
           "description": "Inventory monetization / new offtakes",
           "status": "upcoming",
           "impact": "med"
+        },
+        {
+          "due": "2027-2032",
+          "description": "Nov 5, 2026: UEC US Uranium LLC signed two long-term sales contracts with two unnamed prominent US nuclear utilities - 1.1M lbs U3O8 in total, ~100,000 lbs/yr each, deliveries 2027/2028 through 2032, priced at prevailing spot with no floors/ceilings (UEC stays unhedged). Small in volume (~$10M/yr at ~$90/lb) but delivers on the inventory-monetization/new-offtake catalyst while keeping full spot leverage.",
+          "status": "hit",
+          "impact": "med"
         }
       ],
       "risks": [],
@@ -1042,14 +1095,20 @@
           "url": null,
           "as_of": "2026-06",
           "confidence": "high"
+        },
+        {
+          "title": "UEC 8-K / press release Nov 5, 2026: unhedged long-term sales contracts with two US utilities (1.1M lbs U3O8, 2027-2032, spot-priced).",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001334933/000143774926035062/ex_1038588.htm",
+          "as_of": "2026-11-05",
+          "confidence": "high"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "research-sweep",
-      "updated_at": "2026-06-14",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 12,
         "base": 18,
@@ -1232,11 +1291,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$173.89",
+        "price": "$102.14",
         "market_cap": "~$5B (verify)",
         "revenue": "$450-500M guide",
         "cash": "strong",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "company filings / press releases (June 2026)",
         "price_source": "stooq"
       },
@@ -1255,12 +1314,23 @@
         },
         {
           "due": "2026",
-          "description": "Additional DOE / utility enrichment contracts — latest: Aug 6, 2026 X-energy supply contract (LEU + HALEU for Xe-100/TRISO-X, deliveries from 2030, customer prepayments fund ACP capacity build-out without dilution); Q2-2026 (Aug 6): $900M DOE task order (non-dilutive funding de-risking centrifuge build-out), backlog $4.5B through 2040",
+          "description": "Additional DOE / utility enrichment contracts — latest: Aug 6, 2026 X-energy supply contract (LEU + HALEU for Xe-100/TRISO-X, deliveries from 2030, customer prepayments fund ACP capacity build-out without dilution); Q2-2026 (Aug 6): $900M DOE task order (non-dilutive funding de-risking centrifuge build-out), backlog $4.5B through 2040 | NEW Sept 9, 2026: definitive multi-year HALEU supply contract with Radiant for its Kaleidos microreactors - deliveries begin before the end of the decade; includes Radiant PREPAYMENTS to Centrus supporting the domestic commercial enrichment capacity program (same non-dilutive customer-funded pattern as X-energy). Builds on the Jan 2023 Centrus-Radiant partnership covering fuel for as many as 20 Kaleidos units. No contract value or volume disclosed. | DILUTION QUALIFIER (added 2026-09-15): the 'without dilution' note above describes the customer-prepayment mechanism only - it is NOT a statement about the capital structure. See the separate Sept 2026 $500M equity + warrant offering catalyst. | Q3-2026 UPDATE (Nov 4, 2026): total backlog $7.0B (from $4.5B in Q2), contingent LEU/HALEU enrichment backlog $5.4B ($5.1B under definitive agreements); FY26 revenue guidance $450M-$500M reaffirmed; first Oak Ridge-built centrifuge complete/shipping; 16-machine cascade enriching HALEU for commercial customers; prepaid offtake agreements with X-energy, Radiant and Antares. Q3: revenue $55.5M (-25.9% y/y), gross loss $10.6M, GAAP EPS +$1.41 driven by $46.4M non-cash warrant gain (ex-warrant loss $10.2M). Next: Dec 7 Investor Day (2027 capex detail).",
+          "status": "hit",
+          "impact": "high"
+        },
+        {
+          "due": "2026-Q3",
+          "description": "$500M equity + warrant offering - PRICED Sept 9, 2026, closing on or about Sept 11, 2026. Underwritten public offering of Class A common stock and warrants at a combined price of $199.64: 500,000 common shares, 2,005,513 pre-funded warrants at $199.54 ($0.10 exercise), and common warrants over up to 6,992,382 shares issued in FOUR series with exercise prices of $226.8625 / $272.2350 / $317.6075 / $362.9800, each series carrying an aggregate exercise price of ~$500M and expiring on the 2nd/3rd/4th/5th anniversary of Sept 10, 2026 (second tranche nine weeks after each anniversary). If every warrant series were exercised the share count would rise materially - one trade-press estimate puts the potential increase at ~47.6%. Stated use of proceeds: general working capital and corporate purposes, which may include technology development and deployment, debt repayment or repurchase, capex, and potential acquisitions. MATERIAL because it is the first large equity raise recorded for LEU in this file and it cuts against the prior 'customer prepayments fund the build-out' framing; shares sold off on the pricing (multiple ~8% down days reported Sept 10-11).",
           "status": "hit",
           "impact": "high"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "DOE proposed FY2027 budget includes no further HALEU cascade funding, putting ~$0.8B of Technical Solutions backlog in question (Q3-2026 report, Nov 2026); capex ramping (9-mo $226.4M vs $10.1M) and ~$500M equity+warrant overhang; stock hit 52-wk low ~$84.86 post-report",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "Federal appropriations for HALEU lapse",
         "Russian enrichment returns to the US market",
@@ -1320,21 +1390,51 @@
           "url": "https://www.tipranks.com/news/the-fly/centrus-energy-price-target-raised-to-300-from-275-at-northland-thefly",
           "as_of": "2026-09-05",
           "confidence": "medium"
+        },
+        {
+          "title": "Centrus and Radiant Announce Long-Term Partnership for Domestic HALEU to Supply Kaleidos Microreactors (company PR / PRNewswire, Sept 9, 2026, Bethesda MD): definitive multi-year HALEU contract, deliveries before end of decade, Radiant prepayments support Centrus's commercial enrichment capacity program; builds on the Jan 2023 partnership for up to 20 Kaleidos microreactors. No value or volume disclosed.",
+          "url": "https://www.prnewswire.com/news-releases/centrus-and-radiant-announce-long-term-partnership-for-domestic-haleu-to-supply-kaleidos-microreactors-302873669.html",
+          "as_of": "2026-09-09",
+          "confidence": "high"
+        },
+        {
+          "title": "Centrus Announces Pricing of $500 Million Underwritten Public Offering of Class A Common Stock and Warrants (company PR / PRNewswire, Sept 9, 2026; closing expected on or about Sept 11, 2026): $199.64 combined price; 500,000 shares + 2,005,513 pre-funded warrants @ $199.54 ($0.10 exercise) + common warrants over up to 6,992,382 shares in four series ($226.8625 / $272.2350 / $317.6075 / $362.9800). Corroborated by Investing.com and StockTitan. NOTE: this fills the dilution blind spot flagged in the 2026-09-12 through 2026-09-14 briefings - the EDGAR cache still shows capital_raises_90d = 0 for LEU.",
+          "url": "https://www.prnewswire.com/news-releases/centrus-announces-pricing-of-500-million-underwritten-public-offering-of-class-a-common-stock-and-warrants-302874493.html",
+          "as_of": "2026-09-11",
+          "confidence": "high"
+        },
+        {
+          "title": "Centrus Energy (LEU) analyst price-target re-pull, Sept 16, 2026: Investing.com consensus estimates show 14 analysts, average 12-month target $271.86, high $390, low $170, consensus rating Buy — unchanged from the Sept 5 panel and therefore VALID POST-OFFERING. Separately, Northland is reported to have lowered its target to $270 from $285 on Sept 11, 2026 following the $500M share offering (stock fell >6% on the Sept 9 announcement). Logged medium confidence: aggregator snapshot without an explicit panel date, and the Northland print conflicts with the $300 figure recorded on Sept 5.",
+          "url": "https://www.investing.com/equities/centrus-energy-consensus-estimates",
+          "as_of": "2026-09-16",
+          "confidence": "medium"
+        },
+        {
+          "title": "Centrus and Antares Nuclear sign definitive multi-year HALEU supply contract (Sept 17, 2026; Form 8-K leu-20260917). Centrus to supply High-Assay Low-Enriched Uranium to Antares for its compact microreactors, including space and national-security missions; deliveries commence before the end of the decade; contract includes customer PREPAYMENTS that help fund expanded domestic enrichment capacity. Second prepaid HALEU offtake in eight days after the Sept 9 Radiant agreement. Shares +7.1% on the day. Corroborated by SEC 8-K, Neutron Bytes and Seeking Alpha.",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026062535/leu-20260917.htm",
+          "as_of": "2026-09-17",
+          "confidence": "high"
+        },
+        {
+          "title": "Centrus Q3-2026 results (8-K ex-99.1, Nov 4, 2026) plus secondary coverage: backlog $7.0B, FY26 revenue guide reaffirmed, GAAP gain from warrant liability, no FY27 DOE HALEU cascade funding in proposed budget.",
+          "url": "https://www.sec.gov/Archives/edgar/data/0001065059/000162828026070229/ex991-10q2026_11x04.htm",
+          "as_of": "2026-11-04",
+          "confidence": "high"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "scheduled-daily",
-      "updated_at": "2026-09-05",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 170,
         "base": 271.86,
         "high": 390,
         "currency": "USD",
-        "as_of": "2026-09-05",
-        "basis": "sell-side analyst consensus (12-mo targets) - SEPT 2026 FULL-PANEL PULL, replaces the stale June-2026 panel. 14-analyst panel; consensus rating Buy (11/5/0). Most recent single-broker print is Northland $300 Outperform (raised from $275).",
+        "as_of": "2026-09-16",
+        "basis": "sell-side analyst consensus (12-mo targets) — POST-OFFERING RE-PULL Sept 16, 2026: panel UNCHANGED from the Sept 5 pull at low 170 / base 271.86 / high 390 across 14 analysts, consensus rating Buy. This confirms the panel survived the $500M equity+warrant offering (priced Sept 9, closed ~Sept 11) rather than being stale. CAUTION: the whole panel, including the low, still sits above spot (~$143.39). CONFLICT NOT RESOLVED — a Sept 11 report has Northland CUTTING to $270 from $285 following the offering, while this record's Sept 5 entry has Northland RAISING to $300 from $275; the two single-broker prints cannot both be right, so neither is treated as settled. Aggregate panel is the reliable figure; the single-broker history is not.",
         "n_analysts": 14,
         "source": "Investing.com consensus estimates (corrob. TipRanks)",
         "confidence": "medium",
@@ -1723,11 +1823,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$5.20",
+        "price": "$3.08",
         "market_cap": "~$1.3B",
         "revenue": "FY26 guide cut to $60-75M (from $125M); Q2 rev $7.9M, ASP $13.70/lb (-52% y/y), volumes +26%",
         "cash": "$62.2M cash+treasuries; H1'26 operating cash flow -$20.7M; $100M buyback authorized Aug 19, 2026 (authorization only — ceiling exceeds cash on hand)",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "Q2-2026 results (Aug 11, 2026) press release / 8-K",
         "price_source": "stooq"
       },
@@ -1755,9 +1855,20 @@
           "description": "Radersburg, MT flotation mill wet commissioning (Jul 7, 2026 ribbon-cutting) — to process ~800 tons of Stibnite Hill antimony ore, feeding the $245M DLA MIL-SPEC contract and future Hydromet refinery plans | FEEDSTOCK UPDATE Aug 25, 2026: ~576 tons of high-grade stibnite ore moved from Stibnite Hill (Thompson Falls, MT) since operations resumed in April 2026, running ~3 truckloads / ~42 tons per operating day — more than double the 2025 daily rate. Ore-supply side of the Radersburg feed is tracking ahead of the ~800-ton design campaign; note this is ore MOVED, not concentrate produced, and FY26 revenue guidance ($60-75M) is unchanged.",
           "status": "hit",
           "impact": "med"
+        },
+        {
+          "due": "2026",
+          "description": "Q3-2026 results (Nov 12, 2026): revenue $10.1M (+16% y/y; nine-month $24.8M vs $26.2M); net loss $9.5M (incl. $3.8M unrealized loss on Larvotto stake); gross margin ~42% vs 23%; pounds sold 468,842 (+68%), incl. 162,327 lbs accepted by DLA. DLA shipments 1-7 (~275,000 lbs, $8.7M) accepted and collected; shipments 8-14 (~249,000 lbs, ~$6.6M) awaiting sampling/acceptance; delivery orders total $57.3M. Cash+Treasuries $51.0M (about $90M incl. $39.4M Larvotto stake). FY26 revenue guidance ($60-75M) WITHDRAWN and replaced by volume guidance of 1.68-1.81M lbs sold. October sales ~310,000 lbs (record month). A $4.0M Bolivian-supplier note prepayment not yet received.",
+          "status": "in_progress",
+          "impact": "high"
         }
       ],
-      "risks": [],
+      "risks": [
+        {
+          "desc": "Q3-2026 (Nov 12): company withdrew FY26 revenue guidance ($60-75M) in favor of volume guidance (1.68-1.81M lbs); net loss widened to $9.5M; DLA shipments 8-14 (~$6.6M) still pending acceptance; cash+Treasuries down to $51.0M",
+          "severity": "med"
+        }
+      ],
       "invalidation_triggers": [
         "China's export-curb suspension normalizes antimony supply and prices",
         "Smelter ramp underdelivers vs. guidance",
@@ -1817,14 +1928,20 @@
           "url": "https://stockanalysis.com/stocks/uamy/forecast/",
           "as_of": "2026-09-08",
           "confidence": "high"
+        },
+        {
+          "title": "UAMY Q3-2026 results 8-K ex-99.1 (Nov 12, 2026): revenue $10.1M, net loss $9.5M, 468,842 lbs sold, DLA shipments 1-7 accepted, revenue guidance withdrawn for volume guidance 1.68-1.81M lbs.",
+          "url": "https://www.sec.gov/Archives/edgar/data/0000101538/000110465926126237/tm2629635d1_ex99-1.htm",
+          "as_of": "2026-11-12",
+          "confidence": "high"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "scheduled-daily",
-      "updated_at": "2026-09-08",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 9.0,
         "base": 10.44,
@@ -2153,11 +2270,11 @@
         "method": "dimensions.composites.equity"
       },
       "fundamentals": {
-        "price": "$17.61",
+        "price": "$8.09",
         "market_cap": "~$5.6B",
         "revenue": "$5.8M Q2'26 (vs ~$8M est - revenue miss)",
         "cash": "~$1.53B",
-        "as_of": "2026-09",
+        "as_of": "2026-11",
         "source": "Q2-2026 results (Aug 10, 2026): $10.3M net loss, ~$1.53B cash; Stillwater 600 t/yr run-rate reaffirmed for Q4-2026",
         "price_source": "stooq"
       },
@@ -2188,8 +2305,14 @@
         },
         {
           "due": "2026-Q4",
-          "description": "Close Serra Verde (SVRE Holdings) merger — COMPLETED Sept 3, 2026 (announced Sept 4, 2026, 07:00 ET). Consideration: $300M cash + 126,849,307 shares (issuance approved by stockholders Aug 28, 2026), funded alongside the Aug 24 $1.55B government-backed offtake SPV. Adds the Pela Ema mine in Goiás, Brazil — the only scaled non-Asian producer of all four magnetic heavy rare earths — targeting ~4,000 tpa TREO run-rate by end-2026 and a second stage to ~6,400 tpa commissioning within 12 months. Governance: Thras Moraitis (ex-Serra Verde CEO) is President and succeeds Barbara Humpton as CEO on Oct 1, 2026; Sir Mick Davis joins the board. Note: Serra Verde Retained Finance Agreement debt is assumed, and the offtake counterparty must still finalize definitive debt financing.",
+          "description": "Close Serra Verde (SVRE Holdings) merger — COMPLETED Sept 3, 2026 (announced Sept 4, 2026, 07:00 ET). Consideration: $300M cash + 126,849,307 shares (issuance approved by stockholders Aug 28, 2026), funded alongside the Aug 24 $1.55B government-backed offtake SPV. Adds the Pela Ema mine in Goiás, Brazil — the only scaled non-Asian producer of all four magnetic heavy rare earths — targeting ~4,000 tpa TREO run-rate by end-2026 and a second stage to ~6,400 tpa commissioning within 12 months. Governance: Thras Moraitis (ex-Serra Verde CEO) is President and succeeds Barbara Humpton as CEO on Oct 1, 2026; Sir Mick Davis joins the board. Note: Serra Verde Retained Finance Agreement debt is assumed, and the offtake counterparty must still finalize definitive debt financing. | Q3-2026 UPDATE (reported ~Nov 5-9, 2026): Serra Verde 4,000 tpa run-rate target pushed from end-2026 to Q2 2027 (slipped); Q3 operating loss ~$141M; ~$1.2B liquidity (per secondary summary). Not yet verified: Stillwater ramp timing and 2027 EBITDA target reaffirmation.",
           "status": "hit",
+          "impact": "high"
+        },
+        {
+          "due": "2028",
+          "description": "Blacksburg, SC metal + magnet plant - GROUNDBREAKING Sept 9, 2026. ~$1.2B investment; ~800,000 sq ft on a 124-acre site in Bailey Industrial Park, Cherokee County, SC (Gov. Henry McMaster attended). Targeted capacity 6,400 tpa sintered NdFeB permanent magnets + 5,000 tpa strip-cast metal and alloy; commissioning targeted to begin 2028, operations scheduled April 2028; ~490 jobs. Combined with Stillwater, OK this would take USAR to ~10,000 tpa domestic NdFeB magnet capacity. NOTE: the ~$1.2B capex is material against invalidation trigger #1 (cash burn outruns funding / dilution accelerates) - no financing structure for the facility was disclosed in the groundbreaking release.",
+          "status": "in_progress",
           "impact": "high"
         }
       ],
@@ -2330,14 +2453,32 @@
           "url": "https://www.stocktitan.net/sec-filings/USAR/s-3-usa-rare-earth-inc-shelf-registration-statement-4e4f6f91c80d.html",
           "as_of": "2026-09-04",
           "confidence": "high"
+        },
+        {
+          "title": "USA Rare Earth Breaks Ground on Advanced Rare Earth Metal and Magnet Manufacturing Facility in Blacksburg, South Carolina (company PR via GlobeNewswire, Sept 9, 2026 10:00 ET): ~$1.2B, ~800k sq ft on 124 acres, 6,400 tpa sintered NdFeB + 5,000 tpa strip-cast metal/alloy, commissioning from 2028, ~490 jobs, ~10,000 tpa combined with Stillwater. Corroborated by MINING.COM and South Carolina local press.",
+          "url": "https://www.globenewswire.com/news-release/2026/09/09/3358813/0/en/usa-rare-earth-breaks-ground-on-advanced-rare-earth-metal-and-magnet-manufacturing-facility-in-blacksburg-south-carolina.html",
+          "as_of": "2026-09-09",
+          "confidence": "high"
+        },
+        {
+          "title": "USA Rare Earth, Pasqal and Riven Systems partner on next-generation separation technology (Sept 17, 2026). Quantum-machine-learning programme to identify new extractant molecules that bind rare earths more selectively, targeting separation of Mixed Rare Earth Carbonate into individual oxides - a step currently dominated by Chinese producers. Riven runs automated chemistry experiments to generate training data; Pasqal benchmarks quantum ML on its neutral-atom QPU against classical models. Stated aim is smaller, lower-cost, less energy-intensive separation facilities. R&D collaboration only: no capex, funding, milestones or timeline disclosed, so no revenue or schedule effect can be sized. Corroborated by the company release, Pasqal's own newsroom and The Quantum Insider.",
+          "url": "https://www.globenewswire.com/news-release/2026/09/17/3363836/0/en/usa-rare-earth-pasqal-and-riven-systems-partner-to-advance-next-generation-technologies-for-critical-mineral-production.html",
+          "as_of": "2026-09-17",
+          "confidence": "high"
+        },
+        {
+          "title": "USA Rare Earth Q3-2026 (Rare Earth Exchanges, Nov 9, 2026): $141M operating loss; Serra Verde 4,000-tonne target moved to Q2 2027. Liquidity per Panabee summary; company 8-K not read in full. Medium confidence.",
+          "url": "https://rareearthexchanges.com/?p=192505",
+          "as_of": "2026-11-09",
+          "confidence": "medium"
         }
       ],
       "review": {
-        "last_reviewed": "2026-06-14",
-        "next_due": "2026-09-12"
+        "last_reviewed": "2026-11-13",
+        "next_due": "2026-12-13"
       },
-      "updated_by": "scheduled-daily",
-      "updated_at": "2026-09-08",
+      "updated_by": "claude-weekly-fix",
+      "updated_at": "2026-11-13",
       "price_targets": {
         "low": 30,
         "base": 38,
